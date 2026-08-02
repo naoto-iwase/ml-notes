@@ -1,0 +1,57 @@
+---
+title: "ML Notes"
+author:
+  name: "Naoto Iwase"
+  url: "https://iwase.dev"
+page-layout: full
+title-block-banner: false
+listing:
+  - id: listing-ja
+    contents:
+      - "ja/*/index.qmd"
+      - "private/*/index.qmd"
+    sort: "date desc"
+    type: default
+    categories: true
+    sort-ui: false
+    filter-ui: true
+    fields: [image, date, title, categories, description]
+    page-size: 25
+  - id: listing-en
+    contents: "en/*/index.qmd"
+    sort: "date desc"
+    type: default
+    categories: true
+    sort-ui: false
+    filter-ui: true
+    fields: [image, date, title, categories, description]
+    page-size: 25
+---
+
+Machine learning research notes.
+
+::: {.panel-tabset}
+
+## English
+
+```{=html}
+<a href="/en/index.xml" class="rss-link"><i class="bi bi-rss"></i> Subscribe via RSS</a>
+```
+
+::: {#listing-en}
+:::
+
+## 日本語
+
+```{=html}
+<a href="/ja/index.xml" class="rss-link"><i class="bi bi-rss"></i> RSSで購読</a>
+```
+
+::: {#listing-ja}
+:::
+
+:::
+
+```{=html}
+<script src="/js/listing.js"></script>
+```

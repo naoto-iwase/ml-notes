@@ -1,0 +1,236 @@
+---
+pagetitle: "実装ガイド"
+---
+
+# 実装ガイド
+
+本書がここまで扱ってきた 5 論文（HRM, TRM, PTRM, GRAM, LDT）と前駆実装の Sotaku を、研究者が手を動かす視点から並べ直す章である。公式リポジトリ、ライセンス、計算資源、落とし穴を 1 か所にまとめる。各モデルの数式や ablation は [HRM](hrm.qmd) / [TRM](trm.qmd) / [PTRM](ptrm.qmd) / [GRAM](gram.qmd) / [LDT](ldt.qmd) 章を参照。URL・ライセンス・star 数は本書執筆時点（2026 年 5 月）のもの。
+
+::: {.callout-tip}
+## 章の使い方
+
+通読は想定しない。やりたいことに応じて、
+
+- TRM の Sudoku を動かす → @sec-impl-trm と @sec-impl-quickstart
+- PTRM の test-time noise を自前実装する → @sec-impl-ptrm
+- ARC-AGI で TRM を再現する → @sec-impl-trm の ARC 設定と @sec-impl-bench の ARC 節
+- LDT を動かす → @sec-impl-ldt
+- GRAM の variational training を再現する → @sec-impl-gram
+
+の各節に直接飛べる構成にしてある。
+:::
+
+## 全体俯瞰: 公式コードの有無と取り掛かりやすさ
+
+主要 6 モデルのコード状況を 1 表で示す。詳細は各節で展開する。
+
+| モデル | 公式 repo | License | 取り掛かりやすさ | 推奨用途 |
+|--------|-----------|---------|-----------------|---------|
+| HRM | sapientinc/HRM | Apache-2.0 | 中（CUDA 12.6 + FlashAttn 必須） | 系譜の起点として読み込み |
+| TRM | SamsungSAILMontreal/TinyRecursiveModels (archived) | MIT | 高 | recursive reasoning の最小核実装 |
+| TRM 派生 | lucidrains/tiny-recursive-model | MIT | **最高**（`pip install`） | 初手で動かす |
+| PTRM | **公式未公開** | – | 中（TRM repo に自前で実装） | TRM checkpoint があれば追加実装短い |
+| GRAM | **公式未公開**（"coming soon"） | – | 低（コミュニティ再現が立ち上がり中） | 再現研究のチャンス |
+| LDT | lcrh/lattice-deduction-transformers（共著者による再構成版） | MIT | 中（Modal B200 専用） | sound deduction 系の出発点 |
+| Sotaku | chenglou/sotaku | 未指定 | 高（checkpoint 同梱） | TRM 以下の極小実装の参考 |
+
+: 主要 6 モデルの公式実装ステータス。「取り掛かりやすさ」は (i) ライセンスの明確さ、(ii) インストール手順の容易さ、(iii) ローカル GPU で動くか、の 3 点で総合判断したもの。 {#tbl-impl-overview}
+
+@tbl-impl-overview から読み取るべき事実は 3 つある。第一に、**HRM と TRM は完全に公開されている**ため、recursive reasoning model の入門は事実上この 2 本のいずれかから始まる。第二に、**PTRM と GRAM は公式コードがまだ無い**ため、再現研究そのものに学術的価値が残されている領域である。第三に、**LDT は Modal という特定のクラウド GPU 環境（B200）に強く依存している**ため、ローカル GPU だけでは追試が難しい。後述するように Modal はホビーティアからでも使えるが、再現の最初の障壁になる。
+
+## HRM の取り掛かり {#sec-impl-hrm}
+
+公式リポジトリは [github.com/sapientinc/HRM](https://github.com/sapientinc/HRM)、ライセンスは Apache-2.0、執筆時点で star 12.5k と recursive reasoning 系列で最大の集客力を持つ。最終 commit は 2026 年 3 月末で、論文公開から 9 か月のあいだ安定的にメンテナンスされている。
+
+### 動作要件
+
+依存関係は意外と硬く、CUDA 12.6 + Python 3.10 + PyTorch nightly + FlashAttention v2/v3 を要求する。FlashAttn が無いと train_speed が 1/3 程度に落ちるため、事実上必須である。README の指示通りに `pip install -e .` で済むが、FlashAttn の wheel が手元の CUDA バージョンと噛み合わない場合は自前ビルド（30 分程度）が必要になる。
+
+### 推奨ハードウェア
+
+HRM 論文 §3 は ARC-AGI 訓練を「8 GPU で 24 時間程度」と記している。Sudoku-Extreme と Maze-Hard の wall clock は論文に明記されていないため、公式 repo の README およびコミュニティ追試の値を参照すること。
+
+### 注意点
+
+第一に、HRM は **1000 サンプルしか訓練に使わない**設計のため、評価の seed 分散が大きく、ablation 数値を語るときは複数 seed を回すのが堅実である（[HRM](hrm.qmd) 章および ARC Prize Foundation の独立検証 [@ge2025hrmperspectives] を参照）。第二に、論文の主結果は **augmentation 1000 通り + puzzle_id 条件付け** に依存しており、ARC-AGI セミプライベートセットでは公開評価の 40.3 % が 32 % まで下がる（[HRM](hrm.qmd) 章「独立検証」節）。公式 repo の `puzzle_dataset.py` がこの設定を実装している。
+
+## TRM の取り掛かり {#sec-impl-trm}
+
+公式リポジトリは [github.com/SamsungSAILMontreal/TinyRecursiveModels](https://github.com/SamsungSAILMontreal/TinyRecursiveModels)、ライセンスは MIT、star 6.5k。**ただしリポジトリは archived 状態**で、新規 commit は事実上止まっている。論文の Paper Award 受賞時点の状態が固定されている。
+
+### 公式 vs 派生
+
+派生実装が複数あり、目的に応じて使い分けるのが効率的である。
+
+- **公式 TRM**: 論文の数値を厳密に再現したい場合。HRM のデータ生成スクリプトに依存するため、HRM repo も clone する必要がある。
+- **[lucidrains/tiny-recursive-model](https://github.com/lucidrains/tiny-recursive-model)**: MIT, pip install 可。論文値再現より「コアロジックを試す」のが目的の場合の選択肢。
+- **[olivkoch/nano-trm](https://github.com/olivkoch/nano-trm)**: MIT。再実装版。
+
+派生実装の使い勝手は各 README を参照。
+
+### 推奨ハードウェア
+
+TRM 論文 §4 末尾には「Sudoku-Extreme なら L40S 1 枚で 36 時間未満、ARC-AGI で H100 4 枚 × 3 日程度」とある（本書 [TRM](trm.qmd) 章「訓練の細部」節を参照）。Maze-Hard の wall clock は論文に明記されていない。
+
+### 注意点（論文に基づく）
+
+TRM の論文と ablation 表から把握できる注意点は次の 2 つである。第一に、**EMA を切ると Sudoku-Extreme で -7.5 pp** 落ちる ([TRM](trm.qmd) 章 Table 1）。weight decay 1.0 と組み合わせて崩壊を抑える設計なので、EMA を捨てる ablation を試す際は weight decay も同時に調整する必要がある。第二に、**$T=3, n=6$ より深くすると性能が落ちる**（TRM 論文 Table 4、$T=n=4$ で 84.2 %）。test-time に深く回すという発想は、論文の前提（ARC で puzzle_id 条件付けがある transductive な設定）の下でのみ検証されている。
+
+## PTRM の取り掛かり {#sec-impl-ptrm}
+
+PTRM の公式リポジトリは執筆時点で**公開されていない**。論文 arXiv 番号は 2605.19943。GRAM と異なり project site も無く、再現は読者側で実装する必要がある。
+
+### 実装の最小核
+
+PTRM は学習済 TRM checkpoint に対する test-time 手続きだけで、論文 Algorithm 1 として完全な疑似コードが与えられている（[PTRM](ptrm.qmd) 章「アルゴリズム」節を参照）。実装上は TRM repo の inference スクリプトに、各 deep recursion step での Gaussian noise 注入と $K$ 並列 rollout、終端 Q 値による best 選択を加えるだけで動く。
+
+論文と本書が示す設計上の急所が 3 つある。
+
+第一に、**noise は rollout の最初だけでなく毎 supervision step に注入する**。GRAM と PTRM の双方が ablation で確認したように、初期 $z$ のみへの noise injection では Sudoku で gain が出ない（[PTRM](ptrm.qmd) 章を参照）。
+
+第二に、**$\sigma$ は task 依存**で、論文 Section 5 の最適値は Sudoku-Extreme で 0.1–0.3、Maze-Hard で 1.0、ARC-AGI-2 で 0.6 付近。新しい task で試す場合は σ sweep の出発点としてこれらの値を参照すると良い。
+
+第三に、**Q head の verifier 性能が天井になる task が存在する**。Maze-Hard では best-Q@$K$ が pass@$K$ から約 10 pp 離れる（[PTRM](ptrm.qmd) 章 Section 5.4）。論文 future work では、より強力な verifier を別途学習・接続することがこのギャップを埋める方向として挙げられている。
+
+### 計算資源
+
+学習が要らないため、TRM の inference が回る GPU 1 枚あれば十分である。PTRM 論文には $K$ や $D$ ごとの inference wall clock は明記されていない。$K$ 本の rollout は独立で並列化可能であるため、メモリの許す範囲で $K$ をバッチ次元に積むことが現実的な実装になる。
+
+## GRAM の取り掛かり {#sec-impl-gram}
+
+GRAM の公式コードは執筆時点で**未公開**（"coming soon" 表示）。project site は [ahn-ml.github.io/gram-website](https://ahn-ml.github.io/gram-website/) で、論文 arXiv 番号は 2605.19376。コミュニティ再現が 2 件立ち上がっている。
+
+- [ad3002/gram](https://github.com/ad3002/gram): MIT, 進行中。論文 Section 3 の variational training を Python 実装。
+- [SVAH-X/gram-reproduction](https://github.com/SVAH-X/gram-reproduction): 開発初期段階で、本書執筆時点では README のみ。
+
+### 自力再現の難所
+
+PTRM と違い、GRAM は **train-time に確率項を学習する**ため、TRM の checkpoint をそのまま使い回せない。再現の難所は次の 3 点に集中する。
+
+- **Amortized variational inference の実装**: 事前 $p_\theta(\epsilon_t \mid u_t) = \mathcal N(\mu_\theta(u_t), \sigma_\theta^2(u_t) I)$ と事後 $q_\phi(\epsilon_t \mid u_t, y)$ の 2 つを別ヘッドとして持ち、reparameterized Gaussian で KL を計算する。Iterative Amortized Inference [@marino2018iterative] や VAE の標準的な実装パターンに従えば良いが、ヘッドの初期化（特に $\sigma_\theta$）に敏感である点に注意。
+- **Truncated surrogate loss の計算**: 全 $T_\text{total}$ ステップに BPTT を流すとメモリが爆発するため、論文 (Eq. 5) の通り **各 supervision step の最終 transition のみで勾配を流す** truncation を実装する必要がある。`with torch.no_grad()` で前段の transition を進めるか、`detach()` で切るかの選択が必要。
+- **LPRM の補助訓練**: Section 4 の Latent Process Reward Model は decoder と並列に value head $v_\psi$ を MSE で訓練する。推論時の best-of-$N$ 選択器として使うため、forward は学習中も同時に走らせる。
+
+### 推奨ハードウェア
+
+論文中の正確な訓練コストは未記載だが、TRM の同サイズ（10M parameters 前後）と並列軌道 $N$ 軸の追加から推定すると、H100 4 枚で ARC-AGI-1 を 3 日程度。Sudoku-Extreme なら L40S 1 枚で 24–36 時間。再現研究としてのコストは TRM の 1.5–2 倍と見積もるのが妥当。
+
+::: {.callout-note}
+## GRAM 再現は研究のチャンス
+
+GRAM はおそらく本書で扱う 5 論文のうち**最も再現コストの高い**論文である。一方で、再現できれば「2 軸 test-time scaling」「unconditional generation」「multi-hypothesis reasoning」という 3 つの能力を持つ recursive reasoning model が手に入る。コミュニティ再現が立ち上がっている今は、再現研究そのものが publication 価値を持つ稀な状態にある（コードが出るまでに数か月のウィンドウがある）。
+:::
+
+## LDT の取り掛かり {#sec-impl-ldt}
+
+論文著者の一人 Leopold Haller（Axiom）が GitHub で公開しているリポジトリ [github.com/lcrh/lattice-deduction-transformers](https://github.com/lcrh/lattice-deduction-transformers)（MIT ライセンス、最終 commit 2026 年 5 月 20 日）がある。README には「論文実験で使ったコードベースの **curated reconstruction**」と明記されており、原開発コードベースそのものではなく**著者本人による整理済み再構成版**である。論文の数値再現に必要な訓練・推論・データ生成コード一式が含まれる。第三者の独立実装として [dmelmanrogers/Lattice-Deduction-Transformer](https://github.com/dmelmanrogers/Lattice-Deduction-Transformer) もある。
+
+### Modal B200 専用の制約
+
+Haller 氏の repo は **訓練・推論ともに [Modal](https://modal.com) という GPU クラウド上の B200 で動かすことを前提**にしている。ローカル GPU で動かすには Modal 依存部分（training loop と inference 呼び出し）を素の PyTorch に書き換える作業が必要になる。
+
+### Snowflake Sudoku の合成
+
+論文 Section 5.2 の通り、**SMT solver の cvc5** [@barbosa2022cvc5] で 30,000 puzzle を合成し、500 を train、1000 を test に使う。`pip install cvc5` と repo 内の合成スクリプトで実行できる。
+
+### 損失設計の急所
+
+論文 Section 4.2 の損失設計に独特な点として、**非対称 BCE の重み比 $w^+ / w^- = 8$** が soundness を completeness より優先する工学判断を直接体現している。対称 BCE では soundness が崩れる。新しい task に移植する場合、この比は task の「abstain 許容度」に応じて再調整することになる。
+
+### 計算資源
+
+論文 Table 1 の通り、Sudoku-Extreme は **Modal B200 1 枚で 15 分** で 100 / 100 が出る。Snowflake Sudoku と Maze-Hard 30×30 の wall clock は論文に明記されていない。
+
+## Sotaku の取り掛かり {#sec-impl-sotaku}
+
+[github.com/chenglou/sotaku](https://github.com/chenglou/sotaku)。Cheng Lou による個人実装で、執筆時点で 101 star、最終更新 2026 年 3 月。**LICENSE が未指定**であり、商用利用や派生研究で公開する場合は著者に直接問い合わせる必要がある。
+
+### 何が便利か
+
+Sotaku は本書で言及する 6 実装のうち**最小**（800K parameters、本書 [LDT](ldt.qmd) 章「系譜」節および [Depth recurrence の系譜](depth-recurrence.qmd) 章を参照）で、訓練時間は README によれば H200 1 枚で 2 時間 40 分と公開されている。本書 [LDT](ldt.qmd) の前段として Sotaku のアーキテクチャ（4 層 weight-shared + 2D RoPE）を読むと、LDT の lattice projection が何に追加されているかが明瞭になる。
+
+### 制約
+
+Sudoku 以外への汎用化は実装されていない。Maze や ARC を試す場合は他のモデルを選ぶ。
+
+## ベンチマークの取得と前処理 {#sec-impl-bench}
+
+主要ベンチマークそれぞれの取得方法と注意点を整理する。
+
+### ARC-AGI
+
+3 世代すべて公式公開で取得は容易。
+
+- **ARC-AGI-1**: [github.com/fchollet/ARC-AGI](https://github.com/fchollet/ARC-AGI), Apache-2.0。`training/` と `evaluation/` 配下に 400 + 400 タスクの JSON。
+- **ARC-AGI-2**: [github.com/arcprize/ARC-AGI-2](https://github.com/arcprize/ARC-AGI-2), Apache-2.0。
+- **ARC-AGI-3**: [github.com/arcprize/ARC-AGI-3-Agents](https://github.com/arcprize/ARC-AGI-3-Agents) と [github.com/arcprize/arc-agi-3-benchmarking](https://github.com/arcprize/arc-agi-3-benchmarking)。Dev Preview。**ARC-AGI-3 は turn-based 対話形式**であり、ARC-1/2 と同じパイプラインでは扱えない点に注意。
+
+ARC を使うときの実装上の急所は augmentation である。HRM/TRM の論文値（44.6 % など）は **1000 通りの augmentation + puzzle_id 条件付け + 多数決**で得られている。Augmentation は color permutation + 8 通りの dihedral + translation の組み合わせで、HRM repo の `dataset/build_arc_dataset.py` が参考になる。Augmentation を切ると ARC-AGI-1 で 5–10 pp 落ちる。
+
+### Sudoku-Extreme と Maze-Hard
+
+両方とも HRM repo に同梱されている。`dataset/build_sudoku_dataset.py` と `dataset/build_maze_dataset.py` で 1000 train + 1000 eval を生成。Hugging Face にも `sapientinc/sudoku-extreme` と `sapientinc/maze-30x30-hard-1k` として公開済みで、`datasets.load_dataset` でそのまま読める。Sudoku-Extreme は平均 22 backtracks 相当の難 puzzle 集である点が重要で、easy/medium の Sudoku では本書の論文の数値はすべて trivial に解ける。Sudoku の難易度を変えると本書の比較は成立しなくなる。
+
+### Pencil Puzzle Bench (PPBench)
+
+[github.com/approximatelabs/pencil-puzzle-bench](https://github.com/approximatelabs/pencil-puzzle-bench), MIT, 7 star。20 種類 × 15 個 = 300 puzzle の golden set と、フルの 62,231 puzzle / 94 種類が提供される。
+
+PPBench は単なるデータセットではなく、**pydantic-ai + Gymnasium + GRPO 環境**として実装されている。LLM agent の評価にも使える設計だが、PTRM のような recursive reasoning model の inference に使う場合は puzzle 表現の grid 化が必要になる。具体的には `examples/dataset_sweep.py` を `uv run python` で実行すると puzzle ごとの行ベースの表現が得られる。
+
+### Snowflake Sudoku
+
+LDT 論文の独自データセット。`lcrh/lattice-deduction-transformers` 内の `gen_data.py` で cvc5 を使って合成する。CPU 並列 100 程度で 30,000 puzzle を半日で生成可能。
+
+## 計算資源マトリクス {#sec-impl-compute}
+
+論文または公式 repo に明記された GPU 時間のみを記載する。USD コストは GPU 単価と為替で大きく変動するため割愛する。
+
+| やりたいこと | 出典 | 必要 GPU | 所要時間 |
+|--------------|------|----------|----------|
+| TRM Sudoku-Extreme を論文値で訓練 | TRM 論文 §4 | L40S 1 | 36 時間未満 |
+| TRM ARC-AGI を論文値で訓練 | TRM 論文 §4 | H100 4 | 約 3 日 |
+| Sotaku Sudoku-Extreme を訓練 | Sotaku README | H200 1 | 2 時間 40 分 |
+| LDT Sudoku-Extreme を訓練 | LDT 論文 Table 1 | Modal B200 1 | 15 分 |
+| LDT Snowflake Sudoku を訓練 | LDT 論文 §5.2 | Modal B200 1 | 13 分 |
+| LDT Maze-Hard を訓練 | LDT 論文 §5.3 | Modal B200 20 | （公称値、詳細未記載）|
+
+: 論文または公式 repo に明記された GPU 時間のみ記載。Maze-Hard の TRM 訓練時間、PTRM 推論時間、GRAM 訓練コスト等は論文に固定値の明記がないため割愛した。 {#tbl-impl-compute}
+
+PTRM は学習が不要で TRM checkpoint への test-time 介入のみであるため、TRM の inference が回る GPU 1 枚があれば動く。GRAM の訓練コストは論文に固定値の記載がなく、本書執筆時点ではコミュニティ再現が進行中の段階である。
+
+## 取り掛かりの 3 経路 {#sec-impl-quickstart}
+
+論文の数値を再現することを目標にする場合、目的に応じて 3 種類の取り掛かりが想定できる。具体的なコマンドは各 repo の README に従うこと。
+
+### TRM の Sudoku-Extreme を論文値で再現する経路
+
+公式 repo `SamsungSAILMontreal/TinyRecursiveModels` を clone し、HRM repo のデータ生成スクリプト (`dataset/build_sudoku_dataset.py`) で 1000 訓練サンプルを生成、TRM の train script に通す。論文 §4 によれば L40S 1 枚で 36 時間未満で完了する。論文 Table 1 の 87.4 % が再現対象である。
+
+### PTRM の test-time noise を自前実装する経路
+
+PTRM の公式コードは未公開だが、論文 Algorithm 1 と上の TRM checkpoint があれば実装可能である。本章 @sec-impl-ptrm で示した 3 つの設計上の急所（各 step で noise 注入、$\sigma$ の task 依存性、Q head 天井）を踏まえて TRM の inference スクリプトに変更を加える。論文の主要な検証対象は Sudoku-Extreme（98.75 %）と PPBench（91.2 %）である。
+
+### LDT を再現する経路
+
+著者 Haller 氏の repo `lcrh/lattice-deduction-transformers` を Modal 環境で動かす。論文 Table 1 によれば Sudoku-Extreme は B200 1 枚 15 分で 100 / 100 が出る。Snowflake Sudoku の合成は cvc5 への依存（`pip install cvc5`）が前提になる。ローカル GPU で動かす場合は Modal 依存部分の書き換えが必要。
+
+## 落とし穴チェックリスト
+
+各モデル共通の落とし穴を最後にまとめておく。実装で詰まったときに見返す用途のチェックリストである。
+
+- **augmentation の依存性**: HRM/TRM は ARC-AGI で 1000 通り augmentation（color permutation + dihedral + translation）を前提にする。ARC Prize Foundation の独立検証 [@ge2025hrmperspectives] では 300 で飽和するとも報告されている。
+- **puzzle_id 条件付け**: HRM/TRM は puzzle_id embedding を入力に concat する transductive な設計（[HRM](hrm.qmd) 章「独立検証」節）。これを外して評価すると論文値は再現できず、実態は「未知タスクへの汎化」ではなく「訓練テンプレートの認識」に近い。
+- **EMA を切ると -7.5 pp 落ちる（TRM）**: weight decay 1.0 と組み合わせる前提（TRM 論文 Table 1）。EMA を外す ablation を試す場合は weight decay も同時に調整する必要がある。
+- **Q head の sign**: PTRM では $\hat q$ が正解軌道で +6、不正解軌道で -6 と sharp に分かれる（[PTRM](ptrm.qmd) 章 §3.2）。selection ロジックを書く際の符号と sigmoid の扱いに注意。
+- **$\sigma$ をどこに入れるか（PTRM）**: ノイズは毎 supervision step に注入する。初期 $z$ のみへの注入は GRAM 論文と PTRM 論文の両方が独立に「効かない」と報告している。
+- **LDT の非対称 BCE**: $w^+ / w^- = 8$ は soundness を completeness より優先する工学判断（LDT 論文 §4.2）。対称にすると soundness が崩れる。
+
+## 章のまとめ
+
+要点は 3 つ。第一に、**入手可能なコードは HRM、TRM、Sotaku の 3 本と、LDT 共著者 Haller 氏による curated reconstruction の計 4 本**。PTRM と GRAM は本書執筆時点で未公開（GRAM は project site に "coming soon"、PTRM は arXiv のみ）。LDT の repo は論文実験で使った原コードベースそのものではない点と、Modal B200 専用というクラウドロックインがある点に注意。
+
+第二に、**ベンチマークの augmentation と puzzle_id 条件付けが論文値の主要なドライバ**である（ARC Prize Foundation の独立検証 [@ge2025hrmperspectives]）。新しい手法を提案する側にとっても、既存手法を比較対象に使う側にとっても、ここを揃えるのが評価の前提になる。
+
+第三に、**論文に明記された計算資源は @tbl-impl-compute の通り**で、TRM Sudoku の L40S 1 枚 36 時間から ARC の H100 4 枚 × 3 日まで桁単位で変動する。論文または公式 repo に明記値が無い項目（USD コスト、未掲載 task の wall clock 等）はあえて載せていない。
+
+次章 [未解決問題](open-problems.qmd) では「何が研究の余地として残っているか」を整理する。

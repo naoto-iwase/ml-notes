@@ -1,0 +1,186 @@
+---
+pagetitle: "Hybrid AR-Diffusion"
+---
+
+# Hybrid AR-Diffusion: The Lineage of AR-DLM Hybrids
+
+Autoregressive (AR) language models excel at capturing left-to-right sequential dependencies, but their step-by-step decoding at inference is a fundamental bottleneck on throughput. Diffusion Language Models (DLMs), in contrast, can update an entire sequence in parallel, yet they require separate design effort for properties — such as long-range global coherence and the handling of `[EOS]` — that AR acquires almost for free. **Hybrid AR-Diffusion** is the line of work that combines these complementary strengths within a single model family. This book already has a [dedicated chapter on BD3-LMs](block-diffusion.qmd), but the present chapter starts from that paper and lays out the **broader lineage** (the origins in SSD-LM, AR-Diffusion, CtrlDiff, SpecDiff, SDAR, TiDAR, SDLM) on a single map.
+
+Hybrid designs split into two broad streams. One is the **outer-AR / inner-diffusion** nested construction, in which block-causal attention is embedded inside a single transformer so that across-block generation is AR while within-block generation is diffusion. The other is **sequence-level hybrid**, in which AR and diffusion are combined as heterogeneous components and integrated into a single forward pass in a speculative-decoding-like fashion. The former covers the BD3-LM / CtrlDiff / SDAR / SDLM family; the latter covers SpecDiff and TiDAR.
+
+![Comparison of training and inference paradigms for AR, DLMs, and Block-DLMs. Source: [@li2025dlmsurvey]](images/dllm-paradigms.png){#fig-paradigms}
+
+@fig-paradigms is taken from Figure 4 of the survey [@li2025dlmsurvey] and compares four paradigms — AR, Discrete DLM, Continuous DLM, and Block-DLM — on both training and inference. AR uses teacher forcing with causal attention; DLM updates all positions in parallel with fully bidirectional attention; Block-DLM sits between them and adopts block-causal attention. **Among these four paradigms, the Block-DLM cell is the canonical entry point into hybrid territory**, and the models discussed in this chapter cluster around it.
+
+## The Hybrid Design Space Along Two Axes
+
+Before walking through hybrid models in chronological order, it helps to introduce **two orthogonal axes** that make the map easier to read.
+
+### Axis 1: Architecture-Level vs Ensemble-Level Integration
+
+The first axis asks whether AR and diffusion are expressed as **a single transformer with shared weights** or as **separate models** connected together.
+
+- **Architecture-level integration**: A single transformer carries a hybrid mask such as block-causal attention, and across-block AR and within-block diffusion are handled by the same weights. BD3-LM, CtrlDiff, SDAR, SDLM, and TiDAR fall here. The design of attention masks — block-causal attention, structured causal-bidirectional attention, etc. — is the core of the contribution
+- **Ensemble-level integration**: A lightweight DLM produces drafts and a larger AR verifies them, so **two heterogeneous models cooperate**. SpecDiff [@christopher2025specdiff] is the canonical example. It extends the speculative decoding framework to a diffusion drafter, with the primary aim of accelerating the AR LLM
+
+Architecture-level integration is straightforward to implement as "a single self-contained model," but it requires either training from scratch or adapting an existing AR model. Ensemble-level integration has the advantage of being able to use a strong existing AR LLM as-is, but it needs design effort for the consistency between the two models and for the verification logic.
+
+### Axis 2: Hybrid at Training Time vs Hybrid at Inference Time
+
+The second axis asks **when** the hybrid character is introduced.
+
+- **Hybrid at training time**: The model is **trained from the outset as a hybrid** with an objective that combines AR factorization and the diffusion Evidence Lower Bound (ELBO). BD3-LM, SDAR, AR-Diffusion, SDLM, and TiDAR belong here. Because the block width and the schedule are baked into the training distribution, they are consistent with the sampler at inference
+- **Hybrid at inference time only**: A standard AR LLM and a standard DLM are taken off the shelf and made to cooperate in the inference loop. SpecDiff belongs here. The practical appeal is that no extra training cost is incurred
+
+LLaDA's semi-autoregressive sampling [@nie2025llada] was a design where **training remained whole-sequence masked diffusion and only inference was semi-AR**, so under this taxonomy it falls under "inference-time hybrid." BD3-LM can be viewed as the upgrade of this idea to "training-time hybrid."
+
+## A Chronological Tour of the Lineage
+
+The hybrid idea has developed in stages since 2023. We organize the correspondence between dates and core ideas.
+
+### 2023: The Pioneers — SSD-LM and AR-Diffusion
+
+**SSD-LM** [@han2023ssdlm] is an early paper that used the term **semi-autoregressive** in the text diffusion context. It denoises a continuous simplex representation (a point on the probability simplex of vocabulary size) at the block level and advances across blocks in an AR fashion. It imports hybrid structure from the continuous diffusion side (simplex space rather than embedding space), so its starting point differs from later discrete hybrid models.
+
+**AR-Diffusion** [@wu2023ardiffusion] attempts hybridization from a different angle. It assigns **a different timestep** to each token position in the sequence and introduces a schedule in which left-side positions are denoised earlier. It is a multi-level diffusion that bakes the AR structure of "the left is settled first" into the timestep schedule of diffusion. It is distinctive in that, unlike block-causal attention, it **introduces AR character in a position-dependent way without making block boundaries explicit**.
+
+::: {.callout-note}
+## SSD-LM vs AR-Diffusion
+
+Both claim to be "semi-autoregressive text diffusion," but their design philosophies differ greatly. SSD-LM explicitly performs blockwise processing and has the discrete structure of a block boundary. AR-Diffusion continuously offsets timesteps per token, introducing AR character in a position-aware way without making block boundaries explicit. The later BD3-LM inherits the discrete block structure of the SSD-LM family.
+:::
+
+### Early-to-Mid 2025: BD3-LM and CtrlDiff
+
+**BD3-LM** [@arriola2025bd3lms] is covered in detail in an existing chapter of this book. Its position within the hybrid family can be summarized briefly as follows.
+
+- **The first modern paper to assemble hybridization at training time**: After SSD-LM and AR-Diffusion, it is the first paper to **introduce block structure at training time and make it consistent** on top of the Masked Diffusion Language Model (MDLM) formulation [@sahoo2024mdlm]. The block width $K$ provides a continuum that degenerates to pure AR at $K=1$ and to full DLM at $K=L$
+- **First practical Key-Value (KV) cache compatibility in DLMs**: Block-causal attention lets the K/V of completed blocks be retained and reused for subsequent blocks. The same acceleration technique used in AR LLMs becomes available for DLMs
+- **The current standard for hybrids**: All later models — CtrlDiff, SDAR, SDLM — inherit the block-causal structure of the BD3-LM family
+
+[→ More:]{.detail-link} [Block Diffusion](block-diffusion.qmd)
+
+**CtrlDiff** [@huang2025ctrldiff] is a natural extension of BD3-LM that proposes **deciding the block width dynamically from the input**. In BD3-LM the block width $K$ was a fixed hyperparameter, but by drawing block boundaries dynamically to align with sentence breaks or semantic units, CtrlDiff opens more room for controllable generation. This is an improvement along the axis of letting the data decide the granularity of blocking while preserving block-causal structure.
+
+### Mid-to-Late 2025: SpecDiff, SDAR, TiDAR, SDLM
+
+From mid-2025 onward, the hybrid story shifts toward the industrially attractive direction of **retrofitting the AR ecosystem**.
+
+**SpecDiff** [@christopher2025specdiff] extends the speculative decoding framework to a diffusion drafter. A lightweight DLM generates drafts in parallel block by block, and a large AR LLM verifies them sequentially. The main goal is to accelerate AR, and among hybrids it has the strongest "presupposes the AR side" character. It is the representative example of **ensemble-level integration** rather than architecture-level integration.
+
+**SDAR** (Synergistic Diffusion-Autoregression) [@cheng2025sdar] **converts a pretrained AR model into a blockwise DLM through a lightweight adaptation stage**. Its contribution is to preserve AR-level performance while achieving speedup through within-block parallelism. It is a representative example showing that **"rather than training a DLM from scratch, modify an existing AR"** is becoming the mainstream route in modern hybrids. Other AR→DLM adaptations along the same line include DiffuLLaMA [@gong2025diffullama] and Dream 7B [@ye2025dream7b], but SDAR particularly emphasizes block-structure retrofit.
+
+**TiDAR** (Think in Diffusion, Talk in Autoregression) [@liu2025tidar] is a representative of sequence-level hybrid. It packs both **parallel drafting** (diffusion-style) and **AR sampling** (left-to-right finalization) into a single forward pass and unifies them via **structured causal-bidirectional attention**. Its novelty lies in not having an explicit block-width hyperparameter and instead dividing roles between AR and diffusion purely through the design of the attention mask. The authors report up to 5× throughput improvement.
+
+**SDLM** (Sequential Diffusion Language Models) [@liu2025sdlm] proposes the **Next Sequence Prediction** (NSP) paradigm. It extends the next-token prediction of AR to "next-block prediction" and finalizes a block in parallel in a diffusion-like manner. A key feature is that it can retrofit AR while preserving **KV-cache compatibility**, with implementations reported at the 3B and 32B scales. The idea is close to that of SDAR, but it is distinctive in interpolating AR and diffusion through the unified objective of NSP.
+
+## Model Comparison Table
+
+We tabulate the main attributes of the models listed so far.
+
+| Model | Year | Type | Starting point | Inference speedup | KV-cache compat. | Reported scale |
+|-------|------|------|----------------|-------------------|------------------|----------------|
+| SSD-LM [@han2023ssdlm] | 2023 | block-causal (simplex) | from scratch | medium | partial | 400M |
+| AR-Diffusion [@wu2023ardiffusion] | 2023 | position-aware schedule | from scratch | medium | none | a few hundred M |
+| BD3-LM [@arriola2025bd3lms] | 2025 | block-causal (discrete) | from scratch | medium-to-high | yes | 170M-1B class |
+| CtrlDiff [@huang2025ctrldiff] | 2025 | block-causal (dynamic block) | from scratch / adapt | high | yes | medium scale |
+| SpecDiff [@christopher2025specdiff] | 2025 | speculative (DLM drafter + AR verifier) | existing AR + lightweight DLM | high | on the AR side | depends on the AR LLM |
+| SDAR [@cheng2025sdar] | 2025 | block-causal | AR adapt | high | yes | 1.7B-30B series |
+| TiDAR [@liu2025tidar] | 2025 | sequence-level (causal-bidirectional) | AR adapt | up to 5× | yes | 1.5B & 8B |
+| SDLM [@liu2025sdlm] | 2025 | block-causal (NSP) | AR adapt | high | yes | 3B & 32B |
+
+: Main attributes of hybrid AR-Diffusion models {#tbl-hybrid}
+
+Looking at @tbl-hybrid, it is visible that 2023 was dominated by "train hybrids from scratch," while from mid-2025 onward **AR adapt** is becoming the mainstream. This connects directly with "the influence of the AR side" discussed in the next section.
+
+## The Significance of BD3-LM — Its Place on the Whole Hybrid Map
+
+The details of BD3-LM are deferred to the separate [Block Diffusion](block-diffusion.qmd) chapter, but we restate its position within the hybrid map.
+
+- **The first modern paper to introduce block structure at training time**: Building on the MDLM formulation [@sahoo2024mdlm], it makes explicit an objective that is AR across blocks and masked diffusion within blocks. It promotes LLaDA's semi-AR from "an inference-time trick" to "a formal training-time design"
+- **Practical KV-cache compatibility in DLMs**: Block-causal attention makes the K/V cache of completed blocks effective. This becomes a prerequisite for the subsequent SDAR, SDLM, and TiDAR
+- **The current standard for hybrids**: Hybrid papers from mid-2025 onward reference the block-causal structure of BD3-LM, whether explicitly or implicitly
+
+[→ More:]{.detail-link} [Block Diffusion](block-diffusion.qmd)
+
+::: {.callout-tip}
+## The Dividing Line Before and After BD3-LM
+
+The lineage of hybrid AR-Diffusion has a clear dividing line between **before BD3-LM** (SSD-LM, AR-Diffusion) and **after BD3-LM** (CtrlDiff, SDAR, TiDAR, SDLM). The earlier models were at the stage of "demonstrating that hybridization is possible" and did not catch up with AR LLMs on practical dimensions such as scale, performance, and KV-cache. The later models entered the stage of "hybridizing on top of an AR LLM base" and reached scales of 1B+ and performance levels comparable to AR.
+:::
+
+## The Influence of the AR Side — An Industrially Attractive Route
+
+The three models SDAR, TiDAR, and SDLM all adopt **retrofit from an AR LLM**, which is a strategy worth highlighting when discussing the future of hybrids. They start from existing AR base models such as LLaMA or Qwen and convert them into blockwise diffusion models via lightweight adaptation.
+
+The appeal of this route is the following.
+
+- **Inherits the assets of the AR ecosystem**: The tokenizer, pretraining corpus, Supervised Fine-Tuning (SFT) data, Reinforcement Learning from Human Feedback (RLHF) recipes, and the broader infrastructure around AR LLMs need not be thrown away
+- **Low training cost**: Adapting an AR base is orders of magnitude cheaper than training an 8B-30B DLM from scratch
+- **Existing inference optimizations transfer**: KV-cache, quantization, speculative decoding, and other optimizations developed for AR LLMs can be partially reused after retrofit
+
+Now that commercial systems such as Mercury [@labs2025mercury] and Gemini Diffusion [@deepmind2024geminidiffusion] call themselves "DLMs" without disclosing the details of their internal implementation, both possibilities remain open: that they are pure DLMs and that they are hybrids (especially of the AR-retrofit variety). Given the thickness of the AR ecosystem, the view that **industrially scalable DLMs will take a hybrid form** is a natural one.
+
+::: {.callout-note collapse="true"}
+## The Relationship Between AR Retrofit and From-Scratch DLM
+
+From-scratch DLMs like LLaDA [@nie2025llada] and AR-retrofit hybrids like SDAR / TiDAR / SDLM ultimately target the same "DLM-style parallelism." The former prioritizes the mathematical consistency of DLMs, while the latter prioritizes the use of existing assets and ease of implementation. They are not in opposition; they are in competition over which reaches commercial scale first.
+:::
+
+## Trade-Offs of Hybrid Design
+
+The design space of hybrid models contains trade-offs along several axes. We organize the representative ones.
+
+### Trade-Offs Around Block Width
+
+In block-causal hybrids, the block width $K$ is the central design parameter.
+
+- **Small $K$ (AR-leaning)**: Across-block AR dominates. Per-block parallelism is low, but the generation quality within each block is high (close to the left-to-right dependency of AR). The KV-cache hit rate is also high
+- **Large $K$ (DLM-leaning)**: Within-block diffusion dominates. Parallelism is high, but the risk of the parallel decoding curse (discussed below) rises. The KV-cache hit rate falls
+- **Intermediate region**: The BD3-LM paper reports the existence of a sweet spot in the intermediate region. It is the most concrete empirical evidence to date for the fact that "AR is not always strongest"
+
+### The Parallel Decoding Curse
+
+When multiple tokens within a block are **finalized simultaneously**, the conditional dependencies among them (the fact that the value of one token affects the choice of another) are discarded. The phenomenon in which raising parallelism causes the model to miss simultaneous dependencies in the sequence and degrade in quality is called the parallel decoding curse. This curse becomes more pronounced as $K$ grows and imposes a design-side upper bound.
+
+### Sequence-Level Hybrid as an Alternative
+
+TiDAR's sequence-level hybrid proposes a design that goes beyond the axis of block width itself. It **co-locates parallel drafting and AR sampling** within a single forward pass and unifies them via structured causal-bidirectional attention. Since it has no explicit block boundary, it avoids the simplest manifestation of the parallel decoding curse while attempting to preserve AR-level quality.
+
+This route, however, requires a novel architecture and thus has higher retrofit cost than the block-causal family. On the other hand, it gains the flexibility of **dynamically switching** between AR's quality and DLM's speed.
+
+### Trade-off Comparison Table
+
+| Design | Parallelism | Quality | Retrofit cost | KV-cache |
+|--------|-------------|---------|---------------|----------|
+| Small $K$ block-causal | low | high (AR-leaning) | low | high |
+| Large $K$ block-causal | high | medium (curse risk) | low | medium |
+| Dynamic block (CtrlDiff) | variable | medium-to-high | medium | high |
+| Sequence-level (TiDAR) | high | high (AR-level at 5×) | high | high |
+| Speculative (SpecDiff) | high | on par with AR (verifier guarantees) | low (minimal extra training) | on the AR side only |
+
+: Trade-offs across hybrid designs {#tbl-tradeoff}
+
+@tbl-tradeoff does not show "the correct design" but rather the **diversity of available choices**. Which axis is favorable depends on the task, the model scale, and the acceptable training cost.
+
+## Open Problems in Hybrids
+
+Hybrid AR-Diffusion is a rapidly evolving field with many open problems. There is overlap with this book's [Open Problems chapter](open-problems.qmd), but the questions specific to hybrids include:
+
+- **A function form for the optimal block width**: How does the optimal $K$ vary as a function of task (math, code, conversation, long-form summarization), model scale (1B, 8B, 30B), and data distribution? Can a scaling-law-style empirical rule be built?
+- **Training-time hybrid vs inference-time hybrid**: Under the same compute budget (FLOPs), which is better in terms of performance — assembling the hybrid at training time (BD3-LM, SDAR, TiDAR) or only at inference time (LLaDA's semi-AR, SpecDiff)? How does the Pareto frontier between the two look?
+- **Compatibility with guidance**: How do inference-time interventions such as classifier-free guidance, constrained decoding, and infilling cohere with block-causal structure? The across-block AR structure looks like a natural place to attach guidance, but the within-block diffusion part needs separate design
+- **Compatibility with quantization**: Can quantization techniques developed for AR LLMs (INT4, AWQ, GPTQ, etc.) be applied to hybrid models as-is? The impact of the asymmetric compute pattern of block-causal models on quantization quality is not yet understood
+- **The limits of AR retrofit**: How far can AR retrofits such as SDAR / TiDAR / SDLM exploit the AR base? How does the performance gap relative to fully training a hybrid from scratch evolve?
+- **Scaling sequence-level hybrid**: Can TiDAR's structured causal-bidirectional attention preserve AR-level performance at scales of 8B and above? Does the drafting + sampling combination packed into a single forward pass scale linearly with model size?
+- **Multimodal extensions**: Multimodal DLMs such as LLaDA-V [@you2025lladav] and MMaDA [@yang2025mmada] are appearing. When extending hybrid structure to multimodal settings, aligning the block structure across image tokens and language tokens becomes a new design problem
+
+These are not independent questions; they are entangled with each other. For example, "the limits of AR retrofit" and "a function form for the optimal block width" can be probed with the same experimental design. "Compatibility with guidance" and "compatibility with quantization" are both questions about inference-time consistency. Research on hybrids is precisely at the stage of disentangling these threads one at a time.
+
+## Summary — The Hybrid Map
+
+The lineage of hybrid AR-Diffusion began in 2023 with SSD-LM and AR-Diffusion, was elevated in 2025 by BD3-LM to the formal design space of **training-time hybrids**, and has since branched in multiple directions: CtrlDiff (dynamic block), SpecDiff (speculative), SDAR / SDLM (AR retrofit + block), and TiDAR (sequence-level).
+
+The most important turning point was that **BD3-LM baked the block width $K$ into the training distribution**, making the AR-DLM continuum interpolable by a single hyperparameter. Subsequent papers have tried derivative directions: making $K$ dynamic, going beyond the $K$ axis entirely, and retrofitting from an AR base while keeping $K$ in place.
+
+What hybrid research shows is that, rather than asking which of AR and DLM is "the right answer," it is more productive to ask **which point on the continuum connecting them is optimal for which task, scale, and acceptable cost**. The MDLM formulation and the LLaDA scale demonstration covered in other chapters of this book are efforts to raise the resolution at one end (the DLM end) of the continuum, and hybrid research can be positioned as the effort to fill in the rest of that continuum.

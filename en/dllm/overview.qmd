@@ -1,0 +1,204 @@
+---
+pagetitle: "Overview"
+---
+
+# Diffusion Language Models: Overview
+
+Diffusion Language Models (DLLMs) attempt to bring the ideas behind diffusion models — proven so successful in image generation — into language modeling. Whereas Autoregressive (AR) Large Language Models (LLMs) generate text left-to-right one token at a time, a DLLM treats the entire sequence in parallel and produces text by iteratively refining a sequence of `[MASK]` tokens. This book organizes the key references needed to understand modern DLLMs, covering the formulation, sampling strategies, and the correspondence with continuous diffusion models, and then systematically surveys adaptation from AR pretrained models, derivative discrete models, hybrids, inference acceleration, guidance, post-training (Reinforcement Learning, RL), multimodal extensions, and application domains. The structure is aligned with the taxonomy of the survey by Li et al. 2025 [@li2025dlmsurvey].
+
+## What Is a DLLM?
+
+### Difference from AR LLMs
+
+AR LLMs factorize a token sequence as $p_\theta(x) = \prod_i p_\theta(x_i \mid x_{<i})$ and generate one token at a time from left to right. In contrast, a DLLM learns the joint distribution $p_\theta(x)$ over the entire sequence as a *gradual denoising process*. Concretely,
+
+- **Forward process**: Gradually adds noise to a clean sequence $x_0$ until every position becomes `[MASK]`
+- **Reverse process**: Starts from a fully masked sequence and predicts the `[MASK]` tokens to fill them in step by step
+
+Unlike AR, the generation order need not be sequential — it can be parallel, and the model can leverage context from both directions.
+
+### Why DLLMs Are Attracting Attention
+
+- **Parallel generation**: Multiple tokens can be decided in a single step, reducing the number of inference steps
+- **Bidirectional context**: Each token can be predicted using context from both the left and the right
+- **Natural formulation of editing and infilling**: Filling `[MASK]` at arbitrary positions maps naturally to infilling and editing tasks
+- **Room for inference-time intervention**: Because the model is queried at every step, guidance and control mechanisms can be layered on more flexibly than in AR
+
+## Lineage of Formulations
+
+The main formulations of DLLMs have developed along the **masked / absorbing discrete diffusion** track.
+
+```{mermaid}
+%%| label: fig-genealogy
+%%| fig-cap: "Lineage of discrete diffusion language model formulations"
+flowchart LR
+    MaskGIT["MaskGIT (2022)<br/>image-domain, confidence unmask"]
+    D3PM["D3PM (2021)<br/>foundational math of discrete diffusion"]
+    SEDD["SEDD (2024)<br/>concrete score / ratio matching"]
+    MDLM["MDLM (2024)<br/>reduces to BERT training"]
+    LLaDA["LLaDA (2025)<br/>8B scale, practical sampler"]
+    Dream["Dream (2025)<br/>competing model"]
+
+    D3PM --> MDLM
+    D3PM --> SEDD
+    MDLM --> LLaDA
+    MDLM --> Dream
+    MaskGIT -.-> LLaDA
+    MaskGIT -.-> Dream
+```
+
+**D3PM (Discrete Denoising Diffusion Probabilistic Models)** (Austin+ 2021) provided the foundational mathematics of discrete diffusion, and **MDLM (Masked Diffusion Language Models)** (Sahoo+ 2024) condensed it into an extremely concise objective — *weighted BERT training*. **LLaDA (Large Language Diffusion with mAsking)** (Nie+ 2025) scaled this formulation to 8B parameters and presented practical sampling strategies.
+
+
+[→ More:]{.detail-link} [MDLM: Masked Diffusion Language Models](mdlm.qmd)
+
+[→ More:]{.detail-link} [LLaDA: Scaling Masked DLM and Sampling](llada.qmd)
+
+## The Core Idea of MDLM
+
+The crux of MDLM is that, when one considers a continuous-time $t \in [0,1]$ forward process that independently replaces each token with `[MASK]` with probability $t$, the Evidence Lower Bound (ELBO) simplifies to a **masked cross-entropy weighted by $1/t$**.
+
+$$\mathcal{L} = \mathbb{E}_{t, x_t} \left[ \frac{1}{t} \sum_i \mathbf{1}[x_t^i = \texttt{[MASK]}] \log p_\theta(x^i \mid x_t) \right]$$
+
+This is a continuous-time generalization of BERT's random masked prediction, and expresses "what training a DLLM amounts to" in a single line.
+
+
+[→ More:]{.detail-link} [MDLM: Masked Diffusion Language Models](mdlm.qmd)
+
+## Sampling Strategies
+
+The samplers used by modern DLLMs, exemplified by LLaDA, roughly follow this loop.
+
+1. Initialize all positions to `[MASK]`
+2. At each step, produce predictions for every position
+3. **Unmask the top-$k$ positions by confidence**; keep the remaining ones masked or re-mask them
+4. Repeat until all positions are fixed
+
+The prototype of this confidence-based unmasking traces back to MaskGIT (Chang+ 2022) in image generation. Many practical refinements have since been proposed, including low-confidence remasking and semi-autoregressive sampling that generates block by block.
+
+
+[→ More:]{.detail-link} [LLaDA: Scaling Masked DLM and Sampling](llada.qmd)
+
+[→ More:]{.detail-link} [MaskGIT: Origin of Confidence-based Iterative Unmasking](maskgit.qmd)
+
+## Correspondence with Continuous Diffusion Models
+
+Continuous diffusion models that grew in the image domain (Denoising Diffusion Probabilistic Models (DDPM), Score-Based Models (SBM), Variance-Preserving Stochastic Differential Equation (VP-SDE), etc.) and MDLM **correspond structurally, but operate on different mathematical objects**.
+
+- **Where they correspond**: the forward-adds-noise / reverse-removes-noise structure, the derivation of the loss from the ELBO, Signal-to-Noise Ratio (SNR) weighting, and the framework of guidance
+- **Where they don't**: the score function $\nabla_x \log p(x)$, the SDE / probability flow Ordinary Differential Equation (ODE), and the Variance Exploding (VE) / Variance Preserving (VP) distinction
+
+Holding the continuous-diffusion intuition as a *template* makes MDLM's formulas easy to read at a glance — but remember that on the discrete side, the same objective is achieved with $x_0$-prediction cross-entropy rather than scores.
+
+
+[→ More:]{.detail-link} [Continuous vs Discrete: Bridging the Two](continuous-discrete-bridge.qmd)
+
+## Related Discrete-Diffusion Lineage
+
+Beyond MDLM, there are several other formulations of discrete diffusion, each making different choices.
+
+- **D3PM**: a foundational formulation that treats diverse transition matrices (uniform, absorbing, discretized Gaussian, etc.) in a unified way
+- **SEDD (Score Entropy Discrete Diffusion)**: a ratio-matching-based formulation that learns probability ratios $p(y)/p(x)$ (the *concrete score*)
+
+Knowing these clarifies why MDLM's choice (absorbing transition + $x_0$-prediction CE) is so concise — it is the *result of sidestepping score functions*.
+
+
+[→ More:]{.detail-link} [D3PM and SEDD: Alternative Discrete Diffusion Formulations](d3pm-sedd.qmd)
+
+## Derivatives and Developments
+
+Since the MDLM formulation and the LLaDA-scale implementation were established, the field has spread out in four major directions.
+
+- **Derivative discrete DLMs**: improvements to MDLM (RDM, MD4, DiffusionBERT), alternative formulations (DFM, RADD, DDPD, MGDM, GIDD), and LLaDA-style scale-up (LongLLaDA, UltraLLaDA, LLaDA-MoE, Seed Diffusion)
+- **Adaptation from AR and extensions from image diffusion**: the AR-pretraining-as-starting-point route demonstrated by DiffuLLaMA / Dream-7B, and the image-diffusion-as-starting-point route taken by D-DiT / Muddit
+- **Hybrid AR-Diffusion**: SSD-LM, AR-Diffusion, BD3-LM, CtrlDiff, SpecDiff, SDAR, TiDAR, SDLM — implementing the continuum between AR and DLM at both training and inference time
+- **Multimodal extensions**: LLaDA-V, MMaDA, LaViDa, Dimple, UniDisc, Lumina-DiMOO, etc. — unified tokenization via Vector Quantized Variational Autoencoder (VQ-VAE) plus cross-modal generation by masked diffusion
+
+
+[→ More:]{.detail-link} [AR-to-DLM Adaptation: Building DLMs from Autoregressive Pretrained Models](ar-to-dllm-adaptation.qmd)
+
+[→ More:]{.detail-link} [Recent Discrete DLMs: Latest Developments in Discrete Diffusion Language Models](discrete-recent-models.qmd)
+
+[→ More:]{.detail-link} [Hybrid AR-Diffusion: The Lineage of AR-DLM Hybrids](hybrid-ar-diffusion.qmd)
+
+[→ More:]{.detail-link} [Multimodal Diffusion Language Models](multimodal-dllm.qmd)
+
+## Inference Acceleration, Guidance, and Post-Training
+
+Research on extracting more performance from trained DLMs is advancing rapidly as well.
+
+- **Inference acceleration**: parallel decoding (Fast-dLLM, APD, SlowFast, Dimple, dParallel), KV / feature caching (dLLM-cache, dKV-Cache, Elastic-Cache, BD3-LM, FreeCache), and step distillation (Di4C, DLM-One). The latency gap against AR is starting to reverse on commercial-grade implementations (Mercury, Gemini Diffusion).
+- **Guidance**: discrete counterparts of classifier guidance / Classifier-Free Guidance (CFG) (Nisonoff's Continuous-Time Markov Chain (CTMC) approach, Schiff's simple guidance), the CFG of LLaDA, A-CFG, DINGO, and FreeCache
+- **Post-training (RL)**: Chain-of-Thought (CoT) reformulations such as Diffusion-of-Thoughts (DoT) / Diffusion CoLT (DCoLT), the Group Relative Policy Optimization (GRPO) family (d1, DiffuCoder's coupled-GRPO, UniGRPO, SPG, wd1, IGPO, SAPO, BGPO), and Variance-Reduced Preference Optimization (VRPO) for Direct Preference Optimization (DPO)
+
+
+[→ More:]{.detail-link} [Inference Acceleration: Speeding Up DLM Generation](inference-acceleration.qmd)
+
+[→ More:]{.detail-link} [Guidance: Conditional Generation and Inference-Time Intervention for DLMs](guidance.qmd)
+
+[→ More:]{.detail-link} [Post-Training for Reasoning: DLM Reinforcement and Reasoning Capability](post-training-rl.qmd)
+
+## Application Domains
+
+The structural advantages of DLMs (parallelism, bidirectionality, iterative refinement, and the naturalness of editing) take concrete shape in various application domains.
+
+- **Code generation**: DiffuCoder, Mercury Coder, DCoLT, DUS — strong on global planning and iterative refinement
+- **Biology / scientific applications**: DPLM, DPLM-2, MeMDLM, CFP-Gen, DRAKES, ForceGen, DSM, TransDLM, TGM-DLM — proteins and molecules are inherently non-sequential and have high affinity with DLMs
+- **Robotics (Vision-Language-Action, VLA)**: LLaDA-VLA, dVLA, UD-VLA — jointly generating visual observation → CoT → action tokens
+- **Conventional NLP**: editing (EditText), structural constraints (PoetryDiffusion), planning (PLANNER), etc.
+
+
+[→ More:]{.detail-link} [Applications: Domain-Specific DLM Use Cases](applications.qmd)
+
+## Maturity of the Field and the Broader View
+
+DLLMs are still less established than AR LLMs in many areas, but as listed above, concrete methods are emerging in each subfield. The survey by Li et al. 2025 [@li2025dlmsurvey] is the most comprehensive overview available at the time of writing, and this book organizes its chapters in alignment with that taxonomy.
+
+- **Training recipes**: mask schedules, noise design, the optimality of AR-based adaptation, etc. are still under research
+- **Sampling**: confidence-based unmasking, remasking, semi-AR, and parallel decoding have come together, but standardization of evaluation axes is still missing
+- **Inference-time intervention**: guidance, constrained decoding, and editing-style interventions are individually established, but a unified recipe is incomplete
+- **Evaluation**: DLM-specific evaluation axes (per-NFE performance, editability, bidirectional knowledge utilization) remain largely unexplored
+- **Theory**: expressiveness, convergence, the correspondence with AR, and a data-hungry scaling law are all at an early stage
+
+
+[→ More:]{.detail-link} [A Survey on Diffusion Language Models: A Map of Li et al. 2025](survey-li2025.qmd)
+
+[→ More:]{.detail-link} [DLM Open Problems and Current State](open-problems.qmd)
+
+## How to Read This Book
+
+The sidebar is organized into five sections: "Formulation and Foundations," "Scale and Derivatives," "Inference and Intervention," "Post-training and Applications," and "Overview and Outlook." The recommended shortest path is the following.
+
+1. **Formulation (3-4 chapters)**: the core of this book. Reading [MDLM](mdlm.qmd) → [LLaDA](llada.qmd) → [Continuous vs Discrete](continuous-discrete-bridge.qmd) gives a three-dimensional grasp of the skeleton of modern DLMs.
+2. **Derivatives (depending on your interests)**: if you are interested in adaptation from AR, go to [AR-to-DLM Adaptation](ar-to-dllm-adaptation.qmd); for a survey of the latest discrete lineage, [Recent Discrete DLMs](discrete-recent-models.qmd); for hybrids, [Block Diffusion](block-diffusion.qmd) → [Hybrid AR-Diffusion](hybrid-ar-diffusion.qmd).
+3. **Inference and operations (for implementers)**: [Inference Acceleration](inference-acceleration.qmd) and [Guidance](guidance.qmd) are aimed at readers implementing samplers or conditional generation.
+4. **Further developments (for researchers)**: [Post-Training for Reasoning](post-training-rl.qmd) covers RL fine-tuning of DLMs, [Multimodal Diffusion Language Models](multimodal-dllm.qmd) covers cross-modal extensions, and [Applications](applications.qmd) covers domain-specific case studies.
+5. **Overview**: to wrap up with the big picture once more, close with [A Survey on Diffusion Language Models](survey-li2025.qmd) and [DLM Open Problems](open-problems.qmd).
+
+Chapters are independently readable by topic, but inference acceleration, guidance, and post-training assume the sampler description of the LLaDA chapter; multimodal assumes the LLaDA / Block Diffusion chapters; and applications assume the Multimodal / Post-training chapters. Following these dependencies leads to a deeper understanding.
+
+::: {.callout-tip}
+## For Readers Already Familiar with Continuous Diffusion
+
+If you already know continuous diffusion (DDPM, SBM, VP-SDE, etc.), it helps to skim ahead to [Continuous vs Discrete: Bridging the Two](continuous-discrete-bridge.qmd) while reading MDLM — you will immediately recognize "ah, this is the discrete version of $x_0$-prediction." Just remember that on the discrete side, the same goal is achieved with cross-entropy rather than scores.
+:::
+
+::: {.callout-note collapse="true"}
+## What This Book Does Not Cover
+
+This book is aimed at understanding the key references, and does not cover:
+
+- Code-level walkthroughs of individual implementations (refer to the official repositories and the paper appendices)
+- Step-by-step guides for building DLLM-based applications
+- Exhaustive coverage of the latest preprints (we limit ourselves to the main papers available at the time of writing)
+
+The book aims to provide a *map of the field*, and does not attempt exhaustive benchmark reproduction or rigorous theorem proofs for every paper.
+:::
+
+## Three to Start with
+
+Pointers to specific papers and articles appear in the individual chapters, but here are the three to start with.
+
+- **MDLM**: Sahoo et al. "Simple and Effective Masked Diffusion Language Models" [arXiv:2406.07524](https://arxiv.org/abs/2406.07524)
+- **LLaDA**: Nie et al. "Large Language Diffusion Models" [arXiv:2502.09992](https://arxiv.org/abs/2502.09992)
+- **Sander Dieleman's blog** ([sander.ai](https://sander.ai/)): "Diffusion language models" and related overview posts that are particularly useful for bridging continuous and discrete diffusion

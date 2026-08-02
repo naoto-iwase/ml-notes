@@ -1,0 +1,147 @@
+---
+pagetitle: "Multi-Image Understanding"
+---
+
+# Multi-Image Understanding
+
+Multi-Image Understanding is the ability to simultaneously process multiple images and understand their relationships and differences. Unlike traditional single-image processing, which treats each image independently, Multi-Image Understanding captures relationships between multiple images.
+
+## Differences from Single-Image Processing
+
+**Single-Image Processing**:
+
+- Performs question answering or caption generation for a single image
+- Cannot compare or understand relationships between images
+- Difficult to handle multi-page documents or before-and-after comparisons
+
+**Multi-Image Understanding**:
+
+- Processes sets of 2-5 semantically related images
+- Understands commonalities and differences between images
+- Enables cross-image question answering and grounding
+
+## Molmo2-MultiImageQA Dataset
+
+Molmo2-MultiImageQA is a question-answering dataset for semantically related image sets.
+
+**Dataset Scale**:
+
+- 45,000 image sets (composed of 96,000 unique images)
+- 72,000 question-answer (QA) pairs
+- 2-5 images per set (average 2.73)
+
+**Collection Method**:
+The dataset was constructed through human annotation using the following process:
+
+1. Generate captions for each image using a model trained on PixMoCap
+2. Group images based on sentence-level similarity of captions
+3. Annotators create questions for each set
+4. Improve answers through an iterative loop with Claude Sonnet 4.5
+
+This approach produced a high-quality dataset that supports real-world multi-image queries.
+
+![Qualitative examples from Molmo2-MultiImageQA. Each panel shows a semantically related image set (2-5 images) paired with a question that can only be answered by reasoning across all images in the set: spotting which canyon scene contains a person, counting people across two images, selecting the bookshelf that matches a description, or identifying the image with a tiger. The answers (right side of each panel) explicitly walk through each image, demonstrating how grounded cross-image reasoning is supervised. Source: [@clark2026molmo2]](images/molmo2-multiimageqa-example.png){#fig-multiimage-qa-example}
+
+## Molmo2-MultiImagePoint Dataset
+
+Molmo2-MultiImagePoint is a pointing and counting dataset spanning multiple images.
+
+![Qualitative example from Molmo2-MultiImagePoint. For a canonical object concept shared across a 2-5 image set, the model returns per-image points and counts, supervising cross-image grounding rather than treating each image independently. Source: [@clark2026molmo2]](images/molmo2-multiimagepoint-example.png){#fig-multiimagepoint-example}
+
+**Dataset Scale**:
+
+- Over 470,000 pointing and counting examples
+- 2-5 images per set (average 3.24)
+
+**Collection Method**:
+The dataset was synthetically constructed using the following pipeline.
+
+### Data Collection Pipeline
+
+| Step | Description |
+|---------|----------|
+| **Step 1: Soft Clustering of Images** | Use images from PixMo-Points; combine single-token and sentence-level embeddings to generate semantically related sets of 2-5 images |
+| **Step 2: Label Normalization** | Lowercase the text, normalize punctuation and whitespace, and consolidate synonyms |
+| **Step 3: Canonical Label Generation** | Use an LLM to merge the normalized labels into a single canonical description that captures the entity/concept shared across all images |
+| **Step 4: Training-time Sampling** | Sample from the original annotations (not just the canonical label) to preserve lexical diversity and improve robustness |
+
+: Molmo2-MultiImagePoint data collection pipeline {#tbl-multi-image-point-pipeline}
+
+::: {.callout-note}
+
+## Role of Canonical Labels
+
+A canonical label is a standardized description that unifies multiple human annotations within an image set. For example, different expressions such as "waterfall," "cascade," and "falls" are unified into a single canonical label: "waterfall."
+
+However, rather than always using canonical labels during training, the model probabilistically samples from the original annotations as well, building a model that can handle diverse expressions.
+
+:::
+
+## Molmo2-SynMultiImageQA Dataset
+
+Molmo2-SynMultiImageQA is a synthetic multi-image dataset specialized for text-rich images.
+
+**Dataset Scale**:
+
+- 188,000 synthetic multi-image QA examples
+
+**Collection Method**:
+The dataset was built by extending CoSyn [172]. CoSyn is a framework that synthetically generates question-answering pairs for text-rich images such as charts, tables, and documents.
+
+**Target Image Types**:
+
+- Charts
+- Tables
+- Documents
+
+These text-rich images are critical data directly relevant to practical tasks such as document understanding and cross-document comparison.
+
+::: {.callout-tip}
+
+## Practical Examples: Applications of Multi-Image Understanding
+
+**Document Understanding**:
+
+- Comparing clauses across multiple pages of a contract
+- Consistency checking between different sections of a report
+- Content comparison across multiple invoices
+
+**Multi-Image Comparison**:
+
+- Comparing product photos from different angles to understand features
+- Change detection in before-and-after photos
+- Trend analysis across multiple charts and graphs
+
+**Grounding**:
+
+- Cross-image pointing such as "Point to the waterfall in all images"
+- Counting such as "How many images contain a red car?"
+- Detecting common objects across the entire set
+
+:::
+
+## Dataset Statistics
+
+| Dataset | Scale | Image Set Size | Collection Method | Purpose |
+|---|---|---|---|---|
+| Molmo2-MultiImageQA | 45k sets<br/>72k QA | 2-5 images<br/>(avg. 2.73) | Human | General QA |
+| Molmo2-MultiImagePoint | 470k examples | 2-5 images<br/>(avg. 3.24) | Synthetic | Pointing & Counting |
+| Molmo2-SynMultiImageQA | 188k examples | - | Synthetic<br/>(CoSyn extension) | Text-rich image QA |
+
+## Importance of Multi-Image Understanding
+
+Multi-Image Understanding enables the following tasks that were impossible with single-image processing.
+
+**Information Integration**:
+It integrates information from multiple sources (images) to provide comprehensive understanding.
+
+**Comparison and Contrast**:
+It can clearly identify commonalities and differences between images.
+
+**Document Processing**:
+It enables understanding across multi-page documents or multiple related documents.
+
+**Real-World Application**:
+In real-world applications, scenarios involving multiple images arise frequently (e.g., product images on e-commerce sites, time-series comparison of medical images, multiple surveillance camera angles, etc.).
+
+Molmo2 achieves state-of-the-art Multi-Image Understanding among open-source models by leveraging these three datasets.

@@ -1,0 +1,16 @@
+---
+title: "Small Recursive Reasoning Models"
+description: "A survey of small networks that reason by test-time recursion"
+date: "2026-05-24"
+date-modified: last-modified
+author:
+  name: "Naoto Iwase"
+  url: "https://iwase.dev"
+categories: [Reasoning, Latent Reasoning, Small Models]
+image: "images/gram-overview.png"
+toc: false
+---
+
+A separate lineage of reasoning models, built around small neural networks of a few million to a few tens of millions of parameters that are recursively unrolled at test time, came into focus in 2025–2026. Five papers, Hierarchical Reasoning Model (HRM), Tiny Recursive Model (TRM), Probabilistic Tiny Recursive Model (PTRM), Generative Recursive reAsoning Models (GRAM), and Lattice Deduction Transformers (LDT), all reach competitive accuracy on Sudoku and Abstraction and Reasoning Corpus for Artificial General Intelligence (ARC-AGI) from only a thousand or so training examples, and on certain tasks claim to surpass 671B-parameter frontier Large Language Models (LLMs).
+
+This book examines the **recursive reasoning model** research program from all sides, technical content, prior art, evaluation, and critique. The five main models (HRM, TRM, PTRM, GRAM, LDT) each have a dedicated chapter, four supporting chapters cover the lineage, the broader landscape of latent reasoning, the comparison with CoT scaling, and the ARC-AGI competitive context, and two final chapters provide an implementation guide and a roundup of open problems.

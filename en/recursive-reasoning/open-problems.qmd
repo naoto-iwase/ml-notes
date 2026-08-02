@@ -1,0 +1,211 @@
+---
+pagetitle: "Open Problems"
+---
+
+# Open Problems
+
+This chapter consolidates the "limitations" and "future work" items scattered across the chapters of this book. Each problem is organized into three parts: (i) where we are, (ii) what remains unknown, and (iii) where to start if you take it up. (iii) is the author's view, not a claim from the papers.
+
+Problems are ordered by ease of entry. P1–P3 are empirical studies feasible by combining existing methods, P4–P6 are benchmark / theoretical / mechanistic-interpretation questions, and P7–P9 are larger questions that put the whole research program in perspective. Reading straight through is not expected; pick the problems that interest you.
+
+## P1. Adaptive Allocation Between CoT and Recurrent Depth
+
+### Where we are
+
+As discussed in [Depth vs Token Scaling](scaling.qmd), there are two media for paying test-time compute: sequential token scaling (CoT) and recurrent depth scaling (the HRM/TRM family). They can in principle have **equivalent computational capability**, but the asymmetry in cost structure is large and the right tool depends on the task.
+
+On the CoT side, "varying the budget on a single model" research is progressing as Snell et al.'s compute-optimal selection [@snell2024computeoptimal], Chen et al.'s adaptive LM call optimization [@chen2024llmcalls], and Brown et al.'s log-linear coverage [@brown2024monkeys]. On the recurrent-depth side, HRM's Q-head (ACT), PTRM's width axis $K$, and GRAM's two-axis $N \times K$ scaling each address a single budget axis.
+
+### What remains unknown
+
+**There is no unified adaptive-allocation theory that handles both sides**. Three concrete open questions:
+
+1. **For what tasks is recurrent depth more compute-optimal than CoT?** Recurrent depth beats CoT by orders of magnitude on Sudoku/Maze/ARC, while CoT dominates on open-domain. No theory yet predicts the boundary from task structural properties (finiteness of state space, presence of verifier, uniqueness of solution).
+2. **Can a single model switch between the two paradigms?** Coconut [@hao2024coconut] is the first system to provide a continuous interpolation, but a design that adaptively switches between CoT and continuous thought at test time is not yet established.
+3. **Optimal allocation on a three-axis Pareto (depth × width × token-length)**: How the Pareto frontier looks when PTRM's width $K$, HRM's depth $D$, and CoT's token length $L$ are all moved together is unresolved.
+
+### Where to start
+
+The easiest entry is an empirical study that "compares CoT scaling and recurrent depth scaling at equal FLOPs on the same task". Sudoku-Extreme, Maze-Hard, and PPBench provide one extreme where recursive reasoning dominates; HLE, FrontierMath, and GSM8k provide the other where CoT dominates. Searching for crossover points on intermediate tasks (algorithmic reasoning, knowledge-graph reasoning, planning) may reveal what predicts the boundary.
+
+On the theory side, one starting point is to apply the circuit-complexity analysis of Merrill & Sabharwal to both recursive depth and CoT, and explicitly write down "the ratio between token count and recursion count that realizes equivalent depth".
+
+## P2. The Verifier Ceiling
+
+### Where we are
+
+PTRM's biggest discovery was that TRM's Q head **acts as a de facto verifier** ([PTRM](ptrm.qmd) chapter §3.2). A head trained as the auxiliary loss for adaptive halting also functions as a trajectory selector near oracle level (within 1 pp of pass@$K$). GRAM solves the same problem by explicitly training a Latent Process Reward Model (LPRM).
+
+### What remains unknown
+
+The largest limitation shown by PTRM §5.4 is that **on Maze-Hard, best-Q@$K$ lags pass@$K$ by about 10 pp**. On "easy-verifier" tasks like Sudoku the Q head is near oracle, but on "hard-verifier" tasks like Maze or ARC-AGI the gap grows. Because PTRM's Q head originated as an auxiliary loss for adaptive halting, training and attaching a stronger verifier could recover rollouts currently being missed — this is the centerpiece of the paper's future work.
+
+Specific open questions:
+
+1. **Verifier-specific post-training**: If only the Q head is re-trained over a fixed TRM checkpoint with margin loss / DPO-family losses, does the Maze-Hard gap close?
+2. **Latent process reward model**: GRAM's LPRM regresses step-wise final accuracy; measuring step-wise "progress" with other signals (GFlowNet-style flow consistency, attractor distance) is untried.
+3. **Verifier transfer**: Does a Q head trained on Sudoku function on Maze or ARC? Do task-spanning verifiers even exist?
+
+### Where to start
+
+A minimal-cost experiment is **post-training only the Q head over a fixed TRM checkpoint**. Generate "correct vs. incorrect trajectory" pairs on the Maze-Hard train split, fine-tune the Q head with a margin loss, and measure whether best-Q@$K$ from the PTRM paper improves. Improvement diagnoses "PTRM's Q head was simply under-trained"; no improvement diagnoses "Maze's verifier difficulty is essential". Either outcome is informative.
+
+## P3. Interpretability of Latent State
+
+### Where we are
+
+The latent state of HRM/TRM/PTRM/GRAM is treated as opaque hidden state, so interpretation methods that apply to CoT's natural-language trace (attribution graphs, prefix consensus, faithfulness analysis) do not directly carry over.
+
+In 2026, mechanistic interpretation has begun to progress. Efstathiou & Balwani [@efstathiou2026attractor] probed TRM's latent dynamics with sparse autoencoders and concluded that "recursive reasoning is not incremental refinement but **adaptive search on an attractor landscape**". Ren & Liu [@ren2026hrmguessing] showed HRM's fixed-point property does not hold, pointing out at the mechanistic level that HRM's solving behavior is "closer to guessing than reasoning". Blayney et al. [@blayney2026loopedmech] used probes on looped language models to confirm that each iteration converges to a distinct fixed point. LDT, on a separate track, obtained interpretability by projecting the latent state onto a lattice ([LDT](ldt.qmd) chapter).
+
+### What remains unknown
+
+1. **Standardization of probing methods**: Among sparse autoencoders, linear probing, causal intervention, which is best for recursive reasoning models? The Coconut family (group B in the [Latent Reasoning](latent-reasoning.qmd) chapter) and the HRM/TRM family (group E) may prefer different methods.
+2. **Online failure-mode detection**: Efstathiou & Balwani showed failure trajectories plateau at high-loss stable attractors; an online method that detects this at inference time and triggers abstention is not yet established. Combining with LDT's CLS head may be effective.
+3. **Visualization and human-in-the-loop**: Methods to convert HRM/TRM latent state into human-readable form are essentially nonexistent. LDT's lattice projection is one answer in the "human-readable" direction; other approaches (concept bottleneck, natural-language description of latent) merit examination.
+
+### Where to start
+
+The PCA-based three-trajectory-mode analysis covered in the [PTRM](ptrm.qmd) chapter is the most reproducible entry point. Run a TRM checkpoint on the PPBench validation set, take principal components, and visualize trajectories — quick success / delayed success / failure modes will appear. Stacking a sparse autoencoder on top and extracting features activated in each trajectory mode allows independently re-experiencing the mechanistic analysis of Efstathiou & Balwani.
+
+## P4. Generalization to Open Domains
+
+### Where we are
+
+Sudoku, Maze, and ARC-AGI, where HRM/TRM/PTRM/GRAM/LDT dominate, are all **grid-structured-output** tasks that permit conditioning on a puzzle identifier (puzzle_id embedding) during training. Generalization to other reasoning tasks (HLE, FrontierMath, open-domain QA, code generation, etc.) has not been verified ("Observation 5" in the [Overview](overview.qmd) chapter).
+
+PTRM shows 91.2 % on a different verifier-equipped benchmark, PPBench, but this is still within the scope of "closed constraint satisfaction", and the bridge to open-domain remains unsolved.
+
+### What remains unknown
+
+1. **Conditions for generalization of recursive reasoning**: What are the necessary and sufficient conditions for "it works on closed CSPs"? Finiteness of output space? Presence of a verifier? Uniqueness of solution? How does performance degrade when these are relaxed?
+2. **Incorporating language**: Geiping et al. [@geiping2025recurrentdepth] realized recurrent depth at LLM scale, but the design philosophy is opposite to HRM/TRM-style task-specific small networks. A unified "recursive reasoning with linguistic I/O" remains unexplored.
+3. **Systematizing the NVARC path**: NVARC, which scored 24 % on ARC Prize 2025, integrated TRM components with synthetic data + TTT into an ensemble ([ARC-AGI](arc-agi.qmd) chapter). Whether this "boost vanilla TRM by integrating it into an ensemble" pattern applies to other open-domain tasks is unverified.
+
+### Where to start
+
+The practical starting point is the minimal bridge "convert TRM output into text tokens". For example, in math word problems, represent the problem as a grid-shaped state, learn state transitions with TRM, and decode the final state to text. Starting with simple problems like GSM8k and observing where recursive reasoning's advantage disappears gives an empirical line that bounds open-domain.
+
+::: {.callout-note}
+## Author's view: ARC-AGI-3 may actually suit the TRM family
+
+In the ARC Prize 2025 official interview [@jolicoeur2025interview], TRM author Jolicoeur-Martineau notes that ARC-AGI-3's structure (each level has its own simple state to solve, turn-based) sidesteps the multi-example context-length blow-up of ARC-AGI-2, and that straightforward application of TRM may be effective. This book's [ARC-AGI and Small Models](arc-agi.qmd) chapter treats ARC-AGI-3 as a difficult benchmark where "all frontier LLMs are pushed back below 1 %", but the recursive reasoning family may have a different outlook on it.
+:::
+
+## P5. Automatic Design of Lattice / Abstract Domains
+
+### Where we are
+
+LDT designs its abstract domain (the grid powerset lattice for Sudoku) **by hand**. The extension to Snowflake Sudoku was also manual: a $15 \times 10$ covering grid plus a per-cell `in-puzzle` mask channel ([LDT](ldt.qmd) chapter). This is also a general problem in abstract interpretation; domain design is human-dependent even in the program analysis context.
+
+### What remains unknown
+
+1. **Automatic abstract domain discovery**: No method exists to automatically construct an appropriate abstract domain from an arbitrary task. SAIL from Singh's lab [@gu2026sail] uses LLMs to learn abstract interpreters, but the discovery of the abstract domain itself remains untouched.
+2. **Soundness/precision trade-off**: The grid powerset lattice is a coarse abstraction that discards inter-cell correlations, yet soundness holds. How does performance change if one uses a more precise abstract domain (e.g., preserving pair-wise correlations)? Moving a coarse-to-fine hierarchy of lattices with learning is untried.
+3. **Porting to non-grid tasks**: In ARC-AGI settings where "rules per task are inferred from a few demonstrations", a naive port of LDT plateaus at about 36 % ([LDT](ldt.qmd) chapter §6). Abstract domains must be built over "the set of programs that generate solutions" rather than "the set of solutions" — the LDT paper itself lists this as future work.
+
+### Where to start
+
+The most technically direct study is porting LDT's lattice encoding (9×9×9 binary sigmoids + CLS head) to another constraint satisfaction task. Tasks where "the set of answers can be represented as a product of candidate sets" — N-Queens, graph coloring, SAT instances — fit LDT's framework directly. If performance does not transfer, analyzing what is missing is a clue toward abstract-domain design.
+
+## P6. Theory of Train-compute → Test-compute Substitution
+
+### Where we are
+
+The most distinctive observation from LDT is the train/test trade-off that **as training compute grows, inference-time forward-pass count drops by orders of magnitude** ("What the Train / Test Compute Trade-off Means" in the [LDT](ldt.qmd) chapter, end of [Depth vs Token Scaling](scaling.qmd)). This runs in the opposite direction from CoT scaling and HRM/TRM's recurrent depth scaling, showing a new trade-off: "if sound deduction can be learned, additional learning substitutes for inference-time search".
+
+### What remains unknown
+
+1. **Under what conditions does substitution hold?** LDT could learn sound deduction because the lattice projection of abstract interpretation guarantees soundness. Does the same trade-off hold for HRM/TRM, which lack a soundness guarantee — or is soundness a necessary condition for substituting away inference-time search?
+2. **Formalization of the Pareto frontier**: The two-axis Pareto curve between train compute and test compute has only been drawn empirically. The trade-off between "cost of learning correct deduction" and "cost of search when it is not learned" may be expressible information-theoretically; this formalization is untouched.
+3. **A CoT-side counterpart**: CoT scaling extends test-time compute by "thinking longer". Can LDT-style train→test substitution be brought to the CoT side (i.e., a strategy of "internalize deeper reasoning during training and emit shorter traces")? Unexplored.
+
+### Where to start
+
+A direct check is whether LDT's train/test trade-off reproduces without an abstract domain. With TRM or Sotaku checkpoints, vary training steps and measure effective recursion count at test time. Seeing the same trade-off diagnoses soundness as not necessary; not seeing it diagnoses soundness as essential.
+
+## P7. Scaling Laws for Recursive Reasoning
+
+### Where we are
+
+On the CoT side, scaling laws since Hoffmann et al. (Chinchilla) are established, and the relationship among parameter count, data, and FLOP determines the optimal allocation. On the recursive reasoning side, Geiping et al. [@geiping2025recurrentdepth] showed that perplexity improves monotonically with test-time recurrence on a 3.5B-parameter recurrent depth model, but this is "test-time scaling for a single model", not "a scaling law across parameter counts".
+
+The HRM/TRM paper numbers (7M, 27M, 800K parameters) are only isolated points, so how the expressiveness of recursive reasoning models scales with parameter count remains unknown.
+
+### What remains unknown
+
+1. **Scaling parameter count**: If TRM's 7M is scaled to 700M, what does Sudoku-Extreme reach? How does it change at 100M, 1B? Does a logarithmic scaling law hold, or does it plateau?
+2. **Scaling data**: HRM/TRM are designed to train on 1000 samples; how does performance change with 10,000 or 100,000 samples? How does this differ fundamentally from increasing augmentation?
+3. **Optimal allocation of recursion depth**: TRM's Table 4 shows "deeper is not always better", but under fixed parameter count. With $P$ parameters and $D$ recursion depth at fixed FLOPs, what is the optimal $(P, D)$ ratio?
+
+### Where to start
+
+Scaling experiments are inherently expensive (multiple parameter scales must be trained), but Sudoku-Extreme requires only one L40S × 1 day per setting, so a 5-point sweep (800K, 7M, 27M, 100M, 300M) is feasible on four H100s × 2 weeks. This is two orders of magnitude cheaper than large-LLM scaling experiments and within reach of an academic lab.
+
+## P8. Benchmark Selection Bias
+
+### Where we are
+
+As covered in "Observation 5" of the [Overview](overview.qmd) and in [ARC-AGI and Small Models](arc-agi.qmd), Sudoku, Maze, and ARC-AGI, where HRM/TRM/PTRM/GRAM/LDT dominate, are all grid-structured-output tasks chosen as benchmarks that target the weaknesses of frontier LLMs. To evaluate the narrative "small models surpass frontier LLMs", benchmark selection bias must be explicit.
+
+### What remains unknown
+
+1. **Publication of negative results**: If many reasoning tasks (e.g., semantic parsing, commonsense reasoning, tool use) cannot be solved by HRM/TRM, those negative results never become papers. There is no comprehensive report on the distribution of tasks recursive reasoning models can and cannot solve.
+2. **Other settings where frontier LLMs are weak**: Besides Sudoku, Maze, and ARC-AGI, what closed reasoning tasks do frontier LLMs struggle with? PPBench [@waugh2026ppbench] is one extra example, but again a collection of closed CSPs.
+3. **Fragility of the "LLM is weak there, so recursive reasoning contributes" argument**: A large LLM may solve the same task at 90 % a year later (ARC-AGI-1 advanced from 8 % to 85 % in nine months). Measuring recursive reasoning's contribution as "the gap against LLMs" is time-fragile; a more structural evaluation axis is needed.
+
+### Where to start
+
+Proposing new benchmarks is not easy, but a meta-study that classifies existing reasoning benchmarks by "whether the recursive reasoning family can solve them" is approachable. Applying TRM / GRAM / LDT to 10–20 reasoning benchmarks (BIG-Bench Hard, GSM8k, MATH, HumanEval, HumanEval-X, HLE, FrontierMath, chess endgame, Game-of-24, etc.) and documenting where performance breaks is a paper not yet written (as far as we know) but with broad value.
+
+## P9. Is Recursive Reasoning a Path to AGI?
+
+### Where we are
+
+François Chollet positions ARC-AGI as a benchmarking of the claim that "current LLMs stay at memorize-and-recombine and lack program synthesis as learning", and suggests that **deep-learning-guided program synthesis** like HRM/TRM is the path to AGI ("Chollet and Ndea" in [ARC-AGI](arc-agi.qmd)).
+
+Meanwhile, the mainstream community view in mid-2026 is converging on **rejecting** "ARC ≈ AGI". The saturation of ARC-AGI-1 is a win for test-time compute and TTT, not genuine generalization; as HRM analyses show, the small-net path also has a strong flavor of "tricks that exploit ARC's inductive biases".
+
+### What remains unknown
+
+1. **Operationalizing "skill acquisition efficiency"**: No concrete metric besides ARC-AGI exists for Chollet's "human-like skill acquisition efficiency". Other ways to measure the skill-acquisition efficiency of recursive reasoning models are unproposed.
+2. **Recursive reasoning as program synthesis**: Can HRM/TRM's iterations in latent space be read as "search in program space"? LDT's lattice projection certainly handles symbolic constraints, but whether calling that "program synthesis" is appropriate is unresolved.
+3. **Distinguishing "path to AGI" from "SOTA on a specific task"**: As of writing, recursive reasoning is unambiguously valuable as a path to "SOTA on specific tasks" (Sudoku 100 %, PPBench 91 %, etc.). Whether this develops into "a path to AGI" remains less a technical and more a philosophical/empirical question.
+
+### Where to start
+
+This problem is the hardest to take up concretely, but as an **extension of P8** ("describe the distribution of tasks the recursive reasoning family can solve"), one can design experiments that "measure the gap between human skill acquisition and recursive-reasoning-model skill acquisition". For example, build "learn-the-rule-from-100-demonstrations" tasks across multiple domains and run a meta-study measuring which side — human or recursive reasoning model — extracts the rule from fewer demonstrations.
+
+## Research Plan Starter Kit
+
+Organize the problems by "what can be done given which resources and how many months". The following is the author's private rule of thumb; actual scope varies widely with the researcher's experience and environment.
+
+### 1 month + one L40S
+
+- P2 (Strengthening the verifier): Post-train only the Q head of a TRM checkpoint with margin loss and measure whether the Maze-Hard gap closes.
+- P3 (Latent state interpretability): Reproduce the PTRM-style PCA analysis on another puzzle task.
+- P6 (Train→Test substitution): Measure the trade-off between TRM's training steps and test-time recursion count.
+
+### 3 months + four H100s
+
+- P1 (Adaptive allocation): Equal-FLOPs comparison of CoT scaling and recurrent depth scaling.
+- P4 (Open domain): Build a pipeline that bridges TRM to math word problems like GSM8k.
+- P5 (Automatic lattice design): Port LDT's lattice encoding to N-Queens / graph coloring.
+- GRAM reproduction (official code unreleased).
+
+### 6 months – 1 year + cloud GPU budget
+
+- P7 (Scaling law): A parameter scaling sweep from 800K to 1B.
+- P8 (Benchmark bias): Cross-application of TRM / GRAM / LDT to 10–20 reasoning benchmarks.
+- Proposing new architectures (independent solutions to the limits of PTRM/GRAM/LDT).
+
+### Longer-term / joint-research level
+
+- P9 (Path to AGI): Operationalize skill acquisition efficiency.
+- A unified adaptive-allocation theory.
+
+## Chapter Summary
+
+Nine open problems are ordered by ease of entry. The first three (P1–P3) are short-term empirical studies feasible by combining existing implementations, the middle three (P4–P6) are benchmark/theoretical/mechanistic-interpretation questions requiring medium-term effort, and the last three (P7–P9) are longer-term questions that put the whole field in perspective.
+
+The recursive reasoning family moves quickly on arXiv at six-month timescales. Several of the problems marked "open" here may have been solved by someone in the months after this book is written, so searching arXiv for related terms (recursive reasoning, latent reasoning, looped transformer, depth recurrence, abstract interpretation neural) before starting is recommended.

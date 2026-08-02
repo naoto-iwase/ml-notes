@@ -1,0 +1,1 @@
+Let $V$ denote the vocabulary size and $L$ the sequence length, and write a clean sequence as $x_0 = (x_0^1, \dots, x_0^L)$. Each token can take $V+1$ states (the $V$ regular vocabulary tokens plus the special token `[MASK]`). $x_t^i$ denotes the token at position $i$ at time $t \in [0,1]$.

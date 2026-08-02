@@ -1,0 +1,16 @@
+---
+title: "Olmo 3"
+description: "Fully open language and reasoning models at 7B/32B scale (full Model Flow released)"
+date: "2026-02-02"
+author:
+  name: "Naoto Iwase"
+  url: "https://iwase.dev"
+date-modified: last-modified
+categories: [LLM, Reasoning]
+image: "images/olmo-3.png"
+toc: false
+---
+
+Olmo 3 is a family of state-of-the-art, fully-open language models at the 7B and 32B parameter scales developed by the Allen Institute for AI (AI2). This release includes the entire Model Flow, i.e., the full lifecycle of the family of models, including every stage, checkpoint, data point, and dependency used to build it.
+
+**Paper**: [arXiv:2512.13961](https://arxiv.org/abs/2512.13961)

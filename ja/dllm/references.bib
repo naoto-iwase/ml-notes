@@ -1,0 +1,998 @@
+% ---------------------------------------------------------------------------
+% Masked diffusion language models (core)
+% ---------------------------------------------------------------------------
+
+@inproceedings{sahoo2024mdlm,
+  title    = {Simple and {E}ffective {M}asked {D}iffusion {L}anguage {M}odels},
+  author   = {Subham Sekhar Sahoo and Marianne Arriola and Yair Schiff and Aaron Gokaslan and Edgar Marroquin and Justin T. Chiu and Alexander Rush and Volodymyr Kuleshov},
+  booktitle= {Advances in Neural Information Processing Systems},
+  year     = {2024},
+  url      = {https://openreview.net/forum?id=L4uaAR4ArM},
+}
+
+@inproceedings{shi2024simplified,
+  title     = {Simplified and {G}eneralized {M}asked {D}iffusion for {D}iscrete {D}ata},
+  author    = {Jiaxin Shi and Kehang Han and Zhe Wang and Arnaud Doucet and Michalis K. Titsias},
+  booktitle = {Advances in Neural Information Processing Systems},
+  year      = {2024},
+  url       = {https://openreview.net/forum?id=xcqSOfHt4g},
+}
+
+@article{nie2025llada,
+  title    = {Large {L}anguage {D}iffusion {M}odels},
+  author   = {Shen Nie and Fengqi Zhu and Zebin You and Xiaolu Zhang and Jingyang Ou and Jun Hu and Jun Zhou and Yankai Lin and Ji-Rong Wen and Chongxuan Li},
+  journal  = {arXiv preprint arXiv:2502.09992},
+  year     = {2025},
+  url      = {https://arxiv.org/abs/2502.09992},
+}
+
+% ---------------------------------------------------------------------------
+% Discrete diffusion (foundational and alternatives)
+% ---------------------------------------------------------------------------
+
+@inproceedings{austin2021d3pm,
+  title    = {Structured {D}enoising {D}iffusion {M}odels in {D}iscrete {S}tate-{S}paces},
+  author   = {Jacob Austin and Daniel D. Johnson and Jonathan Ho and Daniel Tarlow and Rianne van den Berg},
+  booktitle= {Advances in Neural Information Processing Systems},
+  year     = {2021},
+  url      = {https://openreview.net/forum?id=h7-XixPCAL},
+}
+
+@inproceedings{lou2024sedd,
+  title     = {Discrete {D}iffusion {M}odeling by {E}stimating the {R}atios of the {D}ata {D}istribution},
+  author    = {Aaron Lou and Chenlin Meng and Stefano Ermon},
+  booktitle = {Proceedings of the 41st International Conference on Machine Learning},
+  year      = {2024},
+  note      = {Best Paper Award},
+  url       = {https://arxiv.org/abs/2310.16834},
+}
+
+% ---------------------------------------------------------------------------
+% Masked image generation (DLLM sampler origin)
+% ---------------------------------------------------------------------------
+
+@inproceedings{chang2022maskgit,
+  title     = {{MaskGIT}: {M}asked {G}enerative {I}mage {T}ransformer},
+  author    = {Huiwen Chang and Han Zhang and Lu Jiang and Ce Liu and William T. Freeman},
+  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year      = {2022},
+  url       = {https://arxiv.org/abs/2202.04200},
+}
+
+% ---------------------------------------------------------------------------
+% Continuous diffusion (for the bridge chapter)
+% ---------------------------------------------------------------------------
+
+@inproceedings{ho2020ddpm,
+  title     = {Denoising {D}iffusion {P}robabilistic {M}odels},
+  author    = {Jonathan Ho and Ajay Jain and Pieter Abbeel},
+  booktitle = {Advances in Neural Information Processing Systems},
+  year      = {2020},
+  url       = {https://arxiv.org/abs/2006.11239},
+}
+
+@inproceedings{kingma2021vdm,
+  title     = {Variational {D}iffusion {M}odels},
+  author    = {Diederik P. Kingma and Tim Salimans and Ben Poole and Jonathan Ho},
+  booktitle = {Advances in Neural Information Processing Systems},
+  year      = {2021},
+  url       = {https://arxiv.org/abs/2107.00630},
+}
+
+@inproceedings{song2021scorebased,
+  title     = {Score-{B}ased {G}enerative {M}odeling through {S}tochastic {D}ifferential {E}quations},
+  author    = {Yang Song and Jascha Sohl-Dickstein and Diederik P. Kingma and Abhishek Kumar and Stefano Ermon and Ben Poole},
+  booktitle = {International Conference on Learning Representations},
+  year      = {2021},
+  url       = {https://openreview.net/forum?id=PxTIG12RRHS},
+}
+
+% ---------------------------------------------------------------------------
+% Blog posts (Sander Dieleman)
+% ---------------------------------------------------------------------------
+
+@misc{dieleman2025diffusionlm,
+  title        = {Diffusion language models},
+  author       = {Sander Dieleman},
+  year         = {2023},
+  howpublished = {Blog post},
+  url          = {https://sander.ai/2023/01/09/diffusion-language.html},
+}
+
+@misc{dieleman2024spectral,
+  title        = {Diffusion is spectral autoregression},
+  author       = {Sander Dieleman},
+  year         = {2024},
+  howpublished = {Blog post},
+  url          = {https://sander.ai/2024/09/02/spectral-autoregression.html},
+}
+
+@misc{dieleman2023guidance,
+  title        = {The geometry of diffusion guidance},
+  author       = {Sander Dieleman},
+  year         = {2023},
+  howpublished = {Blog post},
+  url          = {https://sander.ai/2023/08/28/geometry.html},
+}
+
+% ---------------------------------------------------------------------------
+% Misc
+% ---------------------------------------------------------------------------
+
+@article{ye2025dream,
+  title    = {Dream 7{B}: {D}iffusion {L}arge {L}anguage {M}odels},
+  author   = {Jiacheng Ye and Zhihui Xie and Lin Zheng and Jiahui Gao and Zirui Wu and Xin Jiang and Zhenguo Li and Lingpeng Kong},
+  journal  = {arXiv preprint arXiv:2508.15487},
+  year     = {2025},
+  url      = {https://arxiv.org/abs/2508.15487},
+}
+
+% ---------------------------------------------------------------------------
+% Block diffusion and hybrid AR-diffusion
+% ---------------------------------------------------------------------------
+
+@inproceedings{arriola2025bd3lms,
+  title     = {Block {D}iffusion: {I}nterpolating {B}etween {A}utoregressive and {D}iffusion {L}anguage {M}odels},
+  author    = {Marianne Arriola and Aaron Gokaslan and Justin T. Chiu and Zhihan Yang and Zhixuan Qi and Jiaqi Han and Subham Sekhar Sahoo and Volodymyr Kuleshov},
+  booktitle = {International Conference on Learning Representations},
+  year      = {2025},
+  note      = {Oral presentation},
+  url       = {https://arxiv.org/abs/2503.09573},
+}
+
+@article{vonrutte2025gidd,
+  title   = {Generalized {I}nterpolating {D}iscrete {D}iffusion},
+  author  = {Dimitri von R{\"u}tte and Janis Fluri and Yuhui Ding and Antonio Orvieto and Bernhard Sch{\"o}lkopf and Thomas Hofmann},
+  journal = {arXiv preprint arXiv:2503.04482},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2503.04482},
+}
+
+% ---------------------------------------------------------------------------
+% Continuous (embedding-space) text diffusion
+% ---------------------------------------------------------------------------
+
+@inproceedings{li2022diffusionlm,
+  title     = {Diffusion-{LM} {I}mproves {C}ontrollable {T}ext {G}eneration},
+  author    = {Xiang Lisa Li and John Thickstun and Ishaan Gulrajani and Percy Liang and Tatsunori B. Hashimoto},
+  booktitle = {Advances in Neural Information Processing Systems},
+  year      = {2022},
+  url       = {https://arxiv.org/abs/2205.14217},
+}
+
+@inproceedings{gong2023diffuseq,
+  title     = {{DiffuSeq}: {S}equence to {S}equence {T}ext {G}eneration with {D}iffusion {M}odels},
+  author    = {Shansan Gong and Mukai Li and Jiangtao Feng and Zhiyong Wu and Lingpeng Kong},
+  booktitle = {International Conference on Learning Representations},
+  year      = {2023},
+  url       = {https://arxiv.org/abs/2210.08933},
+}
+
+@article{strudel2022sed,
+  title   = {Self-conditioned {E}mbedding {D}iffusion for {T}ext {G}eneration},
+  author  = {Robin Strudel and Corentin Tallec and Florent Alt{\'e}ch{\'e} and Yilun Du and Yaroslav Ganin and Arthur Mensch and Will Grathwohl and Nikolay Savinov and Sander Dieleman and Laurent Sifre and R{\'e}mi Leblond},
+  journal = {arXiv preprint arXiv:2211.04236},
+  year    = {2022},
+  url     = {https://arxiv.org/abs/2211.04236},
+}
+
+@article{dieleman2022cdcd,
+  title   = {Continuous diffusion for categorical data},
+  author  = {Sander Dieleman and Laurent Sartran and Arman Roshannai and Nikolay Savinov and Yaroslav Ganin and Pierre H. Richemond and Arnaud Doucet and Robin Strudel and Chris Dyer and Conor Durkan and Curtis Hawthorne and R{\'e}mi Leblond and Will Grathwohl and Jonas Adler},
+  journal = {arXiv preprint arXiv:2211.15089},
+  year    = {2022},
+  url     = {https://arxiv.org/abs/2211.15089},
+}
+
+@inproceedings{gulrajani2023plaid,
+  title     = {Likelihood-{B}ased {D}iffusion {L}anguage {M}odels},
+  author    = {Ishaan Gulrajani and Tatsunori B. Hashimoto},
+  booktitle = {Advances in Neural Information Processing Systems},
+  year      = {2023},
+  url       = {https://arxiv.org/abs/2305.18619},
+}
+
+% ---------------------------------------------------------------------------
+% Guidance and inference-time intervention for discrete diffusion
+% ---------------------------------------------------------------------------
+
+@inproceedings{nisonoff2025discreteguidance,
+  title     = {Unlocking {G}uidance for {D}iscrete {S}tate-{S}pace {D}iffusion and {F}low {M}odels},
+  author    = {Hunter Nisonoff and Junhao Xiong and Stephan Allenspach and Jennifer Listgarten},
+  booktitle = {International Conference on Learning Representations},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2406.01572},
+}
+
+@article{schiff2024simpleguidance,
+  title   = {Simple {G}uidance {M}echanisms for {D}iscrete {D}iffusion {M}odels},
+  author  = {Yair Schiff and Subham Sekhar Sahoo and Hao Phung and Guanghan Wang and Sam Boshar and Hugo Dalla-torre and Bernardo P. de Almeida and Alexander M. Rush and Thomas Pierrot and Volodymyr Kuleshov},
+  journal = {arXiv preprint arXiv:2412.10193},
+  year    = {2024},
+  url     = {https://arxiv.org/abs/2412.10193},
+}
+
+% ---------------------------------------------------------------------------
+% Survey paper (this book's anchor reference)
+% ---------------------------------------------------------------------------
+
+@article{li2025dlmsurvey,
+  title   = {A {S}urvey on {D}iffusion {L}anguage {M}odels},
+  author  = {Tianyi Li and Mingda Chen and Bowei Guo and Zhiqiang Shen},
+  journal = {arXiv preprint arXiv:2508.10875},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2508.10875},
+}
+
+% ---------------------------------------------------------------------------
+% Discrete diffusion (additional foundational entries)
+% ---------------------------------------------------------------------------
+
+@inproceedings{he2023diffusionbert,
+  title     = {{DiffusionBERT}: {I}mproving {G}enerative {M}asked {L}anguage {M}odels with {D}iffusion {M}odels},
+  author    = {Zhengfu He and Tianxiang Sun and Qiong Tang and Kuanning Wang and Xuanjing Huang and Xipeng Qiu},
+  booktitle = {Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics},
+  year      = {2023},
+  url       = {https://arxiv.org/abs/2211.15029},
+}
+
+@inproceedings{zheng2024rdm,
+  title     = {A {R}eparameterized {D}iscrete {D}iffusion {M}odel for {T}ext {G}eneration},
+  author    = {Lin Zheng and Jianbo Yuan and Lei Yu and Lingpeng Kong},
+  booktitle = {First Conference on Language Modeling},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2302.05737},
+}
+
+@article{ou2024radd,
+  title   = {Your {A}bsorbing {D}iscrete {D}iffusion {S}ecretly {M}odels the {C}onditional {D}istributions of {C}lean {D}ata},
+  author  = {Jingyang Ou and Shen Nie and Kaiwen Xue and Fengqi Zhu and Jian Sun and Zhenguo Li and Chongxuan Li},
+  journal = {arXiv preprint arXiv:2406.03736},
+  year    = {2024},
+  url     = {https://arxiv.org/abs/2406.03736},
+}
+
+@inproceedings{liu2024ddpd,
+  title     = {Think {W}hile {Y}ou {G}enerate: {D}iscrete {D}iffusion with {P}lanned {D}enoising},
+  author    = {Sulin Liu and Juno Nam and Andrew Campbell and Hannes Stark and Yilun Xu and Tommi Jaakkola and Rafael Gomez-Bombarelli},
+  booktitle = {International Conference on Learning Representations},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2410.06264},
+}
+
+@article{ye2024mgdm,
+  title   = {Beyond {A}utoregression: {D}iscrete {D}iffusion for {C}omplex {R}easoning and {P}lanning},
+  author  = {Jiacheng Ye and Jiahui Gao and Shansan Gong and Lin Zheng and Xin Jiang and Zhenguo Li and Lingpeng Kong},
+  journal = {arXiv preprint arXiv:2410.14157},
+  year    = {2024},
+  url     = {https://arxiv.org/abs/2410.14157},
+}
+
+@inproceedings{gat2024dfm,
+  title     = {Discrete {F}low {M}atching},
+  author    = {Itai Gat and Tal Remez and Neta Shaul and Felix Kreuk and Ricky T. Q. Chen and Gabriel Synnaeve and Yossi Adi and Yaron Lipman},
+  booktitle = {Advances in Neural Information Processing Systems},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2407.15595},
+}
+
+% ---------------------------------------------------------------------------
+% LLaDA family, AR→DLM adaptation, scaled DLMs
+% ---------------------------------------------------------------------------
+
+@inproceedings{gong2025diffullama,
+  title     = {Scaling {D}iffusion {L}anguage {M}odels via {A}daptation from {A}utoregressive {M}odels},
+  author    = {Shansan Gong and Shivam Agarwal and Yizhe Zhang and Jiacheng Ye and Lin Zheng and Mukai Li and Chenxin An and Peilin Zhao and Wei Bi and Jiawei Han and Hao Peng and Lingpeng Kong},
+  booktitle = {International Conference on Learning Representations},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2410.17891},
+}
+
+@misc{ye2025dream7b,
+  title        = {Dream 7B},
+  author       = {Jiacheng Ye and Zhihui Xie and Lin Zheng and Jiahui Gao and Zirui Wu and Xin Jiang and Zhenguo Li and Lingpeng Kong},
+  year         = {2025},
+  howpublished = {Blog post},
+  note         = {HKU NLP},
+  url          = {https://hkunlp.github.io/blog/2025/dream/},
+}
+
+@article{liu2025longllada,
+  title   = {{LongLLaDA}: {U}nlocking {L}ong {C}ontext {C}apabilities in {D}iffusion {LLM}s},
+  author  = {Xiaoran Liu and Zhigeng Liu and Zengyi Gao and Qiao He and Xiang Ao and Xinyu Qiu},
+  journal = {arXiv preprint arXiv:2506.14429},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2506.14429},
+}
+
+@article{he2025ultrallada,
+  title   = {{UltraLLaDA}: {S}caling the {C}ontext {L}ength to 128{K} for {D}iffusion {L}arge {L}anguage {M}odels},
+  author  = {Gengfeng He and Shen Nie and Fengqi Zhu and Tian Bai and Ran Yan and Fu Li and Ju Wu and Yuan Cao},
+  journal = {arXiv preprint arXiv:2510.10481},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2510.10481},
+}
+
+@article{zhu2025lladamoe,
+  title   = {{LLaDA-MoE}: {A} {S}parse {MoE} {D}iffusion {L}anguage {M}odel},
+  author  = {Fengqi Zhu and Zebin You and Yipeng Xing and Hu Zhang and Kongcheng Wang and Xinyu Wang and Liyi Wei and others},
+  journal = {arXiv preprint arXiv:2509.24389},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2509.24389},
+}
+
+@article{zhu2025llada15,
+  title   = {{LLaDA} 1.5: {V}ariance-{R}educed {P}reference {O}ptimization for {L}arge {L}anguage {D}iffusion {M}odels},
+  author  = {Fengqi Zhu and Rongzhen Wang and Shen Nie and Xiaolu Zhang and Chun Wu and Jun Hu and Jun Zhou and Jianfei Chen and Yankai Lin and Ji-Rong Wen and Chongxuan Li},
+  journal = {arXiv preprint arXiv:2505.19223},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2505.19223},
+}
+
+@article{song2025seeddiffusion,
+  title   = {Seed {D}iffusion: {A} {L}arge-{S}cale {D}iffusion {L}anguage {M}odel with {H}igh-{S}peed {I}nference},
+  author  = {Yuxuan Song and Zheng Zhang and Cheng Luo and Pengyang Gao and Fan Xia and Hao Luo and Zheng Li and Yuehang Yang and Hongli Yu and Xingwei Qu and others},
+  journal = {arXiv preprint arXiv:2508.02193},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2508.02193},
+}
+
+% ---------------------------------------------------------------------------
+% Hybrid AR-Diffusion
+% ---------------------------------------------------------------------------
+
+@inproceedings{han2023ssdlm,
+  title     = {{SSD-LM}: {S}emi-autoregressive {S}implex-based {D}iffusion {L}anguage {M}odel for {T}ext {G}eneration and {M}odular {C}ontrol},
+  author    = {Xiaochuang Han and Sachin Kumar and Yulia Tsvetkov},
+  booktitle = {Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics},
+  year      = {2023},
+  url       = {https://arxiv.org/abs/2210.17432},
+}
+
+@inproceedings{wu2023ardiffusion,
+  title     = {{AR-Diffusion}: {A}uto-regressive {D}iffusion {M}odel for {T}ext {G}eneration},
+  author    = {Tong Wu and Zhihao Fan and Xiao Liu and Hai-Tao Zheng and Yeyun Gong and Jian Jiao and Juntao Li and Jian Guo and Nan Duan and Weizhu Chen and others},
+  booktitle = {Advances in Neural Information Processing Systems},
+  year      = {2023},
+  url       = {https://arxiv.org/abs/2305.09515},
+}
+
+@article{huang2025ctrldiff,
+  title   = {{CtrlDiff}: {B}oosting {L}arge {D}iffusion {L}anguage {M}odels with {D}ynamic {B}lock {P}rediction and {C}ontrollable {G}eneration},
+  author  = {Chihan Huang and Hao Tang},
+  journal = {arXiv preprint arXiv:2505.14455},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2505.14455},
+}
+
+@inproceedings{christopher2025specdiff,
+  title     = {Speculative {D}iffusion {D}ecoding: {A}ccelerating {L}anguage {G}eneration through {D}iffusion},
+  author    = {Jacob K. Christopher and Brian R. Bartoldson and Tao Ben-Nun and Michael Cardei and Bhavya Kailkhura and Ferdinando Fioretto},
+  booktitle = {Proceedings of NAACL: Human Language Technologies},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2408.05636},
+}
+
+@article{cheng2025sdar,
+  title   = {{SDAR}: {A} {S}ynergistic {D}iffusion-{A}utoregression {P}aradigm for {S}calable {S}equence {G}eneration},
+  author  = {Shuang Cheng and Yihan Bian and Dawei Liu and Linfeng Zhang and Qian Yao and Zhongbo Tian and Wenhai Wang and Qipeng Guo and Kai Chen and Biqing Qi and others},
+  journal = {arXiv preprint arXiv:2510.06303},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2510.06303},
+}
+
+@article{liu2025tidar,
+  title   = {{TiDAR}: {T}hink in {D}iffusion, {T}alk in {A}utoregression},
+  author  = {Jingyu Liu and Xin Dong and Zhifan Ye and Rishabh Mehta and Yonggan Fu and Vartika Singh and Jan Kautz and Ce Zhang and Pavlo Molchanov},
+  journal = {arXiv preprint arXiv:2511.08923},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2511.08923},
+}
+
+@article{liu2025sdlm,
+  title   = {{SDLM}: {S}equential {D}iffusion {L}anguage {M}odels},
+  author  = {Yi Liu and Yuan Cao and Li Hu and Guo Luo and Zi Chen and Wei Wang and Xiang Liu and Bo Qi and Long Wu and Cheng Tian and others},
+  journal = {arXiv preprint arXiv:2509.24007},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2509.24007},
+}
+
+% ---------------------------------------------------------------------------
+% Multimodal Diffusion Language Models (dMLLM)
+% ---------------------------------------------------------------------------
+
+@article{you2025lladav,
+  title   = {{LLaDA-V}: {L}arge {L}anguage {D}iffusion {M}odels with {V}isual {I}nstruction {T}uning},
+  author  = {Zebin You and Shen Nie and Xiaolu Zhang and Jun Hu and Jun Zhou and Zhiwu Lu and Ji-Rong Wen and Chongxuan Li},
+  journal = {arXiv preprint arXiv:2505.16933},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2505.16933},
+}
+
+@article{yu2025dimple,
+  title   = {{Dimple}: {D}iscrete {D}iffusion {M}ultimodal {L}arge {L}anguage {M}odel with {P}arallel {D}ecoding},
+  author  = {Runpeng Yu and Xinyin Ma and Xinchao Wang},
+  journal = {arXiv preprint arXiv:2505.16990},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2505.16990},
+}
+
+@article{yang2025mmada,
+  title   = {{MMaDA}: {M}ultimodal {L}arge {D}iffusion {L}anguage {M}odels},
+  author  = {Ling Yang and Ye Tian and Bowen Li and Xinchen Zhang and Ke Shen and Yunhai Tong and Mengdi Wang},
+  journal = {arXiv preprint arXiv:2505.15809},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2505.15809},
+}
+
+@inproceedings{li2025ddit,
+  title     = {Dual {D}iffusion for {U}nified {I}mage {G}eneration and {U}nderstanding},
+  author    = {Zijie Li and Henry Li and Yichun Shi and Amir Barati Farimani and Yuval Kluger and Linjie Yang and Peng Wang},
+  booktitle = {Proceedings of the Computer Vision and Pattern Recognition Conference (CVPR)},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2501.00289},
+}
+
+@article{li2025lavida,
+  title   = {{LaViDa}: {A} {L}arge {D}iffusion {L}anguage {M}odel for {M}ultimodal {U}nderstanding},
+  author  = {Shufan Li and Konstantinos Kallidromitis and Hritik Bansal and Akash Gokul and Yusuke Kato and Kazuki Kozuka and Jason Kuen and Zhe Lin and Kai-Wei Chang and Aditya Grover},
+  journal = {arXiv preprint arXiv:2505.16839},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2505.16839},
+}
+
+@article{li2025lavidao,
+  title   = {{LaViDa-O}: {E}lastic {L}arge {M}asked {D}iffusion {M}odels for {U}nified {M}ultimodal {U}nderstanding and {G}eneration},
+  author  = {Shufan Li and Jiuxiang Gu and Kangning Liu and Zhe Lin and Zijun Wei and Aditya Grover and Jason Kuen},
+  journal = {arXiv preprint arXiv:2509.19244},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2509.19244},
+}
+
+@article{wang2025fudoki,
+  title   = {{Fudoki}: {D}iscrete {F}low-{B}ased {U}nified {U}nderstanding and {G}eneration via {K}inetic-{O}ptimal {V}elocities},
+  author  = {Jin Wang and Yao Lai and Aoxue Li and Shifeng Zhang and Jiacheng Sun and Ning Kang and Chengyue Wu and Zhenguo Li and Ping Luo},
+  journal = {arXiv preprint arXiv:2505.20147},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2505.20147},
+}
+
+@article{swerdlow2025unidisc,
+  title   = {Unified {M}ultimodal {D}iscrete {D}iffusion},
+  author  = {Alexander Swerdlow and Mihir Prabhudesai and Siddharth Gandhi and Deepak Pathak and Katerina Fragkiadaki},
+  journal = {arXiv preprint arXiv:2503.20853},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2503.20853},
+}
+
+@article{xin2025luminadimoo,
+  title   = {{Lumina-DiMOO}: {A}n {O}mni {D}iffusion {L}arge {L}anguage {M}odel for {M}ulti-modal {G}eneration and {U}nderstanding},
+  author  = {Yi Xin and Qi Qin and Siqi Luo and Kaiwen Zhu and Juncheng Yan and Yan Tai and Jiayi Lei and Yuewen Cao and Keqi Wang and Yibin Wang and others},
+  journal = {arXiv preprint arXiv:2510.06308},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2510.06308},
+}
+
+@article{tian2025mmadaparallel,
+  title   = {{MMaDA-Parallel}: {M}ultimodal {L}arge {D}iffusion {L}anguage {M}odels for {T}hinking-{A}ware {E}diting and {G}eneration},
+  author  = {Ye Tian and Ling Yang and Jiongfan Yang and Anran Wang and Yu Tian and Jiani Zheng and Haochen Wang and Zhiyang Teng and Zhuochen Wang and Yinjie Wang and others},
+  journal = {arXiv preprint arXiv:2511.09611},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2511.09611},
+}
+
+@article{shi2025muddit,
+  title   = {{Muddit}: {L}iberating {G}eneration beyond {T}ext-to-{I}mage with a {U}nified {D}iscrete {D}iffusion {M}odel},
+  author  = {Qingyu Shi and Jinbin Bai and Zhuoran Zhao and Wenhao Chai and Kaidong Yu and Jianzong Wu and Shuangyong Song and Yunhai Tong and Xiangtai Li and Xuelong Li and others},
+  journal = {arXiv preprint arXiv:2505.23606},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2505.23606},
+}
+
+@article{labs2025mercury,
+  title    = {{Mercury}: {U}ltra-{F}ast {L}anguage {M}odels {B}ased on {D}iffusion},
+  author   = {{Inception Labs} and Samar Khanna and Siddhant Kharbanda and Shufan Li and Harshit Varma and Eric Wang and Sawyer Birnbaum and Ziyang Luo and Yanis Miraoui and Akash Palrecha and Stefano Ermon and Aditya Grover and Volodymyr Kuleshov},
+  journal  = {arXiv preprint arXiv:2506.17298},
+  year     = {2025},
+  url      = {https://arxiv.org/abs/2506.17298},
+}
+
+@misc{deepmind2024geminidiffusion,
+  title        = {Gemini {D}iffusion},
+  author       = {{Google DeepMind}},
+  year         = {2024},
+  howpublished = {Product page},
+  url          = {https://deepmind.google/models/gemini-diffusion/},
+}
+
+% ---------------------------------------------------------------------------
+% Post-training: Reasoning, RL for DLMs
+% ---------------------------------------------------------------------------
+
+@inproceedings{ye2024dot,
+  title    = {Diffusion of {T}houghts: {C}hain-of-{T}hought {R}easoning in {D}iffusion {L}anguage {M}odels},
+  author   = {Jiacheng Ye and Shansan Gong and Liheng Chen and Lin Zheng and Jiahui Gao and Han Shi and Chuan Wu and Xin Jiang and Zhenguo Li and Wei Bi and Lingpeng Kong},
+  booktitle= {Advances in Neural Information Processing Systems},
+  year     = {2024},
+  url      = {https://arxiv.org/abs/2402.07754},
+}
+
+@inproceedings{huang2025dcolt,
+  title    = {Reinforcing the {D}iffusion {C}hain of {L}ateral {T}hought with {D}iffusion {L}anguage {M}odels},
+  author   = {Zemin Huang and Zhiyang Chen and Zijun Wang and Tiancheng Li and Guo-Jun Qi},
+  booktitle= {Advances in Neural Information Processing Systems},
+  year     = {2025},
+  url      = {https://arxiv.org/abs/2505.10446},
+}
+
+@article{zekri2025sepo,
+  title   = {Fine-tuning {D}iscrete {D}iffusion {M}odels with {P}olicy {G}radient {M}ethods},
+  author  = {Oussama Zekri and Nicolas Boull{\'e}},
+  journal = {arXiv preprint arXiv:2502.01384},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2502.01384},
+}
+
+@article{zhao2025d1,
+  title    = {d1: {S}caling {R}easoning in {D}iffusion {L}arge {L}anguage {M}odels via {R}einforcement {L}earning},
+  author   = {Siyan Zhao and Devaansh Gupta and Qinqing Zheng and Aditya Grover},
+  journal  = {arXiv preprint arXiv:2504.12216},
+  year     = {2025},
+  url      = {https://arxiv.org/abs/2504.12216},
+}
+
+@article{gong2025diffucoder,
+  title   = {{DiffuCoder}: {U}nderstanding and {I}mproving {M}asked {D}iffusion {M}odels for {C}ode {G}eneration},
+  author  = {Shansan Gong and Ruixiang Zhang and Huangjie Zheng and Jiatao Gu and Navdeep Jaitly and Lingpeng Kong and Yizhe Zhang},
+  journal = {arXiv preprint arXiv:2506.20639},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2506.20639},
+}
+
+@article{zhao2025igpo,
+  title   = {Inpainting-guided {P}olicy {O}ptimization for {D}iffusion {L}arge {L}anguage {M}odels},
+  author  = {Siyan Zhao and Mengchen Liu and Jing Huang and Miao Liu and Chenyu Wang and Bo Liu and Yi Tian and Guan Pang and Sean Bell and Aditya Grover and others},
+  journal = {arXiv preprint arXiv:2509.10396},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2509.10396},
+}
+
+@article{tang2025wd1,
+  title   = {{wd1}: {W}eighted {P}olicy {O}ptimization for {R}easoning in {D}iffusion {L}anguage {M}odels},
+  author  = {Xiaohang Tang and R. Dolga and Sangwoong Yoon and Ilija Bogunovic},
+  journal = {arXiv preprint arXiv:2507.08838},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2507.08838},
+}
+
+@article{xie2025sapo,
+  title   = {Step-aware {P}olicy {O}ptimization for {R}easoning in {D}iffusion {L}arge {L}anguage {M}odels},
+  author  = {Shuoyan Xie and Lin Kong and Xun Song and Xun Dong and Gengkai Chen and Eric P. Xing and Kun Zhang},
+  journal = {arXiv preprint arXiv:2510.01544},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2510.01544},
+}
+
+@article{wang2025spg,
+  title   = {{SPG}: {S}andwiched {P}olicy {G}radient for {M}asked {D}iffusion {L}anguage {M}odels},
+  author  = {Chenglong Wang and Pengrui Rashidinejad and Di Su and Shu Jiang and Wang Shi and Zhou Zhou and Shen Feng and Tong Jaakkola},
+  journal = {arXiv preprint arXiv:2510.09541},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2510.09541},
+}
+
+@article{lin2025bgpo,
+  title   = {Boundary-guided {P}olicy {O}ptimization for {M}emory-efficient {RL} of {D}iffusion {L}arge {L}anguage {M}odels},
+  author  = {Nian Lin and Jianan Zhang and Lei Hou and Juanzi Li},
+  journal = {arXiv preprint arXiv:2510.11683},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2510.11683},
+}
+
+% ---------------------------------------------------------------------------
+% Inference acceleration: parallel decoding
+% ---------------------------------------------------------------------------
+
+@article{wu2025fastdllm,
+  title   = {{Fast-dLLM}: {T}raining-free {A}cceleration of {D}iffusion {LLM} by {E}nabling {KV} {C}ache and {P}arallel {D}ecoding},
+  author  = {Chengyue Wu and Hao Zhang and Shuchen Xue and Zhijian Liu and Shizhe Diao and Ligeng Zhu and Ping Luo and Song Han and Enze Xie},
+  journal = {arXiv preprint arXiv:2505.22618},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2505.22618},
+}
+
+@article{israel2025apd,
+  title   = {Accelerating {D}iffusion {LLM}s via {A}daptive {P}arallel {D}ecoding},
+  author  = {Daniel Israel and Guy Van den Broeck and Aditya Grover},
+  journal = {arXiv preprint arXiv:2506.00413},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2506.00413},
+}
+
+@article{wei2025slowfast,
+  title   = {Accelerating {D}iffusion {L}arge {L}anguage {M}odels with {SlowFast}: {T}he {T}hree {G}olden {P}rinciples},
+  author  = {Qingyan Wei and Yaojie Zhang and Zhiyuan Liu and Dongrui Liu and Linfeng Zhang},
+  journal = {arXiv preprint arXiv:2506.10848},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2506.10848},
+}
+
+@article{bao2025learn2pd,
+  title   = {Learning to {P}arallel: {A}ccelerating {D}iffusion {L}arge {L}anguage {M}odels via {L}earnable {P}arallel {D}ecoding},
+  author  = {Wenrui Bao and Zhi Chen and Xinyi Du and Wei Shang},
+  journal = {arXiv preprint arXiv:2509.25188},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2509.25188},
+}
+
+@article{chen2025dparallel,
+  title   = {{dParallel}: {L}earnable {P}arallel {D}ecoding for {dLLM}s},
+  author  = {Zigeng Chen and Xinyin Ma and Ke Yu and Yiqing Wang and Xinchao Wang},
+  journal = {arXiv preprint arXiv:2509.26488},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2509.26488},
+}
+
+% ---------------------------------------------------------------------------
+% Inference acceleration: caching
+% ---------------------------------------------------------------------------
+
+@article{liu2025dllmcache,
+  title   = {{dLLM-Cache}: {A}ccelerating {D}iffusion {L}arge {L}anguage {M}odels with {A}daptive {C}aching},
+  author  = {Zhiyuan Liu and Yicun Yang and Yaojie Zhang and Junjie Chen and Zhouhan Zhang and Linfeng Zhang},
+  journal = {arXiv preprint arXiv:2506.06295},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2506.06295},
+}
+
+@article{ma2025dkvcache,
+  title   = {{dKV-Cache}: {T}he {C}ache for {D}iffusion {L}anguage {M}odels},
+  author  = {Xinyin Ma and Runpeng Yu and Gongfan Fang and Xinchao Wang},
+  journal = {arXiv preprint arXiv:2505.15781},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2505.15781},
+}
+
+@article{jiang2025d2cache,
+  title   = {{d{$^2$}Cache}: {A}ccelerating {D}iffusion-based {LLM}s via {D}ual {A}daptive {C}aching},
+  author  = {Yicun Jiang and Xiang Cai and Xun Luo and Fu Ji and Lei Wang and Lin Cao and Liu and Xun Yang},
+  journal = {arXiv preprint arXiv:2509.23094},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2509.23094},
+}
+
+@article{nguyen2025elasticcache,
+  title   = {Attention is {A}ll {Y}ou {N}eed for {KV} {C}ache in {D}iffusion {LLM}s},
+  author  = {Quan Nguyen-Tri and Mingyuan Shen and Peng Ye and Jianjian Cao and Chongjun Tu and S. Bouganis and Yiren Zhao and Tao Chen},
+  journal = {arXiv preprint arXiv:2510.14973},
+  year    = {2025},
+  note    = {Method name: Elastic-Cache},
+  url     = {https://arxiv.org/abs/2510.14973},
+}
+
+@inproceedings{ma2024deepcache,
+  title     = {{DeepCache}: {A}ccelerating {D}iffusion {M}odels for {F}ree},
+  author    = {Xinyin Ma and Gongfan Fang and Xinchao Wang},
+  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2312.00858},
+}
+
+@article{chen2024deltadit,
+  title   = {$\Delta$-{DiT}: {A} {T}raining-free {A}cceleration {M}ethod {T}ailored for {D}iffusion {T}ransformers},
+  author  = {Pengtao Chen and Mingzhu Shen and Peng Ye and Jianjian Cao and Chongjun Tu and S. Bouganis and Yiren Zhao and Tao Chen},
+  journal = {arXiv preprint arXiv:2406.01125},
+  year    = {2024},
+  url     = {https://arxiv.org/abs/2406.01125},
+}
+
+@inproceedings{ma2024learning2cache,
+  title     = {{L}earning-to-{C}ache: {A}ccelerating {D}iffusion {T}ransformer via {L}ayer {C}aching},
+  author    = {Xinyin Ma and Gongfan Fang and Michael Bi Mi and Xinchao Wang},
+  booktitle = {Advances in Neural Information Processing Systems},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2406.01733},
+}
+
+@inproceedings{lv2025fastercache,
+  title     = {{FasterCache}: {T}raining-free {V}ideo {D}iffusion {M}odel {A}cceleration with {H}igh {Q}uality},
+  author    = {Zhengyao Lv and Chenyang Si and Junhao Song and Yang Yang and Yu Qiao and Ziwei Liu and Kwan-Yee K. Wong},
+  booktitle = {International Conference on Learning Representations},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2410.19355},
+}
+
+% ---------------------------------------------------------------------------
+% Inference acceleration: step distillation and remasking
+% ---------------------------------------------------------------------------
+
+@inproceedings{salimans2022progressive,
+  title    = {Progressive {D}istillation for {F}ast {S}ampling of {D}iffusion {M}odels},
+  author   = {Tim Salimans and Jonathan Ho},
+  booktitle= {International Conference on Learning Representations},
+  year     = {2022},
+  url      = {https://openreview.net/forum?id=TIdIXIpzhoI},
+}
+
+@inproceedings{sauer2024add,
+  title     = {Adversarial {D}iffusion {D}istillation},
+  author    = {Axel Sauer and Dominik Lorenz and Andreas Blattmann and Robin Rombach},
+  booktitle = {European Conference on Computer Vision (ECCV)},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2311.17042},
+}
+
+@inproceedings{sauer2024ladd,
+  title     = {Fast {H}igh-{R}esolution {I}mage {S}ynthesis with {L}atent {A}dversarial {D}iffusion {D}istillation},
+  author    = {Axel Sauer and Frederic Boesel and Tim Dockhorn and Andreas Blattmann and Patrick Esser and Robin Rombach},
+  booktitle = {SIGGRAPH Asia 2024 Conference Papers},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2403.12015},
+}
+
+@inproceedings{hayakawa2024di4c,
+  title     = {Distillation of {D}iscrete {D}iffusion through {D}imensional {C}orrelations},
+  author    = {Satoshi Hayakawa and Yuhta Takida and Masaaki Imaizumi and Hiromi Wakaki and Yuki Mitsufuji},
+  booktitle = {International Conference on Machine Learning},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2410.08709},
+}
+
+@article{chen2025dlmone,
+  title   = {{DLM-One}: {D}iffusion {L}anguage {M}odels for {O}ne-{S}tep {S}equence {G}eneration},
+  author  = {Tianqi Chen and Shujian Zhang and Mingyuan Zhou},
+  journal = {arXiv e-prints},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2506.00290},
+}
+
+@inproceedings{wang2025remdm,
+  title    = {Remasking {D}iscrete {D}iffusion {M}odels with {I}nference-{T}ime {S}caling},
+  author   = {Guanghan Wang and Yair Schiff and Subham Sekhar Sahoo and Volodymyr Kuleshov},
+  booktitle= {Advances in Neural Information Processing Systems},
+  year     = {2025},
+  url      = {https://arxiv.org/abs/2503.00307},
+}
+
+% ---------------------------------------------------------------------------
+% Guidance for discrete diffusion
+% ---------------------------------------------------------------------------
+
+@article{li2025acfg,
+  title   = {Adaptive {C}lassifier-{F}ree {G}uidance via {D}ynamic {L}ow-{C}onfidence {M}asking},
+  author  = {Pengxiang Li and Shilin Yan and Joey Tsai and Renrui Zhang and Ruichuan An and Ziyu Guo and Xiaowei Gao},
+  journal = {arXiv preprint arXiv:2505.20199},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2505.20199},
+}
+
+@article{hu2025freecache,
+  title   = {Accelerating {D}iffusion {L}anguage {M}odel {I}nference via {E}fficient {KV} {C}aching and {G}uided {D}iffusion},
+  author  = {Zhanqiu Hu and Jian Meng and M. S. Abdelfattah and Jae-sun Seo and Zhiru Zhang and Udit Gupta},
+  journal = {arXiv preprint arXiv:2505.21467},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2505.21467},
+}
+
+@article{suresh2025dingo,
+  title   = {{DINGO}: {C}onstrained {I}nference for {D}iffusion {LLM}s},
+  author  = {Tarun Suresh and Debangshu Banerjee and Shubham Ugare and Sasa Misailovic and Gagandeep Singh},
+  journal = {ICML 2025 Workshop on Reliable and Responsible Foundation Models},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2505.23061},
+}
+
+% ---------------------------------------------------------------------------
+% Applications: Code generation
+% ---------------------------------------------------------------------------
+
+@article{luxembourg2025dus,
+  title   = {{P}lan for {S}peed: {D}ilated {S}cheduling for {M}asked {D}iffusion {L}anguage {M}odels},
+  author  = {Omer Luxembourg and Haim Permuter and Eliya Nachmani},
+  journal = {arXiv preprint arXiv:2506.19037},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2506.19037},
+}
+
+% ---------------------------------------------------------------------------
+% Applications: Biology / scientific
+% ---------------------------------------------------------------------------
+
+@article{xiong2025transdlm,
+  title   = {Text-{G}uided {M}ulti-{P}roperty {M}olecular {O}ptimization with a {D}iffusion {L}anguage {M}odel},
+  author  = {Yida Xiong and Kun Li and Jiawei Zhang and Dan Lin and Yan Che and Wenhu Hu},
+  journal = {arXiv preprint arXiv:2410.13597},
+  year    = {2024},
+  url     = {https://arxiv.org/abs/2410.13597},
+}
+
+@inproceedings{gong2024tgmdlm,
+  title     = {{T}ext-guided {M}olecule {G}eneration with {D}iffusion {L}anguage {M}odel},
+  author    = {Haisong Gong and Qiang Liu and Shu Wu and Liang Wang},
+  booktitle = {Proceedings of the AAAI Conference on Artificial Intelligence},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2402.13643},
+}
+
+@article{goel2024memdlm,
+  title   = {{MeMDLM}: {D}e {N}ovo {M}embrane {P}rotein {D}esign with {M}asked {D}iscrete {D}iffusion {P}rotein {L}anguage {M}odels},
+  author  = {Shrey Goel and Vishrut Thoutam and Edgar Marroquin and Aaron Gokaslan and Arash Firouzbakht and Sophia Vincoff and Volodymyr Kuleshov and Huong T. Kratochvil and Pranam Chatterjee},
+  journal = {NeurIPS 2024 Workshop on AI for New Drug Modalities},
+  year    = {2024},
+  url     = {https://arxiv.org/abs/2410.16735},
+}
+
+@inproceedings{wang2024dplm,
+  title     = {Diffusion {L}anguage {M}odels are {V}ersatile {P}rotein {L}earners},
+  author    = {Xinyou Wang and Zaixiang Zheng and Fei Ye and Dongyu Xue and Shujian Huang and Quanquan Gu},
+  booktitle = {International Conference on Machine Learning},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2402.18567},
+}
+
+@article{wang2024dplm2,
+  title   = {{DPLM-2}: {A} {M}ultimodal {D}iffusion {P}rotein {L}anguage {M}odel},
+  author  = {Xinyou Wang and Zaixiang Zheng and Fei Ye and Dongyu Xue and Shujian Huang and Quanquan Gu},
+  journal = {arXiv preprint arXiv:2410.13782},
+  year    = {2024},
+  url     = {https://arxiv.org/abs/2410.13782},
+}
+
+@inproceedings{yin2025cfpgen,
+  title     = {{CFP-Gen}: {C}ombinatorial {F}unctional {P}rotein {G}eneration via {D}iffusion {L}anguage {M}odels},
+  author    = {Junbo Yin and Chao Zha and Wenjia He and Chencheng Xu and Xin Gao},
+  booktitle = {International Conference on Machine Learning},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2505.22869},
+}
+
+@inproceedings{wang2025drakes,
+  title     = {Fine-tuning {D}iscrete {D}iffusion {M}odels via {R}eward {O}ptimization with {A}pplications to {DNA} and {P}rotein {D}esign},
+  author    = {Chenyu Wang and Masatoshi Uehara and Yichun He and Amy Wang and Avantika Lal and Tommi Jaakkola and Sergey Levine and Aviv Regev and Hanchen Wang and Tommaso Biancalani},
+  booktitle = {International Conference on Learning Representations},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2410.13643},
+}
+
+@article{ni2024forcegen,
+  title   = {{ForceGen}: {E}nd-to-end de {N}ovo {P}rotein {G}eneration based on {N}onlinear {M}echanical {U}nfolding {R}esponses using a {L}anguage {D}iffusion {M}odel},
+  author  = {Bo Ni and David L. Kaplan and Markus J. Buehler},
+  journal = {Science Advances},
+  year    = {2024},
+  volume  = {10},
+  number  = {6},
+  pages   = {eadl4000},
+  url     = {https://www.science.org/doi/10.1126/sciadv.adl4000},
+}
+
+@article{hallee2025dsm,
+  title   = {Diffusion {S}equence {M}odels for {E}nhanced {P}rotein {R}epresentation and {G}eneration},
+  author  = {Logan Hallee and Nikolaos Rafailidis and David Bichara and Jason P. Gleghorn},
+  journal = {arXiv preprint arXiv:2506.08293},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2506.08293},
+}
+
+% ---------------------------------------------------------------------------
+% Applications: Robotics (Vision-Language-Action)
+% ---------------------------------------------------------------------------
+
+@article{wen2025lladavla,
+  title   = {{LLaDA-VLA}: {V}ision {L}anguage {D}iffusion {A}ction {M}odels},
+  author  = {Yuqi Wen and Hao Li and K. Gu and Yiwen Zhao and Tao Wang and Mingxiu Sun},
+  journal = {arXiv preprint arXiv:2509.06932},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2509.06932},
+}
+
+@article{wen2025dvla,
+  title   = {{dVLA}: {D}iffusion {V}ision-{L}anguage-{A}ction {M}odel with {M}ultimodal {C}hain-of-{T}hought},
+  author  = {Junjie Wen and Min Zhu and Jiaqi Liu and Zhuo Liu and Yang Liu and Liang Zhang and Zhe Zhang and Yu Zhu and Yi Xu},
+  journal = {arXiv preprint arXiv:2509.25681},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2509.25681},
+}
+
+@article{chen2025udvla,
+  title   = {Unified {D}iffusion {VLA}: {V}ision-{L}anguage-{A}ction {M}odel via {J}oint {D}iscrete {D}enoising {D}iffusion {P}rocess},
+  author  = {Jian Chen and Wei Song and Pu Ding and Zhibo Zhou and Hong Zhao and Fang Tang and Ding Wang and Hu Li},
+  journal = {arXiv preprint arXiv:2511.01718},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2511.01718},
+}
+
+% ---------------------------------------------------------------------------
+% Applications: Conventional NLP (selected representatives)
+% ---------------------------------------------------------------------------
+
+@article{yuan2024roicdm,
+  title   = {{ROIC-DM}: {R}obust {T}ext {I}nference and {C}lassification via {D}iffusion {M}odel},
+  author  = {Shilong Yuan and Wei Yuan and Hongzhi Yin and Tieke He},
+  journal = {arXiv preprint arXiv:2401.03514},
+  year    = {2024},
+  url     = {https://arxiv.org/abs/2401.03514},
+}
+
+@inproceedings{shen2023diffusionner,
+  title     = {{DiffusionNER}: {B}oundary {D}iffusion for {N}amed {E}ntity {R}ecognition},
+  author    = {Yongliang Shen and Kaitao Song and Xu Tan and Dongsheng Li and Weiming Lu and Yueting Zhuang},
+  booktitle = {Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics},
+  year      = {2023},
+  url       = {https://arxiv.org/abs/2305.13298},
+}
+
+@article{xiang2025ipad,
+  title   = {{IPAD}: {I}terative, {P}arallel, and {D}iffusion-based {N}etwork for {S}cene {T}ext {R}ecognition},
+  author  = {Xun Xiang and Zhaoqi Qiao and Xun Xu and Yu Zhou},
+  journal = {International Journal of Computer Vision},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2312.11923},
+}
+
+@inproceedings{zhang2023diffusum,
+  title     = {{DiffuSum}: {G}eneration {E}nhanced {E}xtractive {S}ummarization with {D}iffusion},
+  author    = {Haopeng Zhang and Xiao Liu and Jiawei Zhang},
+  booktitle = {Findings of the Association for Computational Linguistics: ACL 2023},
+  year      = {2023},
+  url       = {https://arxiv.org/abs/2305.01735},
+}
+
+@article{lee2025editext,
+  title   = {{EditText}: {C}ontrollable {C}oarse-to-{F}ine {T}ext {E}diting with {D}iffusion {L}anguage {M}odels},
+  author  = {Che Hyun Lee and Heeseung Kim and Jiheum Yeom and Sungroh Yoon},
+  journal = {arXiv preprint arXiv:2502.19765},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2502.19765},
+}
+
+@article{zhang2023planner,
+  title   = {{PLANNER}: {G}enerating {D}iversified {P}aragraph via {L}atent {L}anguage {D}iffusion {M}odel},
+  author  = {Yizhe Zhang and Jiatao Gu and Zhuofeng Wu and Shuangfei Zhai and Joshua M. Susskind and Navdeep Jaitly},
+  journal = {Advances in Neural Information Processing Systems},
+  year    = {2023},
+  url     = {https://arxiv.org/abs/2306.02531},
+}
+
+@inproceedings{xiang2024diffusiondialog,
+  title     = {{DiffusionDialog}: {A} {D}iffusion {M}odel for {D}iverse {D}ialog {G}eneration with {L}atent {S}pace},
+  author    = {Jianxiang Xiang and Zhenhua Liu and Haodong Liu and Yin Bai and Jun Cheng and Wentao Chen},
+  booktitle = {LREC-COLING 2024},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2404.06760},
+}
+
+@inproceedings{hu2024poetrydiffusion,
+  title     = {{PoetryDiffusion}: {T}owards {J}oint {S}emantic and {M}etrical {M}anipulation in {P}oetry {G}eneration},
+  author    = {Zhiyuan Hu and Chumin Liu and Yue Feng and Anh Tuan Luu and Bryan Hooi},
+  booktitle = {Proceedings of the AAAI Conference on Artificial Intelligence},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2306.08456},
+}
+
+@article{chen2023xdlm,
+  title   = {{XDLM}: {C}ross-lingual {D}iffusion {L}anguage {M}odel for {M}achine {T}ranslation},
+  author  = {Linyao Chen and Aosong Feng and Boming Yang and Zihui Li},
+  journal = {arXiv preprint arXiv:2307.13560},
+  year    = {2023},
+  url     = {https://arxiv.org/abs/2307.13560},
+}
+
+% ---------------------------------------------------------------------------
+% Performance benchmarks (used in performance comparisons)
+% ---------------------------------------------------------------------------
+
+@inproceedings{cobbe2021gsm8k,
+  title     = {Training {V}erifiers to {S}olve {M}ath {W}ord {P}roblems},
+  author    = {Karl Cobbe and Vineet Kosaraju and Mohammad Bavarian and Mark Chen and Heewoo Jun and Lukasz Kaiser and Matthias Plappert and Jerry Tworek and Jacob Hilton and Reiichiro Nakano and Christopher Hesse and John Schulman},
+  booktitle = {arXiv preprint arXiv:2110.14168},
+  year      = {2021},
+  url       = {https://arxiv.org/abs/2110.14168},
+}
+
+@inproceedings{chen2021humaneval,
+  title     = {Evaluating {L}arge {L}anguage {M}odels {T}rained on {C}ode},
+  author    = {Mark Chen and Jerry Tworek and Heewoo Jun and Qiming Yuan and Henrique Ponde de Oliveira Pinto and Jared Kaplan and others},
+  booktitle = {arXiv preprint arXiv:2107.03374},
+  year      = {2021},
+  url       = {https://arxiv.org/abs/2107.03374},
+}

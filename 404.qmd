@@ -1,0 +1,9 @@
+---
+title: "404 — Not Found"
+format:
+  html:
+    toc: false
+body-classes: is-404
+---
+
+Sorry, the page you requested does not exist.

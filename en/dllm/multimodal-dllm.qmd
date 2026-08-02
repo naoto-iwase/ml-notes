@@ -1,0 +1,291 @@
+---
+pagetitle: "Multimodal DLM"
+---
+
+# Multimodal Diffusion Language Models
+
+Multimodal discrete diffusion language models (diffusion Multimodal Large Language Model, dMLLM) are an attempt to reconstruct the Vision-Language Model (VLM) framework on top of a Diffusion Language Model (DLLM) backbone. Whereas Autoregressive (AR) systems such as LLaVA and Qwen2-VL adopt the serial composition "vision encoder → projection → AR LLM," dMLLMs **share bidirectional attention and a masked diffusion objective so that images (spatial) and language (sequential) can be treated within the same framework**. The goal of this chapter is to organize how the main formulations covered elsewhere in this book — Masked Diffusion Language Model (MDLM) [@sahoo2024mdlm], LLaDA [@nie2025llada], Block Diffusion [@arriola2025bd3lms], and Embedding-space Diffusion — extend to the multimodal setting. Following §5 of the survey [@li2025dlmsurvey] as our backbone, we systematically lay out the landscape along axes of design choices.
+
+Since the scope of this book sits on the DLLM side, we do not cover AR-style VLMs (LLaVA-NeXT, Qwen2-VL, Janus) in detail. They appear only as minimal points of comparison. Janus [@wang2025fudoki] enters indirectly because Fudoki (discussed later) uses it for initialization.
+
+## Why DLLMs and Multimodality Are a Natural Fit
+
+AR-style VLMs generate text left-to-right, which forces an **artificial raster-scan ordering** when handling image tokens (whose order can only be defined spatially). This mismatches the inherent structure of images, and **bidirectional dependencies** between image and text are also blocked by the causal mask.
+
+DLLMs are structurally suited to multimodality on three counts.
+
+- **Bidirectional attention**: every position can attend to every other position, so text→image and image→text dependencies can be handled symmetrically
+- **Unified masked diffusion objective**: image and text tokens can both be trained with the same `[MASK]` substitution + cross-entropy loss
+- **Natural formulation of joint inpainting**: a setup in which arbitrary positions of any modality are supplied as `[MASK]` and inferred from the rest falls within the training distribution
+
+The third property connects directly to UniDisc's [@swerdlow2025unidisc] **zero-shot joint image-text inpainting**, a capability that is difficult to achieve with AR VLMs.
+
+## Axes of Design Choices
+
+The main design choices for a dMLLM decompose into the following four axes. Each model can be positioned as a different combination on these axes.
+
+| Axis | Option A | Option B |
+|---|---|---|
+| Image representation | Continuous embedding (MLP projection of a vision encoder output such as CLIP / SigLIP) | VQ-VAE-style tokenization (conversion into a modality-agnostic discrete token sequence) |
+| Backbone initialization | Pretrained weights of DLLMs such as LLaDA / Dream | Weights of image diffusion models (MM-DiT, Meissonic, SD3) or of an AR-VLM (Janus) |
+| Training-phase design | Staged (projector only → full → reasoning), or an AR→Diffusion hybrid | A from-scratch single stage, or joint training under a unified objective |
+| Granularity of modality integration | Separate branches for text and image (Elastic-MoT, dual-branch MM-DiT) | Fully unified (modality-agnostic transformer + shared vocabulary) |
+
+: Main design choices for dMLLMs {#tbl-dmllm-axes}
+
+These axes are not independent; in particular, "image representation" and "initialization" are strongly correlated. Continuous-embedding systems pair well with LLaDA / Dream initialization, while VQ-VAE systems pair well with MM-DiT / Meissonic initialization.
+
+## Model Comparison
+
+We extract the main dMLLMs from §5 and Table 1 of the survey [@li2025dlmsurvey] and organize them along the axes above.
+
+| Model | Parameters | Image representation | Backbone init | Training data | Main task | Features |
+|---|---|---|---|---|---|---|
+| LLaDA-V [@you2025lladav] | 8.4B | Vision encoder + MLP | LLaDA 8B | 3M image-text | Understanding | LLaVA-NeXT-style 3-stage tuning |
+| LaViDa [@li2025lavida] | 8.4B | Vision encoder + MLP | LLaDA / Dream-7B | 1.6M image-text | Understanding | Complementary masking, Prefix KV-Cache |
+| Dimple [@yu2025dimple] | 7B | Vision encoder + MLP | -- | 0.8B tokens | Understanding | AR-then-Diffusion 2-stage, Confident Decoding |
+| MMaDA [@yang2025mmada] | 8B | VQ-VAE | LLaDA 8B | 900B image-text tokens | Understanding + generation | UniGRPO, Mixed Long CoT |
+| UniDisc [@swerdlow2025unidisc] | ~1.4B | VQ-VAE | from scratch | -- | Understanding + generation | Joint inpainting, full attention |
+| Muddit [@shi2025muddit] | -- | VQ-VAE | Meissonic MM-DiT | -- | Generation-leaning | Lightweight text decoder, strong at T2I |
+| Lumina-DiMOO [@xin2025luminadimoo] | 8B | aMUSEd-VQ (8192) | LLaDA-extended | 110M+ image-text | Understanding + generation | 4-stage training, Self-GRPO, ML-Cache |
+| LaViDa-O [@li2025lavidao] | 10.4B | VQ-VAE | LaViDa-extended | 200M+ image-text | Understanding + generation | Elastic-MoT, 1024px generation |
+| D-DiT [@li2025ddit] | -- | Continuous latent + discrete text | SD3 (MM-DiT) | -- | Understanding + generation | Continuous + discrete dual diffusion |
+| Fudoki [@wang2025fudoki] | 1.5B | VQ-VAE | Janus-1.5B | -- | Understanding + generation | Discrete flow matching, kinetic velocity |
+| MMaDA-Parallel [@tian2025mmadaparallel] | 8B | VQ-VAE | MMaDA | -- | Thinking-aware editing | Parallel reasoning + ParaRL |
+
+: Comparison of main dMLLMs. Extracted from Table 1 and §5 of the survey [@li2025dlmsurvey] {#tbl-dmllm-comparison}
+
+Below we describe in detail the three large families: encoder-connected, VQ-VAE unified, and discrete-continuous hybrid.
+
+## Encoder-Connected: Vision Encoder + Projection + DLLM Backbone
+
+The most naive extension is to swap only the final stage of the standard AR-VLM architecture "vision encoder → MLP projector → LLM" with LLaDA / Dream. LLaDA-V, LaViDa, and Dimple belong to this lineage.
+
+### LLaDA-V: Porting LLaVA-NeXT-Style Staged Training to a DLLM
+
+LLaDA-V [@you2025lladav] keeps **the weights of LLaDA 8B [@nie2025llada] intact** and projects the output of a SigLIP-style vision encoder into LLaDA's token embedding space with an MLP-based projector. Training follows a three-stage structure modeled on LLaVA-NeXT.
+
+- **Stage 1**: Train only the MLP projector. Align visual representations with text embeddings using LLaVA's pretraining data
+- **Stage 2**: Fine-tune the whole model on large-scale visual instruction data using the DLLM objective (masked diffusion CE)
+- **Stage 3**: Strengthen multimodal CoT capability with QA augmented by reasoning chains
+
+In benchmarks, although LLaDA's text performance is slightly weaker than LLaMA3-8B (a handicap), LLaDA-V exceeds LLaMA3-V trained on the same data, closes the gap with Qwen2-VL, and outperforms hybrid / pure DLM-based models such as D-DiT.
+
+[→ More:]{.detail-link} [LLaDA: Large-scale Masked DLM and Sampling](llada.qmd)
+
+### LaViDa: Resolving Training Inefficiency with Complementary Masking
+
+LaViDa [@li2025lavida] is a VLM family that uses both LLaDA and Dream-7B [@ye2025dream] as backbones. Like LLaDA-V it adopts the vision encoder + projector composition, but **makes distinct contributions on both the training and inference sides**.
+
+On the training side, it tackles the **inefficiency problem** of masked DLMs. In MDLM-style training only about 50% of tokens are masked on average, meaning the remaining 50% do not contribute to the loss. Furthermore, in the VLM context, masking image tokens is of limited use, while the crucial **answer tokens frequently end up on the observed side and miss the gradient**.
+
+LaViDa's solution is **complementary masking**: for each sample, generate **two masked versions whose mask spans are disjoint**, so that the union covers every token. This ensures all tokens are used in training, improving sample efficiency and gradient flow.
+
+On the inference side, it introduces **Prefix KV-Cache**. As mentioned in the LLaDA chapter, a pure DLLM runs a forward pass over all positions at each step, so a naive KV-cache transplant does not work. However, leveraging the fixed property that
+
+- **prompt and image tokens remain observed (unmasked) throughout inference**
+
+allows caching K/V only for the prefix portion. This yields up to a 3.9x inference speedup with only marginal performance degradation. In addition, **timestep shifting** unmasks early to improve generation quality.
+
+### Dimple: AR-Then-Diffusion Hybrid Training
+
+Dimple [@yu2025dimple] starts from the observation that "pure discrete diffusion training is unstable, with problems on both performance and length bias," and proposes a 2-stage training scheme called **Autoregressive-then-Diffusion**.
+
+- **Phase 1 (AR)**: Establish vision-language alignment via standard autoregressive training. Build a foundation of stability and performance
+- **Phase 2 (Diffusion)**: Switch to diffusion-based training to recover parallel decoding capability
+
+At inference time, the following are combined.
+
+- **Confident Decoding**: dynamically determine the number of positions to unmask at each step **with a confidence threshold**. Fewer iterations than a fixed schedule
+- **Prefilling**: up to 7x speedup by prefilling prompt tokens
+- **Structure Priors**: fine control over response format and length. A dMLLM-specific intervention point that is hard to achieve with AR
+
+::: {.callout-note}
+## Common Advantages and Constraints of Encoder-Connected Models
+
+- **Advantages**: can directly leverage the prior knowledge of strong vision encoders such as SigLIP / CLIP, yielding a high baseline of image understanding. Existing VLM recipes such as 3-stage training can be reused almost verbatim
+- **Constraints**: image generation is essentially out of reach (the vision encoder is optimized for understanding and has no decode path). If unified generation is the goal, one must move to the VQ-VAE family in the next section
+:::
+
+## VQ-VAE Unified: A Modality-Agnostic Discrete Token Space
+
+To handle both image understanding and generation in a single model, it makes more sense to represent images not as **continuous embeddings from a vision encoder** but as **discrete token sequences from a VQ-VAE family**. With text and images expressed in the same vocabulary (strictly disjoint but lined up on the same shared sequence), **a single modality-agnostic diffusion transformer** can process everything.
+
+### MMaDA: Stepping into Cross-Modal Reasoning with UniGRPO
+
+MMaDA [@yang2025mmada] takes LLaDA as its starting point and **completely abolishes the vision encoder, converting images into discrete codes with a VQ-VAE**. Text and image token sequences are jointly trained with a modality-agnostic diffusion transformer, arriving at a design with no modality-specific components.
+
+Training has two notable features.
+
+- **Mixed Long CoT fine-tuning**: aligns the format of CoT reasoning that spans text and image. The flow of "look at an image, reason step by step, then connect to a conclusion or a generated image" is learned in a unified way
+- **UniGRPO**: a unified policy-gradient-based RL algorithm specialized for DLLMs. Provides a framework for training reasoning that crosses modalities via reinforcement learning
+
+In performance, it is reported to exceed LLaMA3 on text reasoning, Show-o on multimodal understanding, and even SDXL in some regions of image generation. The significance lies in showing that "a single backbone can carry text / understanding / generation altogether."
+
+### UniDisc: Full Attention + Zero-Shot Joint Inpainting
+
+UniDisc [@swerdlow2025unidisc] adopts a design that, rather than a dual-branch like D-DiT, **lines up text and image as a single sequence and runs masked diffusion over them with full attention**. The two are treated as tokens with disjoint ID ranges over a shared vocabulary, trained from scratch with a unified discrete diffusion CE.
+
+Its most striking feature is **zero-shot joint inpainting**: although no such task is explicitly given during training, at inference one can naturally take "part of the text + part of the image," mask them with `[MASK]`, and infer the rest. This is hard to achieve with AR VLMs and is the clearest illustration of the structural advantages of unified masked diffusion.
+
+It has good compatibility with classifier-free guidance and yields high-quality conditional generation. In experiments scaling up to 1.4B, it outperforms comparable AR models on performance, inference compute, and controllability, but **the training efficiency required to reach the same validation loss is reported to be inferior to AR**. This connects directly to the dMLLM open challenges discussed later.
+
+### Muddit: Grafting a Lightweight Text Decoder onto a T2I Backbone
+
+Muddit [@shi2025muddit] starts from the opposite direction, **grafting a lightweight text decoder onto Meissonic, a strong text-to-image MM-DiT**, and retraining the whole as a unified discrete diffusion. Both text and image tokens are stochastically masked according to a cosine schedule, and re-weighted CE is used to learn the prediction of the original tokens.
+
+The significance of this design lies in
+
+- **inheriting a strong prior for image generation**: a visually meaningful latent space is available from the outset, rather than training purely from scratch
+- **handling both generation and understanding within a unified framework**: several times faster than AR models, and competitive with larger AR baselines
+
+It is an "approach that meets DLLMs from the side of image diffusion models," and differs from the dual-branch approach of D-DiT (discussed later) in that it realizes the same idea with a single backbone.
+
+### Lumina-DiMOO: 4-Stage Training Aiming for Open-Source SOTA
+
+Lumina-DiMOO [@xin2025luminadimoo] extends LLaDA by **adding 8192 visual tokens to the vocabulary** (derived from aMUSEd-VQ) and runs a unified objective over mixed text-image sequences.
+
+Its features are as follows.
+
+- **Wide task coverage**: text-to-image, image editing, subject-driven generation, controllable generation, image understanding
+- **ML-Cache (Max Logit-based Cache)**: cache mechanism for sampling acceleration
+- **Parallel and block-wise sampling**: efficient decoding
+- **End-of-line special token**: handles arbitrary image resolution
+- **4-stage training + Self-GRPO**: in the final stage, self-improving RL is run to strengthen the alignment of generation and understanding
+
+It is reported to take the open-source #1 spot on the UniGenBench leaderboard, achieving 32x speedup over AR baselines while maintaining high generation quality. It is an ambitious system that "aims to claim the open-source SOTA with a single DLLM."
+
+### LaViDa-O: Bridging the Scale Gap Between Generation and Understanding with Elastic-MoT
+
+LaViDa-O [@li2025lavidao] extends LaViDa into a unified multimodal model. The key is **Elastic Mixture-of-Transformers (Elastic-MoT)**.
+
+This design addresses the asymmetry in compute resources required between "image generation (handles a large number of image tokens but is semantically repetitive)" and "image understanding (deep reasoning on a small number of image tokens)."
+
+- **Lightweight generation branch**: scalable to 1024px high-resolution text-to-image generation and image editing
+- **Strong understanding branch**: object-level localized understanding, interleaved reasoning and planning
+
+The two branches are bundled within a single diffusion framework while each can scale independently. This is a pragmatic device of "**unified but not equal**."
+
+::: {.callout-tip}
+## When to Choose the VQ-VAE Unified Family
+
+If only understanding is the goal, the encoder-connected family (LLaDA-V / LaViDa / Dimple) is more advantageous in both performance and efficiency, since it can leverage the strong prior of vision encoders. **If generation also enters the picture, or unified operations such as joint inpainting / editing are desired**, choose the VQ-VAE unified family. The Elastic-MoT-style approach of coexisting both is a strong pragmatic compromise that "takes the best of both unified and specialized."
+:::
+
+## Discrete + Continuous Hybrid: Dual Diffusion of Continuous Latents and Discrete Tokens
+
+The natural representation of images is essentially continuous (VAE latents), while text is discrete. Rather than forcing both into the same discrete space, an alternative is to **run diffusion in each natural space and bind them via attention**.
+
+### D-DiT: Simultaneous Diffusion of Continuous Image Latents and Discrete Text Tokens
+
+D-DiT (Dual Diffusion Transformer) [@li2025ddit] is a **dual-branch transformer inspired by MM-DiT (derived from Stable Diffusion 3)** that processes image tokens and text tokens in separate branches and lets them interact via attention at each layer.
+
+- **Image side**: latentified by a frozen VAE, **DDPM-style diffusion in continuous space**
+- **Text side**: **discrete masked-token diffusion**
+- **Loss**: jointly optimizes the diffusion losses of both modalities
+
+Notably, while previous multimodal diffusion models retained an AR component to decode text latents, D-DiT operates **entirely diffusion-based**. The MM-DiT backbone is initialized from SD3 pretrained weights.
+
+Maintaining the natural correspondence "images are continuous, text is discrete" while putting training and inference within a unified framework, it sits between the encoder-connected and VQ-VAE unified families.
+
+### Fudoki: Discrete Flow Matching + Self-Correction
+
+Fudoki [@wang2025fudoki] is the first general-purpose unified multimodal model based entirely on the **discrete flow matching (DFM)** [@gat2024dfm] framework. Instead of single-minded masking corruption, it learns
+
+- **metric-induced probability paths**: more general, semantically meaningful corruption
+- **kinetic optimal velocity**: a discrete analog of the velocity in continuous flow matching
+
+A key consequence is **self-correction capability**. In a masked DLM, once a token is unmasked it is in principle fixed, whereas Fudoki can **continuously modify** predictions at each iterative-refinement step. One can say it is an approach that **naturally subsumes at the formulation level** what LLaDA-style low-confidence remasking introduced as an "implementation trick."
+
+Training is not from scratch; instead it is **initialized from the AR-style MLLM Janus-1.5B** and adapted to DFM in two stages. The architecture is also based on Janus-1.5B but adopts a full attention mask and drops the time embedding layer (since the model can implicitly infer the timestep from corrupted inputs).
+
+It achieves performance comparable to state-of-the-art AR models on both image understanding and generation, and has good compatibility with test-time inference scaling. It is a research direction worth noting that **brings the flexibility of continuous flow matching into the discrete diffusion framework**.
+
+[→ More:]{.detail-link} [Bridging Continuous and Discrete Diffusion](continuous-discrete-bridge.qmd)
+
+## MMaDA-Parallel: Cross-Modal Synchronization of Thinking and Generation
+
+The Mixed Long CoT of MMaDA [@yang2025mmada] is a **sequential** composition where "reasoning (text) is generated first, and the image is then generated conditioned on it." In contrast, MMaDA-Parallel [@tian2025mmadaparallel] proposes a fully parallel multimodal diffusion framework in which
+
+- the text reasoning trace and the visual output are **jointly generated entirely in parallel**
+- at each denoising step, text and image **interact bidirectionally**
+
+On the training side, it introduces trajectory-level **Parallel RL (ParaRL)** to optimize cross-modal consistency. Whereas a sequential pipeline only has "a one-way dependency in which previously fixed reasoning constrains image generation," ParaRL can align the consistency of reasoning and image across the entire trajectory. This is reported to significantly improve both semantic alignment and thinking-aware image synthesis performance.
+
+What matters in the dMLLM context is that this is **the first serious example of "leveraging DLLM bidirectionality for CoT."** "Simultaneous parallel execution of thinking and generation," which is structurally infeasible in AR, can be incorporated naturally in a DLLM.
+
+[→ More:]{.detail-link} [LLaDA: Large-scale Masked DLM and Sampling](llada.qmd)
+
+## The Current State of dMLLM Evaluation
+
+The evaluation axes for dMLLMs basically inherit the benchmarks accumulated for AR VLM evaluation. Representative ones are as follows.
+
+- **Image understanding**: MMMU, MME, MMVet, MMBench, CQA, HellaSwag (also used on the language side)
+- **Image generation**: GenEval, UniGenBench (the leaderboard on which Lumina-DiMOO [@xin2025luminadimoo] took the open-source #1 spot), FID-family
+- **Math / reasoning**: GSM8K, MATH (in dMLLMs, text reasoning ability is also evaluated together)
+- **Code**: HumanEval, MBPP (in the context of the DiffuCoder family)
+
+Figure 6 of the survey [@li2025dlmsurvey] (multimodal performance comparison chart) shows that LLaDA-V, LaViDa, and Dimple are competitive on many axes with mid-sized AR-based VLMs (Qwen2-VL, LLaVA-NeXT 7B, etc.), and that MMaDA and Lumina-DiMOO reach an equivalent or better range as unified models on both image generation and understanding.
+
+However, because the evaluation axes themselves are designed for AR VLMs, **benchmarks that directly measure the advantages specific to DLLMs (zero-shot inpainting, parallel reasoning-generation, format control via structure priors, etc.) are not yet in place**. This is one of the open challenges in the next section.
+
+## Open Challenges for dMLLMs
+
+The dMLLM field currently has the following unresolved problems left on the table.
+
+### Inefficiency of VLM Training
+
+In masked DLMs, only about 50% of tokens contribute to the loss on average. **In a VLM setting with a large number of image tokens this inefficiency is especially severe**, and accidents in which crucial answer tokens fall on the unmasked side also occur. LaViDa's complementary masking is a stopgap, but more fundamentally, further work is needed in directions such as "optimizing the mask schedule per modality" and "reweighting to emphasize answer tokens."
+
+### Image Token Layout and Long-Context TFLOPS
+
+In the VQ-VAE unified family, hundreds to thousands of tokens per image are packed into a single sequence. Combined with long text, sequence length explodes, and the $O(N^2)$ cost of bidirectional attention becomes apparent. The Elastic-MoT of LaViDa-O is a symptomatic remedy, but structural solutions such as
+
+- **falling back to local attention only in image regions**
+- **dynamically switching the resolution of image tokens**
+
+are yet to come. Lumina-DiMOO's end-of-line special token is one move for "arbitrary-resolution support," but it does not reduce compute itself.
+
+### Lack of Evaluation Axes for Cross-Modal CoT
+
+The "parallel reasoning + generation" demonstrated by MMaDA-Parallel **has no benchmark for fair comparison with sequential CoT in the first place**. There is no established metric for measuring the quality of the process of "looking at an image, reasoning step by step, and updating the generated image"; currently it can only be evaluated through the final generated-image scores of GenEval and similar.
+
+### Lack of Head-to-Head Benchmarks with AR VLMs
+
+UniDisc's observation that "the training efficiency to reach the same validation loss is inferior to AR" is important. **A benchmark design that creates a stage favorable to DLLMs while remaining fair to AR** (especially one including zero-shot inpainting, structure-controlled generation, and joint reasoning-generation) will be necessary. Because the recipes on the AR VLM side are extremely optimized, the current comparison is closer to observing recipe maturity than the quality of the foundation model.
+
+[→ More:]{.detail-link} [The State of the DLLM Field and Open Problems](open-problems.qmd)
+
+::: {.callout-note collapse="true"}
+## Positioning of Closed-Source Large-Scale dMLLMs
+
+On the commercial side, products presumed to have dMLLM-style structure are appearing, such as Google DeepMind's **Gemini Diffusion** [@deepmind2024geminidiffusion] and the related Gemini 2.5 Flash Image. Because much of the technical detail is undisclosed, this book does not go deep into them, but
+
+- inference latency substantially below AR baselines
+- high flexibility in image editing and generation
+
+are commonly reported features. The pattern of MMaDA, Lumina-DiMOO, LaViDa-O, etc. catching up on the open-source side is beginning to take a shape reminiscent of the GPT-3 → LLaMA chase in the early days of AR LLMs.
+:::
+
+## Relation to Existing Chapters
+
+Each dMLLM model can be understood as a combination of the formulations covered in other chapters of this book.
+
+- **LLaDA-backbone family** (LLaDA-V, LaViDa, MMaDA, Lumina-DiMOO): presupposes the 8B-scale practical realization of masked diffusion covered in [LLaDA: Large-scale Masked DLM and Sampling](llada.qmd)
+- **MDLM objective**: every model inherits the masked CE of [MDLM](mdlm.qmd)
+- **Block-wise / semi-AR structure**: LaViDa-O's Elastic-MoT and Lumina-DiMOO's block-wise sampling extend the ideas of [Block Diffusion](block-diffusion.qmd) to multimodality
+- **Contrast with embedding-space diffusion**: encoder-connected models give continuous embeddings as a condition, but diffusion itself is performed on the discrete side. For the difference from pure continuous-space text diffusion, see [Embedding-Space Diffusion](embedding-space-diffusion.qmd)
+- **Bridging continuous and discrete**: D-DiT's continuous + discrete dual diffusion and Fudoki's discrete flow matching are direct instances of how the discussion in [Bridging Continuous and Discrete Diffusion](continuous-discrete-bridge.qmd) extends to multimodality
+- **Open problems of DLLMs**: dMLLM-specific training inefficiency and the absence of evaluation axes are continuous with the broader [State of the DLLM Field and Open Problems](open-problems.qmd)
+
+[→ More:]{.detail-link} [LLaDA: Large-scale Masked DLM and Sampling](llada.qmd)
+
+[→ More:]{.detail-link} [MDLM: Masked Diffusion Language Models](mdlm.qmd)
+
+[→ More:]{.detail-link} [Block Diffusion](block-diffusion.qmd)
+
+[→ More:]{.detail-link} [Embedding-Space Diffusion](embedding-space-diffusion.qmd)
+
+[→ More:]{.detail-link} [Bridging Continuous and Discrete Diffusion](continuous-discrete-bridge.qmd)
+
+[→ More:]{.detail-link} [The State of the DLLM Field and Open Problems](open-problems.qmd)

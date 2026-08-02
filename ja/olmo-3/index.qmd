@@ -1,0 +1,16 @@
+---
+title: "Olmo 3"
+description: "完全オープンな言語・思考型モデル（7B/32B）"
+date: "2026-02-02"
+author:
+  name: "Naoto Iwase"
+  url: "https://iwase.dev"
+date-modified: last-modified
+categories: [LLM, Reasoning]
+image: "images/olmo-3.png"
+toc: false
+---
+
+Olmo 3 は、Allen Institute for AI (AI2) が開発した 7B および 32B パラメータスケールの完全オープンな言語モデルファミリーである。このリリースは、モデルの全ライフサイクル（すべてのステージ、チェックポイント、データポイント、依存関係）を含む「モデルフロー (Model Flow)」全体を公開している。
+
+**論文**: [arXiv:2512.13961](https://arxiv.org/abs/2512.13961)

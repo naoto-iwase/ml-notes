@@ -1,0 +1,304 @@
+---
+pagetitle: "Drifting Models"
+---
+
+# Drifting Models
+
+Generative Modeling via Drifting [@deng2026drifting]（Deng, Li, Li, Du, He; MIT, 2026）は、生成モデルの推論パラダイムを根本から覆す手法である。従来の Diffusion Models や Flow Matching が推論時に反復的な計算を行うのに対し、Drifting Models は**訓練中に pushforward 分布を進化させ**、推論時には1回のフォワードパスのみでサンプルを生成する。ImageNet 256×256 において Fréchet Inception Distance（FID）1.54（潜在空間）/ 1.61（ピクセル空間）を 1-NFE（Number of Function Evaluations（NFE））で達成し、1ステップ生成の新たな State-of-the-Art（SOTA）を確立した。
+
+## 背景と動機 {#sec-motivation}
+
+生成モデルにおける推論コストは、リアルタイム応用の最大の障壁である。従来手法はいずれも「推論時に反復計算を行い、ノイズ分布をデータ分布に変換する」という枠組みに基づいている:
+
+- **Diffusion Models**: スコア関数 $\nabla \log p_t(x)$ を学習し、確率微分方程式（Stochastic Differential Equation, SDE）/ 常微分方程式（Ordinary Differential Equation, ODE）を数十〜数百ステップで解く
+- **Flow Matching**: 瞬間速度場 $v(z_t, t)$ を学習し、ODE を解く
+- **MeanFlow** [@geng2025meanflow]: 平均速度 $u(z_t, t)$ を導入し、ステップ数を削減する（[詳細](mean-flow.qmd)）
+- **Terminal Velocity Matching (TVM)** [@zhou2025tvm]: 終端時刻での正則化により1ステップ化を促進する（[詳細](terminal-velocity-matching.qmd)）
+
+これらの手法に共通するのは、**学習済みのネットワーク $f_\theta$ を固定し、推論時に反復的に pushforward を行う**という構造である。MeanFlow や TVM は1-NFE を実現するが、あくまで Flow Matching の枠組みの延長上にある。
+
+Drifting Models はこの構造自体を放棄する。推論時の反復を排除し、**訓練過程そのものが分布の進化を担う**という、全く異なるパラダイムを提案する。
+
+## Pushforward 分布の進化 {#sec-pushforward}
+
+### 従来のアプローチ
+
+従来の1ステップ生成では、ネットワーク $f_\theta$ がノイズ分布 $p_\varepsilon$ をデータ分布 $p_\text{data}$ に直接変換することを目指す:
+
+$$
+f_{\theta\#} p_\varepsilon \approx p_\text{data}
+$$
+
+ここで $f_{\theta\#} p_\varepsilon$ は $f_\theta$ による $p_\varepsilon$ の pushforward 分布である。つまり、$\varepsilon \sim p_\varepsilon$ に対して $f_\theta(\varepsilon)$ のサンプルが従う分布を意味する。
+
+### Drifting のアプローチ
+
+Drifting Models では、訓練イテレーション $i$ ごとにパラメータ $\theta_i$ が更新され、pushforward 分布 $q_{\theta_i} = f_{\theta_i\#} p_\varepsilon$ が徐々に $p_\text{data}$ に近づいていく:
+
+$$
+q_{\theta_0} \to q_{\theta_1} \to q_{\theta_2} \to \cdots \to q_{\theta_N} \approx p_\text{data}
+$$
+
+![訓練イテレーションに沿った生成分布 $q_{\theta_i}$（橙の等高線）の進化。初期（$i=0$）ではデータ分布（青の等高線、2 つのモード）から乖離しているが、訓練が進むにつれ損失が単調に減少し、$q_{\theta_i}$ がデータ分布の両モードを正しく覆うようになる。**推論時のループは一切ない**ことに注意。出典: [@deng2026drifting]](images/drifting-teaser.png){#fig-drifting-teaser}
+
+@fig-drifting-teaser が示す通り、この設計の核心は**反復計算のコストを訓練時に吸収する**点にある。従来手法（Flow Matching / Diffusion）では訓練時に瞬間速度やスコア関数を学習し、推論時に $z_0 \to z_1 \to \cdots \to z_T$ と反復的に pushforward を適用する。これに対し Drifting Models は訓練中にパラメータ列 $\theta_0 \to \theta_1 \to \cdots \to \theta_N$ を進化させて分布 $q_{\theta_i}$ をデータ分布に近づけ、推論時には最終的な $f_{\theta_N}$ を 1 回適用するだけでよい。
+
+## Drifting Field {#sec-drifting-field}
+
+Drifting Models の理論的基盤は、**Drifting Field** $V_{p,q}(x)$ と呼ばれるベクトル場である。これはサンプル $x$ の移動方向を決定し、生成分布 $q$ をデータ分布 $p$ に近づける役割を担う。
+
+### 引力と反発の分解
+
+Drifting Field は2つの成分に分解される:
+
+$$
+V_{p,q}(x) := V_p^+(x) - V_q^-(x)
+$$
+
+ここで:
+
+- **引力項**（Attraction）: $V_p^+(x) = \frac{1}{Z_p(x)} \mathbb{E}_{y^+ \sim p}\left[ k(x, y^+)(y^+ - x) \right]$
+- **反発項**（Repulsion）: $V_q^-(x) = \frac{1}{Z_q(x)} \mathbb{E}_{y^- \sim q}\left[ k(x, y^-)(y^- - x) \right]$
+
+正規化項はそれぞれ $Z_p(x) = \mathbb{E}_{y^+ \sim p}[k(x, y^+)]$、$Z_q(x) = \mathbb{E}_{y^- \sim q}[k(x, y^-)]$ である。
+
+直感的には:
+
+- **引力項** $V_p^+$: データサンプル $y^+$ に向かってサンプルを引き寄せる
+- **反発項** $V_q^-$: 他の生成サンプル $y^-$ から反発させ、モード崩壊を防ぐ
+
+![Drifting Field $\mathbf{V} = \mathbf{V}_p^+ - \mathbf{V}_q^-$ の可視化。点 $\mathbf{x}$（黒）に対して、正例（青、データ分布 $p$ からのサンプル）が引力 $\mathbf{V}_p^+$ を、負例（橙、現在の生成分布 $q$ からのサンプル）が反発 $\mathbf{V}_q^-$ を生成する。両者の差として得られる合成ベクトル $\mathbf{V}$（黒矢印）が $\mathbf{x}$ を高密度な正例領域へ誘導する。出典: [@deng2026drifting]](images/drifting-field.png){#fig-drifting-field}
+
+### カーネル関数
+
+カーネル $k(x, y)$ は指数型カーネルとして定義される:
+
+$$
+k(x, y) = \exp\left(-\frac{\|x - y\|}{\tau}\right)
+$$
+
+ここで $\tau$ は温度パラメータ、$\|\cdot\|$ は $\ell_2$ ノルムである。正規化項 $Z_p(x)$、$Z_q(x)$ による除算は softmax 正規化に相当し、InfoNCE（Info Noise-Contrastive Estimation）損失との類似性を持つ。
+
+### 反対称性（Anti-symmetry）
+
+Drifting Field は重要な反対称性を満たす:
+
+$$
+V_{p,q}(x) = -V_{q,p}(x), \quad \forall x
+$$
+
+これは引力と反発の役割を入れ替えると、ベクトル場の向きが反転することを意味する。
+
+### 均衡条件
+
+反対称性から直ちに導かれる重要な帰結がある:
+
+$$
+q = p \implies V_{p,q}(x) = 0, \quad \forall x
+$$
+
+すなわち、生成分布 $q$ がデータ分布 $p$ に一致したとき、Drifting Field はゼロとなり、分布の進化は自然に停止する。これは固定点反復（fixed-point iteration）としての収束を保証する性質である。
+
+## 訓練目的関数 {#sec-training-objective}
+
+### Fixed-Point Iteration から MSE 損失へ
+
+Drifting Field を用いた分布の更新は、固定点反復として定式化される:
+
+$$
+f_{\theta_{i+1}}(\varepsilon) \leftarrow f_{\theta_i}(\varepsilon) + V_{p, q_{\theta_i}}\left(f_{\theta_i}(\varepsilon)\right)
+$$
+
+この更新則を MSE 損失に変換したものが訓練目的関数である:
+
+$$
+\mathcal{L} = \mathbb{E}_{\varepsilon}\left[\left\| f_\theta(\varepsilon) - \text{stopgrad}\left(f_\theta(\varepsilon) + V_{p, q_\theta}(f_\theta(\varepsilon))\right) \right\|^2\right]
+$$ {#eq-drifting-loss}
+
+### Stop-Gradient の役割
+
+@eq-drifting-loss において $\text{stopgrad}(\cdot)$ は勾配の伝播を遮断する演算子である。ターゲット $f_\theta(\varepsilon) + V(f_\theta(\varepsilon))$ を「凍結」し、ネットワークの出力 $f_\theta(\varepsilon)$ のみに対して勾配を計算する。
+
+この設計により:
+
+- Drifting Field $V$ を通じた逆伝播を回避し、計算を安定化
+- ネットワークはターゲットに向かって「追従」するように学習
+- 損失値 $\mathcal{L} = \mathbb{E}[\|V(f(\varepsilon))\|^2]$ は Drifting Field の大きさを最小化することに対応し、均衡条件 $V = 0$ に向かって収束
+
+## 特徴空間への拡張 {#sec-feature-space}
+
+### ピクセル空間の限界
+
+ピクセル空間で直接 Drifting Field を計算する場合、高次元での距離計算が意味のある類似性を捉えにくいという問題がある。画像のピクセル値の $\ell_2$ 距離は人間の知覚的類似性と乖離しやすく、カーネル $k(x, y)$ が効果的に機能しない。
+
+### 特徴エンコーダの導入
+
+この問題を解決するために、事前学習済みのエンコーダ $\phi$ の特徴空間で Drifting を行う。損失関数はマルチスケール特徴を用いて拡張される:
+
+$$
+\mathcal{L} = \sum_j \mathbb{E}\left[\left\| \phi_j(x) - \text{stopgrad}\left(\phi_j(x) + V(\phi_j(x))\right) \right\|^2\right]
+$$
+
+ここで $\phi_j$ はエンコーダの第 $j$ 層の特徴抽出器である。ResNet 型のエンコーダから複数のスケールで特徴を抽出し、各スケールで独立に Drifting Field を計算することで、粗い構造から細かいテクスチャまで多角的にサンプルを誘導する。
+
+### エンコーダの選択
+
+特徴エンコーダの品質は結果に決定的な影響を与える。以下は B/2 モデル、100 エポックでの比較である:
+
+| エンコーダ | 手法 | 特徴次元 | FID |
+|-----------|------|---------|-----|
+| ResNet | SimCLR | 256 | 11.05 |
+| ResNet | MoCo-v2 | 256 | 8.41 |
+| ResNet | Latent-MAE | 640 | **3.36** |
+
+: 特徴エンコーダの選択による FID の比較（B/2, 100 epochs） {#tbl-encoder-comparison}
+
+汎用的な自己教師あり学習（SimCLR, MoCo-v2）よりも、Variational Autoencoder（VAE）潜在空間上で直接訓練された Latent-MAE（Masked Autoencoder（MAE））が大幅に優れている。これは、生成モデルが操作する空間（VAE 潜在空間）に特化した特徴表現の重要性を示している。
+
+## Classifier-Free Guidance の統合 {#sec-cfg}
+
+クラス条件付き生成では、Classifier-Free Guidance（CFG）を統合できる。従来の CFG が推論時のスコア補間に基づくのに対し、Drifting Models では**ネガティブサンプルの混合**によってガイダンスを実現する。
+
+負例分布を以下のように定義する:
+
+$$
+\tilde{q}(\cdot | c) := (1 - \gamma) q_\theta(\cdot | c) + \gamma \, p_\text{data}(\cdot | \varnothing)
+$$
+
+ここで $c$ はクラスラベル、$\varnothing$ は無条件を表し、$\gamma \in [0, 1)$ は混合比率である。$\gamma > 0$ の場合、無条件生成サンプルがネガティブサンプルに混入し、条件付き生成サンプルはそれらから反発することで、条件への忠実度が向上する。
+
+推論時には CFG スケール $\alpha$ を自由に調整でき、品質と多様性のトレードオフを制御できる。
+
+## 実験結果 {#sec-results}
+
+### ImageNet 256×256
+
+潜在空間（VAE latent space）およびピクセル空間の両方で評価を行っている:
+
+**潜在空間生成**:
+
+| モデル | エポック数 | FID |
+|--------|-----------|-----|
+| B/2 | 100 | 3.36 |
+| B/2 | 320 | 2.51 |
+| B/2 | 1280 | 1.75 |
+| L/2 | 1280 | **1.54** |
+
+: 潜在空間での FID スコア（ImageNet 256×256, 1-NFE） {#tbl-latent-results}
+
+**ピクセル空間生成**:
+
+| モデル | FID |
+|--------|-----|
+| B/16 | 1.76 |
+| L/16 | **1.61** |
+
+: ピクセル空間での FID スコア（ImageNet 256×256, 1-NFE） {#tbl-pixel-results}
+
+L/2 モデルの FID 1.54 は、1-NFE の生成モデルとしては新たな SOTA である。さらに注目すべきは、ピクセル空間でも FID 1.61 を達成している点であり、潜在空間を介さずとも高品質な生成が可能であることを示している。
+
+### 他手法との比較
+
+ピクセル空間における他の1ステップ生成手法との比較:
+
+- **StyleGAN-XL**: FID 2.30（1574G Floating Point Operations（FLOPs））
+- **Drifting L/16**: FID 1.61（87G FLOPs）
+
+Drifting Models は Generative Adversarial Network（GAN）と比較して、FID で上回りつつ計算量を大幅に削減している。
+
+### スケーリング特性
+
+B/2 から L/2 へのスケールアップにより、FID は 3.36 → 1.54 へと大幅に改善される。また、訓練エポック数の増加（100 → 1280 エポック）に伴い FID は単調に改善しており、訓練の安定性が高いことを示唆している。
+
+### ロボット制御への応用
+
+Drifting Models は画像生成以外にも適用可能である。ロボット制御における Diffusion Policy の代替として評価された結果、100-NFE の拡散モデルと同等以上の性能を1-NFE で達成している:
+
+| タスク | Diffusion（100 NFE） | Drifting（1 NFE） |
+|--------|---------------------|-------------------|
+| Lift (state) | 0.98 | **1.00** |
+| Can (state) | 0.96 | **0.98** |
+| BlockPush Phase 1 | 0.36 | **0.56** |
+
+: ロボット制御タスクにおける Diffusion Policy との比較 {#tbl-robot-control}
+
+特に BlockPush タスクでは Drifting が Diffusion を大きく上回っており、1ステップ推論の低遅延がリアルタイム制御に有利に働いていることが示唆される。
+
+## アブレーション {#sec-ablation}
+
+### 反対称性の重要性
+
+反対称性を破壊した場合の影響は劇的である（B/2, 100 エポック）:
+
+| 設定 | FID |
+|------|-----|
+| 反対称（デフォルト） | 8.46 |
+| 1.5× 引力（引力を過剰に増加） | 41.05 |
+| 1.5× 反発（反発を過剰に増加） | 46.28 |
+
+反対称性が破れると FID は 41〜177 にまで悪化する。引力と反発のバランスが崩れると、サンプルがデータ分布に収束せず、生成品質が壊滅的に低下する。これは @sec-drifting-field で述べた均衡条件が反対称性に依存していることの実験的裏付けである。
+
+### 正例・負例の数
+
+固定の計算予算の下で、正例（データサンプル）と負例（生成サンプル）の数を増やすと品質が向上する。$N_\text{pos} = 64$, $N_\text{neg} = 64$ の場合に FID 8.46 を達成しており、サンプル数の増加は Drifting Field の推定精度を高める効果がある。
+
+### 特徴エンコーダの選択
+
+@tbl-encoder-comparison で示した通り、エンコーダの選択は FID に 3 倍以上の差をもたらす。SimCLR（11.05）と Latent-MAE（3.36）の差は、特徴空間の質がカーネルベースの類似性計算の有効性を左右することを示している。
+
+::: {.callout-note collapse="true"}
+## GAN との関係
+
+Drifting Models と GAN（Generative Adversarial Networks）には表面的な類似点がある:
+
+**類似点**:
+
+- 1ステップで生成を行う
+- 暗黙的な分布マッチング（explicit な尤度を計算しない）
+- Generator が直接サンプルを出力する
+
+**相違点**:
+
+- **敵対的最適化の排除**: GAN は Generator と Discriminator の min-max ゲームを解くが、Drifting Models は Drifting Field による固定点反復を MSE 損失に変換しており、敵対的学習を行わない
+- **モード崩壊のリスク**: GAN はモード崩壊を起こしやすいが、Drifting Models は反発項 $V_q^-$ が生成サンプル間の多様性を維持する機構として機能するため、モード崩壊のリスクが低い
+- **計算効率**: StyleGAN-XL が 1574G FLOPs を要するのに対し、Drifting L/16 は 87G FLOPs と約 18 倍効率的でありながら、FID で上回る
+- **訓練の安定性**: GAN の訓練は不安定になりやすいが、Drifting Models は stop-gradient と MSE 損失に基づく安定した訓練を実現している
+
+:::
+
+::: {.callout-note collapse="true"}
+## MeanFlow / TVM との関係
+
+Drifting Models は MeanFlow や TVM と同じ「1ステップ生成」を目指すが、そのアプローチは根本的に異なる。
+
+**MeanFlow**（[詳細](mean-flow.qmd)）:
+
+- Flow Matching の枠組み内で、瞬間速度に代えて平均速度を学習
+- 時間パラメータ $t$ を持つ ODE 構造を継承
+- MeanFlow Identity により平均速度と瞬間速度を結びつける
+
+**TVM**（[詳細](terminal-velocity-matching.qmd)）:
+
+- Flow Matching の枠組み内で、終端時刻の速度場を正則化
+- 変位マップと 2-Wasserstein 距離の上界を理論的に導出
+- Lipschitz 連続性のためのアーキテクチャ修正が必要
+
+**Drifting Models**:
+
+- Flow / Diffusion の枠組みとは**根本的に異なるパラダイム**
+- 時間パラメータ $t$ を持たない（ODE / SDE 構造を使用しない）
+- 訓練中の分布進化に基づく全く新しい定式化
+- カーネルベースの引力-反発機構による暗黙的な分布マッチング
+
+3つの手法はすべて MIT の Kaiming He グループから発表されており、1ステップ生成という共通目標に対して、Flow Matching の精緻化（MeanFlow → TVM）から新パラダイムの創出（Drifting）へという発展的な研究の流れが読み取れる。
+
+:::
+
+## まとめ
+
+Drifting Models は、「推論時の反復計算」という生成モデルの根本的な前提を覆す手法である。Drifting Field の引力-反発メカニズムと反対称性により、訓練中に pushforward 分布が自然にデータ分布に収束し、推論時には1回のフォワードパスのみで高品質な生成が可能となる。
+
+FID 1.54（潜在空間）という結果は、蒸留なし・事前学習なしの1ステップ生成としては圧倒的な性能であり、GAN や多ステップ拡散モデルをも凌駕する。さらにロボット制御への応用実績は、この手法の汎用性を示している。
+
+Flow Matching の改良（MeanFlow, TVM）とは異なり、Drifting Models は ODE/SDE の枠組みから完全に離脱した新しいパラダイムを提示しており、生成モデル研究の新たな方向性を切り拓いている。
+

@@ -1,0 +1,114 @@
+---
+pagetitle: "ARC-AGI and Small Models"
+---
+
+# ARC-AGI and Small Models
+
+The HRM and TRM models that this book centers on rely heavily on their choice of ARC-AGI as a benchmark to support most of their performance narrative. At the same time, ARC-AGI itself has changed considerably: a second generation was released in 2025 and a third in 2026, and the catch-up from frontier Large Language Models (LLMs) has been striking. This chapter places the HRM/TRM-style "small-model line" alongside competing approaches and clarifies its relative position on the latest benchmarks.
+
+![Example ARC-AGI task. From three input-output grid pairs, one extracts a common transformation rule and produces the correct output for the test input. Each cell takes one of 10 categorical color values, and grid sizes vary. Source: [@chollet2024arcprize]](images/arc-task-example.jpg){#fig-arc-task width="85%"}
+
+## Current Benchmark Status: Three Coexisting Generations
+
+As of May 2026, three generations of ARC-AGI coexist.
+
+**ARC-AGI-1** (released in 2019) has effectively saturated. Combinations of a frontier model with scaffolding (outer-loop processing such as test-time augmentation or repeated sampling) exceed 85 %, and open Test-Time Training (TTT) methods also reach the low 50s.
+
+**ARC-AGI-2** (released in March 2025) initially pushed frontier LLMs back to 0–9 %, but progress accelerated rapidly through the first half of 2026. As of May, GPT-5.5 records 85 %, GPT-5.4 Pro 83.3 %, and Gemini 3.1 Pro 77.1 %. All three exceed the average human (66 %), while TTT-style small-model approaches remain in the 5–24 % range. The jump from 8 % to 85 % in nine months illustrates the strength of frontier reasoning LLMs equipped with Reinforcement Learning (RL) post-training and a massive thinking budget.
+
+**ARC-AGI-3** (released on March 25, 2026) consists of turn-based interactive tasks where neither rules nor goals are stated explicitly and the agent has to decode the environment through trial and error. All frontier models are pushed back below 1 %, while humans achieve 100 %, opening a new gap. ARC Prize 2026 (with total prize money exceeding 2 million USD) targets both ARC-AGI-2 and ARC-AGI-3.
+
+As a verifier-equipped constraint reasoning benchmark that runs alongside ARC-AGI, Pencil Puzzle Bench (PPBench) [@waugh2026ppbench] was released in March 2026. It evaluates 300 pencil puzzles across 20 types (Sudoku, Light Up, Nurikabe, Heyawake, Tapa, Shakashaka, and others) with a step-level verifier. In contrast to ARC's setting of "infer the rules themselves", it adopts the setting of "rules are known, and what is measured is search under those rules". This book's [PTRM](ptrm.qmd) chapter adopts PPBench as the main experimental benchmark, where PTRM best-Q@100 scores 91.2 % and substantially exceeds the frontier LLM ensemble's 55.1 %. This result can be read as another example alongside ARC-AGI of "closed reasoning that frontier LLMs struggle with".
+
+## Summary of ARC Prize 2024 and 2025
+
+The ARC Prize is held annually as an open competition around ARC-AGI, and the top entries are published in technical reports [@chollet2024arcprize; @chollet2026arcprize] and through the Paper Award.
+
+**In 2024 (ARC-AGI-1 as the main battleground),** the ARChitects team (Franzen and Disselhoff) won first place by achieving 53.5 % on the private set with TTT, MindsAI achieved 55.5 % on the public eval as a TTT pioneer, and Ryan Greenblatt reached 42 % by combining GPT-4o with a program-synthesis verifier. The Paper Award went to the TTT paper by Akyürek et al. [@akyurek2024ttt].
+
+![TTT pipeline by Akyürek et al. From the test task, one generates leave-one-out queries, applies augmentations such as rotation and flip, runs a language-model prediction, then inverts the transforms and takes a hierarchical majority vote. This standard template pushed ARC-AGI-1 past 50 % in 2024. Source: [@akyurek2024ttt]](images/arc-ttt-pipeline.png){#fig-arc-ttt-pipeline width="95%"}
+
+**In 2025 (ARC-AGI-2 as the main battleground, with the Grand Prize unclaimed),** the lineup shifted significantly. The first-place team NVARC (NVIDIA KGMoN, Sorokin and Puget) combined ARChitects-style TTT models with **TRM-based components** and 103,000 synthetic puzzles, reaching 24 % on ARC-AGI-2 at a cost of 0.20 USD per task. Second place went to ARChitects with a 2D-aware masked diffusion LLM and recursive self-refinement, and third place to MindsAI with 15.42 %. The Paper Award first prize went to Alexia Jolicoeur-Martineau for the TRM paper [@jolicoeur2025trm]. Independent verification of HRM [@ge2025hrmperspectives] and a follow-up work that scrutinized TRM behavior on ARC-AGI-1 [@royeazar2025trmarc] were released around the same time, raising the resolution of the small-net line by one notch.
+
+Whereas NVARC adopted TRM components inside an ensemble, McGovern's Test-Time Adaptation of Tiny Recursive Models [@mcgovern2025ttatrm] is an **independent reproduction that evaluates plain TRM alone under the ARC Prize rules**. It trains a 7M-parameter TRM on 1,280 public tasks for 48 hours on 4 H100s and applies 12,500 test-time fine-tuning steps under the competition budget, reporting roughly 10 % on public eval and 6.67 % on semi-private. The gap from NVARC's 24 % shows the magnitude of the ensemble, synthetic data, and TTT integration, providing a reference point for "the ceiling of TRM alone versus when integrated into an ensemble".
+
+Exploring the operator design space, Wang & Reid's Tiny Recursive Reasoning with Mamba-2 Hybrid [@wang2026trmmamba] replaces Transformer blocks inside the recursive operator with Mamba-2 SSMs, showing that the top-1 on ARC-AGI-1 is comparable while pass@100 improves by +4.75 pp. The view that "TRM is just a small Transformer" is relativized by the mechanistic observation that architectural choices inside the operator influence trajectory diversity.
+
+![Example construction of an equivariant base and symmetry-breaking layers in the CompressARC family, also referenced by NVARC-derived models. This is a typical example of a line that builds inductive bias explicitly into the design. Source: [@chollet2026arcprize]](images/arc-compressarc.png){#fig-arc-compressarc width="80%"}
+
+## Comparison of Five Effective Approach Families
+
+By mid-2026, the methods used to tackle ARC-AGI can be organized into five groups.
+
+| Approach | Representatives | ARC-AGI-1 | ARC-AGI-2 | Core technique |
+|----------|------|---------:|---------:|---------|
+| Test-Time Training | ARChitects, MindsAI, Akyürek | 47–55 % | 15–24 % | per-task LoRA fine-tuning |
+| LLM + program synthesis | Greenblatt, Ndea (Chollet) | 42–55 % | moderate | mass program generation + execution check |
+| Frontier LLM + heavy CoT | GPT-5.5, Gemini 3.1 Pro | over 85 % | 77–85 % | RL post-training + massive thinking budget |
+| Inductive-biased small net | HRM, TRM | 41–45 % | 5–8 % | recursive refinement + augmentation |
+| Synthetic data + small TTT | NVARC (TRM components) | - | 24 % (efficient SOTA) | synthetic puzzles + 4B TTT |
+
+: Five effective approach families on ARC-AGI with representative methods and score ranges {#tbl-arc-approaches}
+
+Reading @tbl-arc-approaches at a glance makes clear that the gap on ARC-AGI-2 between frontier LLMs and the small-net line takes the extreme form of single digits versus 70–80 %.
+
+![Without fine-tuning, Akyürek et al.'s TTT solves only 5 tasks, but adding TTT jumps this to 29 tasks. The substance of TTT is the combination of augmentation and fine-tuning, and HRM/TRM-style methods share the same "augmentation is almost everything" structure. Source: [@akyurek2024ttt]](images/arc-ttt-results.png){#fig-arc-ttt-results width="80%"}
+
+## Position and Structural Constraints of HRM and TRM
+
+As @tbl-arc-approaches shows, among the three core papers covered in this book, [HRM](hrm.qmd) and [TRM](trm.qmd) clearly belong to the "inductive-biased small net" group.
+
+First, the main driver of performance is not the advertised hierarchical planner/worker structure but the outer **iterative refinement loop and data augmentation**. As the ARC Prize Foundation's HRM analysis [@ge2025hrmperspectives] shows, removing the hierarchy drops performance by only about 5 pp.
+
+Second, both HRM and TRM rely on puzzle_id embeddings, giving them a transductive design that applies only to puzzle_ids seen during training. Few-shot generalization to new tasks is difficult in principle, and an issue common to TTT methods in general appears in HRM/TRM in an even more pronounced form.
+
+Third, in absolute terms TRM's 44.6 % on ARC-AGI-1 and 7.8 % on ARC-AGI-2 fall well short of frontier LLMs (over 77 %) and NVARC (24 %, efficient SOTA). The December 2025 TRM follow-up [@royeazar2025trmarc] revisits the roles of inductive bias, identity conditioning, and test-time compute, and quantifies how strongly behavior on ARC-AGI-1 depends on the combination of augmentation volume and inductive bias.
+
+::: {.callout-note}
+## Old Techniques Do Not Carry Over to ARC-AGI-2
+
+ARC-AGI-2 is adversarial in construction and has high compositional depth. TTT-only configurations effective in 2024 hit a ceiling around 24 %, and puzzle_id-dependent designs like HRM/TRM stay in single digits. The two factors that drove breakthroughs were:
+
+- ensembles of small models reinforced by TTT on synthetic data (configurations like NVARC)
+- frontier reasoning LLMs equipped with RL post-training and a massive thinking budget
+
+The fact that the gap closed from 8 % to 85 % in nine months indicates the magnitude of the effect of the scaffold and thinking compute on the latter.
+:::
+
+## Chollet, Ndea, and Whether "ARC Approximates AGI"
+
+The benchmark's proposer François Chollet co-founded **Ndea** with Mike Knoop in January 2025, restarting the research program around ARC-AGI on a corporate basis. Ndea's core idea is **"deep learning-guided program synthesis,"** namely a division of labor that delegates perception and intuition about program space to deep learning (DL) while leaving reasoning itself to discrete program search. Chollet redefines AGI as "skill acquisition efficiency on par with humans," and consistently criticizes current LLMs as "remaining at memorize-and-recombine, lacking learning as program synthesis."
+
+On whether "high benchmark scores approximate AGI achievement," the mainstream community view as of mid-2026 has converged on **no**. The discussion can be organized into four points.
+
+- The saturation of ARC-AGI-1 is a victory of test-time compute and TTT, not of intrinsic generalization (Chollet himself acknowledges this in the technical report)
+- Even GPT-5.5, which solves ARC-AGI-2 at 85 %, drops below 1 % on ARC-AGI-3
+- As the HRM analysis shows, the small-net line also has a strong flavor of "tricks that exploit ARC's inductive bias well"
+- NVARC's line of "using synthetic data and small-model TTT to cut frontier LLM cost by roughly a factor of 100" is widely supported as a promising direction for efficient reasoning research, but is evaluated less as "a shortcut to AGI" and more as "a meaningful counterargument to scaling-only thinking"
+
+::: {.callout-tip}
+## Summary: ARC Is a Necessary-Condition Benchmark for AGI
+
+Overall, the mid-2026 consensus is to position ARC-AGI as a **necessary-condition (not sufficient-condition) benchmark for AGI**. When reading [HRM](hrm.qmd) and [TRM](trm.qmd), which form the core of this book, the appropriate takeaway is the ablation-level insight into **what is load-bearing and what is decorative**, rather than the absolute scores reported on ARC-AGI.
+:::
+
+## Lineage Overview
+
+```{mermaid}
+%%| label: fig-arc-timeline
+%%| fig-cap: "Approximate correspondence between the release timing of the three ARC-AGI generations and the score bands attained by the main approach families. HRM/TRM belong to the inductive-biased small net group and are left well behind by frontier LLMs and efficient TTT from ARC-AGI-2 onward."
+
+flowchart TD
+    A["ARC-AGI-1<br/>(2019)"] --> B["TTT family, low 50s%"]
+    A --> C["LLM + program synthesis<br/>40-55%"]
+    A --> D["HRM / TRM<br/>41-45%"]
+    A --> E["Frontier LLM + scaffold<br/>over 85% (saturate)"]
+    F["ARC-AGI-2<br/>(2025-03)"] --> G["TTT family 15-24%"]
+    F --> H["NVARC 24%<br/>(synthetic data + small TTT)"]
+    F --> I["Frontier LLM + heavy CoT<br/>77-85%"]
+    F --> J["HRM / TRM 5-8%"]
+    K["ARC-AGI-3<br/>(2026-03)"] --> L["All frontier LLMs &lt; 1%"]
+    K --> M["Humans 100%"]
+```
+
+The frame of discussion itself differs between June 2025, when HRM was put forward against ARC-AGI-1, and mid-2026, when ARC-AGI-2 has become the standard benchmark. This chapter is separated out as a supplementary chapter because, without keeping the benchmark generation difference in mind when reading the absolute numbers for HRM/TRM/GRAM, comparisons between papers do not hold up in the first place.

@@ -1,0 +1,355 @@
+---
+pagetitle: "Overview"
+---
+
+# Molmo2 Technical Report Summary
+
+## Overview
+
+![High-level summary of Molmo2: the data side (left) shows the nine novel datasets and how each is collected, while the model side (right) shows the capabilities Molmo2 acquires from them -- fine-grained captioning, multi-turn user interaction, spatio-temporal localization (pointing), object tracking, and visual-skill QA. Source: [@clark2026molmo2]](images/molmo2-overview.png){#fig-molmo2-overview}
+
+Molmo2 (Multimodal Open Language Model 2) is a fully open Vision-Language Model (VLM) family developed by the Allen Institute for AI (AI2) and the University of Washington. Its most notable feature is the introduction of **video grounding** capabilities.
+
+Previous VLMs could understand and describe the contents of images and videos, but lacked the ability to precisely indicate ("ground") when and where specific events or objects occurred. Molmo2 achieves spatiotemporal pointing and tracking within videos, reaching state-of-the-art performance among open-source models.
+
+**Paper**: [arXiv:2601.10611](https://arxiv.org/abs/2601.10611)
+
+**Key contributions**:
+
+- 9 novel datasets (built entirely without reliance on proprietary models)
+- Video grounding (pointing & tracking)
+- Ultra-detailed video captions (average 924 words/video)
+- Fully open (models, data, code)
+
+**Model sizes**:
+
+- Molmo2-4B (Qwen3 Large Language Model (LLM) backbone)
+- Molmo2-8B (Qwen3 LLM backbone)
+- Molmo2-O-7B (OLMo LLM backbone, fully open)
+
+## Motivation: The Importance of Video Grounding
+
+Currently, the most powerful Video-Language Models are proprietary, with weights, data, and training recipes undisclosed. Moreover, many open-weight models rely on "distillation" -- generating synthetic data from proprietary models -- lacking a fully independent open foundation.
+
+Furthermore, existing VLMs lack **grounding** capabilities. Grounding refers to the ability of a model to output spatiotemporal coordinates for each grasping event when asked "How many times did the robot grasp the red block?", or to return the trajectory (track) of a cup when asked "When did the cup fall off the table?"
+
+Image grounding has become a standard capability, but video grounding was only supported in a limited fashion by some proprietary systems, remaining an unexplored area in open source.
+
+Molmo2 was developed to bridge this gap.
+
+## Datasets: 9 Novel Datasets
+
+At the core of Molmo2 are **9 novel datasets**. All are constructed without any distillation from proprietary models, using human annotation and LLM-based synthetic pipelines.
+
+::: {.callout-important}
+## Importance of Proprietary Model Independence
+
+Many open models (LLaVA-Video, PLM, ShareGPT4Video, etc.) adopt a "distillation" approach that generates synthetic data from proprietary models such as GPT-4V and Gemini.
+
+This approach has the following problems:
+
+- **Lack of transparency**: Data quality is opaque because it depends on proprietary model capabilities
+- **Bias inheritance**: Biases and errors from proprietary models are directly inherited
+- **Improvement ceiling**: It is difficult to achieve performance that surpasses the source model
+
+Molmo2 achieves fully independent dataset construction by using only human annotation and in-house models (Molmo, Claude Sonnet 4.5). This provides the open-source community with a foundation to surpass SOTA.
+:::
+
+### 1. Molmo2-Cap (Human Annotation)
+
+- **Contents**: 104k video-level captions + 431k clip-level captions
+- **Features**: Ultra-detailed captions averaging **924 words/video**
+  - Comparison with existing datasets: Video Localized Narratives (75 words), ShareGPT4-Video (280 words), LLaVA-Video (547 words)
+- **Pipeline**:
+  1. Annotators describe short clips via voice (enables more detailed descriptions than typing)
+  2. Transcription with Whisper-1
+  3. Text refinement with LLM
+  4. Frame-level captions generated with Molmo and integrated
+
+[→ Details:]{.detail-link} [Dense Video Captioning](dense-video-captioning.qmd)
+
+### 2. Molmo2-AskModelAnything (Human Annotation)
+
+- **Contents**: 140k video QA pairs
+- **Features**: Detailed questions and answers by human annotators
+- **Pipeline**:
+  1. Videos clustered into 31 categories to ensure diversity
+  2. Annotators create detailed questions
+  3. Claude Sonnet 4.5 generates initial answers
+  4. Annotators iteratively refine the answers
+
+### 3. Molmo2-CapQA & Molmo2-SubtitleQA (Synthetic)
+
+- **CapQA**: 1M QA pairs (200k videos, 5 QA/video)
+  - Videos segmented into scenes, each scene captioned
+  - LLM generates QA from captions
+- **SubtitleQA**: 300k QA pairs (100k videos, 3 QA/video)
+  - Subtitles extracted with Whisper-1
+  - Reasoning questions generated that require both visual information and subtitles
+
+### 4. Molmo2-VideoPoint (Human Annotation)
+
+- **Contents**: 650k video pointing queries (280k videos, average 6 points/video)
+- **Categories**: 8 types
+
+  - Objects, Animals, Actions/Events
+  - Referring expressions, Indirect references
+  - Spatial references, Comparative references
+  - Visual artifacts/anomalies (for generated videos)
+- **Pipeline**:
+  1. LLM generates queries from captions
+  2. Annotators click on the correct frame (at 2 fps) and precise location
+
+[→ Details:]{.detail-link} [Video Grounding: Pointing & Tracking](video-grounding.qmd)
+
+### 5. Molmo2-VideoTrack (Human Annotation)
+
+- **Contents**: 3.6k video clips, 15k complex natural language queries (average 2.28 objects/query)
+- **Features**: Complex text queries created for existing tracking annotations
+- **Pipeline**:
+  1. Segmentation or bounding box tracks are displayed
+  2. Annotators create non-trivial queries that apply to subsets of objects
+  3. Verification in a separate round
+
+[→ Details:]{.detail-link} [Video Grounding: Pointing & Tracking](video-grounding.qmd)
+
+### 6 & 7. AcademicVideoPoint & AcademicVideoTrack (Curation)
+
+- **VideoPoint**: 49k pointing/counting QA converted from 6 datasets
+- **VideoTrack**: 7 Ref-VOS datasets + 11 bounding box tracking datasets converted (segmentation masks generated with SAM-2)
+
+### 8. Molmo2-MultiImageQA (Human Annotation)
+
+- **Contents**: 45k image sets (96k unique images), 72k QA pairs
+- **Features**: QA over semantically related image sets (2-5 images, average 2.73 images)
+- **Pipeline**:
+  1. Images grouped by caption similarity
+  2. Annotators create questions
+  3. Answers refined through iterative loop with LLM
+
+[→ Details:]{.detail-link} [Multi-Image Understanding](multi-image-understanding.qmd)
+
+### 9. Molmo2-MultiImagePoint & Molmo2-SynMultiImageQA (Synthetic)
+
+- **MultiImagePoint**: 470k pointing/counting examples (generated from PixMo-Points via clustering)
+- **SynMultiImageQA**: 188k synthetic multi-image examples (extending CoSyn; charts, tables, documents, etc.)
+
+## Architecture
+
+Molmo2 adopts a standard VLM architecture.
+
+![Overview of the Molmo2 architecture. The pipeline takes an image or video input, processes it through the ViT and the Vision-Language Connector, and feeds the resulting visual tokens (together with text timestamps for video or image indices for multi-image input) to the LLM, which autoregressively generates a `<points>` output for grounding. Source: [@clark2026molmo2]](images/molmo2-architecture.png){#fig-architecture}
+
+**Key design choices**:
+
+- **Cropping**: Up to 24 crops for images (at inference), 2 fps sampling for video
+- **Bi-directional attention**: Image tokens can mutually attend to each other (improves performance)
+- **Pointing format**: Normalized (x, y, timestamp/image_index, object_id) output as plain text
+
+[→ Details:]{.detail-link} [Vision-Language Connector](vision-language-connector.qmd)
+
+## Training
+
+### 3-Stage Training Pipeline
+
+Molmo2 is trained in **3 stages**.
+
+#### Stage 1: Pre-training (Images Only)
+
+- **Data**: PixMo-Cap (captions), PixMo-Points (pointing), Tulu (NLP)
+- **Mixing ratio**: 60% captions, 30% pointing, 10% NLP
+- **Steps**: 32k steps, batch size 128 (approximately 4 epochs)
+- **Learning rate**: Set independently for ViT, Connector, and LLM
+
+#### Stage 2: Supervised Fine-Tuning (SFT)
+
+- **Data**: PixMo + Molmo2 datasets + open-source video/image datasets
+- **Category-based sampling**: Manually tuned sampling rates (see Table 1)
+- **Steps**: 30k steps, batch size 128, max sequence length 16,384
+
+| Category | Sampling Rate | # Datasets | # Examples |
+|---------|--------------|--------------|------|
+| Captions/Long QA | 13.6% | 6 | 1.2M |
+| Image QA | 22.7% | 32 | 2.4M |
+| Video QA | 18.2% | 32 | 2.4M |
+| Image Pointing | 9.1% | 4 | 1.1M |
+| Video Pointing | 13.6% | 7 | 0.37M |
+| Video Tracking | 13.6% | 22 | 0.80M |
+| NLP | 9.1% | 1 | 0.99M |
+
+#### Stage 3: Long-Context SFT
+
+- **Context length**: 36,864 (2.25x Stage 2)
+- **Number of frames**: F = 384 (3x Stage 2)
+- **Steps**: 2k steps
+- **Parallelism**: Context Parallelism (CP), processed across 8 GPUs
+- **Note**: Conducted for a short duration only due to high overhead
+
+[→ Details:]{.detail-link} [Long-Context Training](long-context-training.qmd)
+
+### Key Training Techniques
+
+#### Token Weighting
+
+The data ranges from multiple-choice questions with single-token outputs to long video captions with 4000+ tokens. If long outputs dominate the loss, performance on short-answer tasks degrades.
+
+**Solution**: Adjust weighting per task
+
+- Video captions: weight 0.1
+- Pointing: weight 0.2
+- Others: $\frac{4}{\sqrt{n}}$ ($n$ = number of answer tokens)
+
+[→ Details:]{.detail-link} [Token Weighting](token-weighting.qmd)
+
+#### Packing
+
+Since the number of tokens varies greatly across examples (from hundreds to 16k+), **packing** is used to avoid padding. For vision-language models, both crops for the ViT and tokens for the LLM need to be packed efficiently.
+
+Molmo2 developed an on-the-fly packing algorithm, achieving a **15x** training efficiency improvement.
+
+[→ Details:]{.detail-link} [Packing & Message Trees](packing-message-trees.qmd)
+
+#### Message Trees
+
+When a single image/video has multiple annotations, they are encoded as a **message tree**. The visual input becomes the first message, and each annotation becomes a different branch. The tree is linearized into a single sequence, and a custom attention mask prevents cross-attention between branches.
+
+On average, examples in the data have 4 annotations, and packing allows an average of 3.8 examples to be packed into a 16,348-token sequence.
+
+[→ Details:]{.detail-link} [Packing & Message Trees](packing-message-trees.qmd)
+
+## Evaluation
+
+### Overall Results (Short-Form Video, Captioning, Counting)
+
+Molmo2 is evaluated on standard video benchmarks and novel captioning/counting benchmarks.
+
+**Key results**:
+
+- **Short-form video understanding**: SOTA among open-weight models
+  - NextQA: 86.2 (Molmo2-8B)
+  - PerceptionTest: 82.1
+  - MVBench: 75.9
+  - MotionBench: 62.2
+- **Captioning**: F1 Score 43.2 on Molmo2-CapTest (Molmo2-8B)
+  - Following GPT-5 (50.1) and Gemini 2.5 Pro (42.1)
+- **Counting**: 35.5% accuracy on Molmo2-VideoCount (Molmo2-8B)
+  - Significantly outperforms Qwen3-VL-8B (29.6%)
+- **Long-form video**: Does not match the best open-weight models (e.g., Eagle2.5-8B)
+  - Cause: Insufficient open-source training data for long-form (10+ minute) videos
+
+::: {.callout-note collapse="true"}
+## Challenges with Long-Form Video
+
+Molmo2 faces challenges on the following long-form video benchmarks:
+
+- **LongVideoBench**: 67.5 (Eagle2.5-8B: 66.4, PLM-8B: 56.9)
+- **MLVU**: 60.2 (Eagle2.5-8B: 60.4, PLM-8B: 52.6)
+- **LVBench**: 52.8 (Eagle2.5-8B: 50.9, PLM-8B: 44.5)
+
+**Causes**:
+
+1. **Insufficient open data**: Lack of high-quality annotations for videos longer than 10 minutes
+2. **Computational constraints**: Long-Context Training (Stage 3) was conducted for only 2,000 steps (due to high overhead)
+3. **Trade-offs**: Prioritizing caption quality led to slightly lower performance on long-form video tasks
+
+However, Molmo2's long-form video performance still surpasses many open models, and considering it uses only fully open data, the results are commendable.
+
+[→ Details:]{.detail-link} [Long-Context Training](long-context-training.qmd)
+:::
+
+**Human Preference Study**:
+
+- Elo score: 1057 (Molmo2-8B)
+- Ranked 5th, following Gemini 3 Pro (1082) and Gemini 2.5 Flash (1084)
+- Highest performance among fully open models
+
+### Grounding Results (Video Pointing & Tracking)
+
+Molmo2's greatest strength is **video grounding**.
+
+**Video Pointing**:
+
+- F1 Score **38.4** on Molmo2-VP benchmark (novel)
+  - Significantly outperforms Gemini 3 Pro (20.0)
+  - Highest performance including proprietary models
+
+**Video Tracking**:
+
+- Accuracy **56.2** on BURST (test)
+- J&F **41.1** on Molmo2-VC (novel benchmark)
+  - Outperforms Gemini 3 Pro (details vary by benchmark)
+
+Since existing open-weight models (e.g., Qwen3-VL) do not provide video tracking functionality, Molmo2 can be said to have pioneered a new capability.
+
+[→ Details:]{.detail-link} [Video Grounding: Pointing & Tracking](video-grounding.qmd)
+
+### Image Results
+
+Molmo2 maintains strong performance on image tasks as well.
+
+- **MMMU**: 47.9 (Molmo2-8B)
+- **MathVista**: 63.1
+- **ChartQA**: 79.5
+- **AI2D**: 84.5
+
+It has been confirmed that adding video capabilities does not compromise image task performance.
+
+### Ablations
+
+The paper examines the impact of the following components:
+
+- **Bi-directional attention on vision tokens**: Effective (improves performance)
+- **Token weighting**: Effective (improves balance between long and short outputs)
+- **Packing**: 15x efficiency improvement
+- **Message trees**: Efficient learning from multiple annotations
+
+[→ Details:]{.detail-link} [Token Weighting](token-weighting.qmd), [Packing & Message Trees](packing-message-trees.qmd)
+
+## Related Work
+
+Molmo2 integrates the following lines of research:
+
+- **Vision-Language Models**: GPT-4V, Gemini, LLaVA, InternVL
+- **Video Understanding**: VideoChat, LLaVA-Video, PLM, Eagle
+- **Grounding**: KOSMOS-2, Ferret, GPT-4V with set-of-mark
+- **Video Grounding**: Grounding-DINO, SAM-2, Ref-VOS
+- **Open Data**: PixMo, CoSyn, ShareGPT4Video
+
+Molmo2's uniqueness lies in achieving both **fully open** development and **video grounding**.
+
+::: {.callout-note collapse="true"}
+## Comparison with Other Models
+
+**Proprietary models**:
+
+- **GPT-4V / GPT-5**: Image grounding is possible, but video tracking is not supported
+- **Gemini 2.5 Pro / 3 Pro**: Has limited video grounding capabilities, but does not match Molmo2's pointing/tracking performance
+- **Claude Sonnet 4.5**: No video grounding functionality
+
+**Open-weight models**:
+
+- **Qwen3-VL (4B/8B)**: Strong video understanding, but no video grounding functionality. Molmo2 outperforms on counting
+- **InternVL3.5 (4B/8B)**: Specializes in image tasks, no video grounding
+- **LLaVA-Video-7B**: Uses data distilled from proprietary models. No grounding functionality
+- **PLM (3B/8B)**: Has detailed caption data, but fewer average words than Molmo2 (Molmo2: 924 words vs PLM: unknown)
+
+**Fully open models**:
+
+- **Molmo2-O-7B**: The only fully open model using OLMo LLM (ViT is still proprietary)
+
+Molmo2 distinguishes itself from other models by pioneering the new capability of **video grounding** and achieving the highest performance, including among proprietary models.
+:::
+
+## Conclusion
+
+Molmo2, as a fully open VLM, achieves the following:
+
+1. **9 novel datasets** constructed (zero reliance on proprietary models)
+2. **Video grounding** (pointing & tracking) realized
+3. **SOTA in short-form video understanding** among open models
+4. **Captioning & counting** performance approaching proprietary models
+5. **Fully open** (models, data, code)
+
+As a challenge, performance on long-form video (10+ minutes) does not match the best open-weight models, but this is due to the scarcity of open-source long-form data.
+
+Molmo2 provides a solid foundation for the open-source community to build SOTA VLMs.

@@ -1,0 +1,202 @@
+---
+pagetitle: "Dense Video Captioning"
+---
+
+# Dense Video Captioning
+
+## Overview
+
+**Molmo2-Cap** is an ultra-dense video captioning dataset used for Molmo2 pretraining. Compared to conventional video captioning datasets, it contains orders of magnitude more detailed descriptions, achieving a remarkable average of **924 words per video**.
+
+Unlike the short, superficial captions produced by conventional Vision-Language Models (VLMs), Molmo2-Cap captures both dynamic events and fine-grained visual details, providing a foundation for models to develop deep spatiotemporal understanding of video.
+
+**Dataset scale**:
+
+- **104k video-level captions**
+- **431k clip-level captions**
+- Average of **924 words per video** in ultra-dense descriptions
+
+![Qualitative example from Molmo2-Cap. The top row shows clip-level captions for short segments cut from a single video (each averaging roughly 200 words and describing concrete spatial layout, actions, and visual details), and the bottom row shows the integrated full-video caption produced by merging clip captions with Molmo-generated frame captions through a Large Language Model (LLM). The result is a single dense description that covers both moment-to-moment events and fine-grained visual attributes. Source: [@clark2026molmo2]](images/molmo2-cap-example.png){#fig-cap-example}
+
+## Why Dense Captioning Matters
+
+### Challenges of Video Understanding
+
+Video captioning is inherently more difficult than image captioning because annotators must describe both of the following:
+
+1. **Dynamic events**: Occurrences, actions, and state transitions that change over time
+2. **Fine-grained visual details**: Object appearances, spatial arrangements, and attribute changes
+
+Many existing video captioning datasets are limited to superficial descriptions, making them insufficient for learning video grounding (understanding when, where, and what happened). Molmo2-Cap was designed to bridge this gap.
+
+### The Importance of Density
+
+More detailed captions provide models with the following capabilities:
+
+- **Spatiotemporal understanding**: Accurately grasping "when," "where," and "what" happened
+- **Fine-grained visual recognition**: Capturing small objects, subtle actions, and attribute changes
+- **Contextual understanding**: Learning causal relationships and temporal dependencies between events
+
+## Comparison with Existing Datasets
+
+::: {.callout-note collapse="true"}
+## Comparison with Other Video Captioning Datasets
+
+Molmo2-Cap achieves significantly greater descriptive volume than existing video captioning datasets:
+
+| Dataset | Avg. Words/Video | Characteristics |
+|---------|-----------------|-----------------|
+| **Molmo2-Cap** | **924 words** | Human spoken descriptions + Molmo integration |
+| LLaVA-Video-178K | 547 words | GPT-based synthetic captions |
+| ShareGPT4-Video | 280 words | GPT-based synthetic captions |
+| RDCap | 100 words | Existing dataset |
+| RCap | 89 words | Existing dataset |
+| Video Localized Narratives | 75 words | Human annotation |
+
+Molmo2-Cap contains **1.7x** more words than LLaVA-Video, **3.3x** more than ShareGPT4-Video, and over **12x** more than Video Localized Narratives.
+
+**Key differences**:
+
+- Molmo2-Cap is built on a **fully open pipeline that does not rely on proprietary models (such as GPT)**
+- It is based on **human spoken descriptions**, which are more natural and detailed than synthetic data
+- **Frame-level caption integration** ensures that low-level visual details are comprehensively described
+
+:::
+
+## Data Collection Pipeline
+
+Molmo2-Cap employs an innovative **two-stage pipeline** for data collection.
+
+### Stage 1: Video Sourcing and Selection
+
+1. **Initial pool construction**: Over 10M video clips are collected from multiple large-scale sources (YT-Temporal, YouTube, etc.)
+2. **Information content filtering**:
+   - Audio tracks are removed and frames are uniformly sampled at 1 fps
+   - Encoded with H.264 and a normalized information content score is computed: `bits / (duration x W x H)`
+   - Videos below mean - 1 sigma are excluded (removing videos with low visual and temporal diversity)
+3. **Diversity-based sampling**:
+   - Frames are segmented with SAM 2 to estimate visual complexity
+   - Frames are captioned with Molmo, and keywords are extracted via the MetaCLIP pipeline
+   - Greedy sampling targeting entropy maximization (over keyword distribution and segment count distribution)
+   - Approximately **100k videos** are ultimately selected (sampling rate of 1%)
+
+### Stage 2: Human Annotation
+
+#### Clip Splitting Algorithm
+
+Videos are split into variable-length clips (10--30 seconds). **Clips with higher information density are assigned shorter durations**, equalizing annotator workload while encouraging detailed descriptions.
+
+- Average of **4--5 clips per video**
+
+#### Collecting Spoken Descriptions
+
+::: {.callout-tip}
+## Why Use Spoken Descriptions?
+
+Spoken captions have the following advantages over typed descriptions:
+
+1. **Faster description speed**: Annotators can naturally convey details more quickly than by typing
+2. **Natural language expression**: Spoken language tends to be more fluent and richer than written language
+3. **Reduced cognitive load**: Annotators can focus on the video without being distracted by typing
+
+This approach was also adopted in PixMo-Cap (an image captioning dataset), where it has been demonstrated to be effective for producing high-quality captions.
+
+:::
+
+**Annotation process**:
+
+1. **Clip description**:
+
+   - Annotators verbally describe the content of each short clip (audio is muted)
+   - They narrate in detail what is happening on screen
+   - Real-time transcription (Whisper-1) runs automatically
+   - Annotators edit the transcript to correct recognition errors
+
+2. **Overall video summary**:
+
+   - After all clip descriptions are completed, a comprehensive description of the entire video is written
+
+3. **Question-based prompts**:
+
+   - A set of predefined questions is presented to encourage annotators to describe "dynamic visual details"
+   - Example: "How did objects or events change over time?"
+
+### Stage 3: LLM-Based Text Refinement
+
+Since Whisper transcriptions contain incomplete sentences and colloquial expressions, a **text-only LLM** is used to perform the following:
+
+- Organize sentence structure and ensure consistency
+- Remove redundancy and improve readability
+- Convert to fluent text while preserving the original meaning
+
+### Stage 4: Frame-Level Integration with Molmo
+
+This stage supplements **low-level visual details** that human descriptions tend to overlook:
+
+1. **Generate frame-level captions with Molmo**:
+
+   - Individual frames are captioned using Molmo (an early version)
+   - Colors, textures, fine-grained object attributes, and other details are described
+
+2. **Merge with LLM**:
+
+   - Clip-level captions and frame-level captions are integrated
+   - Duplicates are removed to produce a coherent, long-form caption
+
+## Dataset Statistics
+
+**Video sources**:
+
+- YT-Temporal
+- YouTube keyword search
+- Multiple large-scale video datasets
+
+**License**: Creative Commons (partial)
+
+**Filtering**:
+
+- Videos with low visual and temporal diversity are excluded
+- Low-quality captions containing repetitive patterns are removed using heuristic rules
+
+## Usage in Training
+
+Molmo2-Cap is used in the **pretraining** phase of Molmo2:
+
+- **Length-conditioned caption generation**: The model is trained to generate captions of a specified length
+- **Weighted sampling**: A fixed weight of 0.1 is assigned to video captioning data (balanced with other tasks)
+
+## Impact and Contributions
+
+Molmo2-Cap makes the following significant contributions:
+
+1. **Open-source foundation**: A fully open pipeline that does not rely on proprietary models (such as GPT)
+2. **Foundation for video grounding**: Ultra-dense descriptions enable learning spatiotemporal pointing and tracking
+3. **New standard for data quality**: An average of 924 words per video sets a new benchmark for video captioning datasets
+4. **Reproducible methodology**: The clear pipeline of spoken descriptions + LLM refinement + Molmo integration can be reused in other projects
+
+## Evaluation: Molmo2-CapTest
+
+To evaluate Molmo2's video captioning capabilities, an evaluation set called **Molmo2-CapTest** has been constructed:
+
+- **693 Creative Commons licensed videos**
+- Collected using the same protocol as Molmo2-Cap, but annotated by **manually selected high-quality annotators**
+- Multiple reference captions are provided for each video
+- Caption quality is evaluated using the **F1 score**
+
+## Summary
+
+Molmo2-Cap has become the most detailed video captioning dataset in history through the following innovative design choices:
+
+- **Spoken descriptions + Whisper**: Efficiently collecting natural and fluent descriptions
+- **LLM refinement**: Converting colloquial expressions into readable text
+- **Molmo integration**: Supplementing low-level visual details
+- **Diversity-based sampling**: Constructing a visually and semantically diverse video set
+
+This dataset serves as an indispensable foundation for Molmo2's video grounding (pointing and tracking) capabilities, demonstrating the potential of fully open video VLMs.
+
+---
+
+**Related sections**:
+
+- [Video Grounding: Pointing & Tracking](video-grounding.qmd) -- Video pointing and tracking dataset
+- [Multi-Image Understanding](multi-image-understanding.qmd) -- Multi-image understanding dataset

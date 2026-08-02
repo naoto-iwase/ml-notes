@@ -1,0 +1,256 @@
+---
+pagetitle: "Dolma 3"
+---
+
+# Dolma 3: Pretraining Dataset
+
+Dolma 3 is the large-scale dataset used to pretrain the Olmo 3 Base model. Known as **Dolma 3 Mix**, it comprises approximately 6 trillion tokens of diverse data spanning multiple sources including web pages, academic Portable Document Format (PDF) files, code repositories, and mathematical data.
+
+## Overview and Objectives
+
+The primary objective of Dolma 3 is to provide the Olmo 3 Base model with broad knowledge and capabilities. Since the dataset is used in the most compute-intensive pretraining stage (consuming over 90% of total compute), scalability and quality are of paramount importance.
+
+**Core data strategy principles**:
+
+- **Scale matters**: Influencing pretraining requires data at the trillion-token scale in sufficient volume
+- **Task data handling**: Structured task data (QA pairs, chat instances, etc.) is reserved for later midtraining and long-context extension stages, and is not used during pretraining
+
+## Data Source Composition {#sec-dolma3-composition}
+
+Dolma 3 Mix is composed of multiple data sources. The following table shows the token counts and document counts for each source.
+
+| Data Source | Type | 9T Pool | 6T Mix | 6T Mix Share |
+|-------------|------|---------|--------|--------------|
+| Common Crawl | Web pages | 8.14T tokens<br>9.67B docs | 4.51T tokens<br>3.15B docs | 76.1% |
+| olmOCR science PDFs | Academic docs | 972B tokens<br>101M docs | 805B tokens<br>83.8M docs | 13.6% |
+| Stack-Edu (Rebalanced) | GitHub code | 137B tokens<br>167M docs | 409B tokens<br>526M docs | 6.89% |
+| arXiv | LaTeX papers | 21.4B tokens<br>3.95M docs | 50.8B tokens<br>9.10M docs | 0.86% |
+| FineMath 3+ | Math web pages | 34.1B tokens<br>21.4M docs | 152B tokens<br>95.5M docs | 2.56% |
+| Wikipedia & Wikibooks | Encyclopedia | 3.69B tokens<br>6.67M docs | 2.51B tokens<br>4.24M docs | 0.04% |
+| **Total** | | **9.31T tokens**<br>**9.97B docs** | **5.93T tokens**<br>**3.87B docs** | **100%** |
+
+: Dolma 3 Mix data source composition {#tbl-dolma3-composition}
+
+### Data Source Descriptions
+
+**Common Crawl (Web pages)**:
+
+- The largest data source by share (76.1%)
+- Text data extracted from diverse web pages
+- Includes data up to December 31, 2024
+
+**olmOCR science PDFs (Academic documents)**:
+
+- A new data source converting academic PDFs to linearized plain text
+- Extracted from 238 million unique PDF documents
+- Text extraction performed using the olmOCR tool
+
+**Stack-Edu (GitHub code)**:
+
+- Curated educational programming content from The Stack v2 dataset
+- Split by programming language with an optimized mix applied
+
+**arXiv (LaTeX papers)**:
+
+- Sourced from the Proof-Pile-2 dataset
+- Retains the original LaTeX notation, enabling the model to learn both mathematical content and proper formatting
+
+**FineMath 3+ (Math web pages)**:
+
+- A subset of Common Crawl documents containing mathematical educational content
+- Reprocessed to properly preserve mathematical notation
+
+**Wikipedia & Wikibooks (Encyclopedia)**:
+
+- English and Simple English Wikipedia and Wikibooks
+- A base source for encyclopedic knowledge
+
+## Key Innovations
+
+Dolma 3 introduces three major technical innovations.
+
+### 1. Global Deduplication
+
+For Dolma 3, a new tool called **Duplodocus** was developed to achieve fast and scalable global deduplication at the trillion-token scale.
+
+Deduplication is performed in three stages:
+
+**Stage 1: Exact Deduplication**:
+
+- Global deduplication based on document text hashes
+- Removes all exact copies
+- Identified 67% of data as duplicates, reducing the corpus from 38.7B to 12.8B documents
+
+**Stage 2: Fuzzy Deduplication**:
+
+- MinHash-based deduplication to identify and remove near-identical documents
+- Removes documents that differ only in headers or footers (documents copied across multiple domains)
+- Identified 23% of data as duplicates, reducing the corpus to 9.8B documents
+
+**Stage 3: Substring Deduplication**:
+
+- A new fuzzy suffix-array-based deduplication procedure
+- Removes repetitive content within individual documents (boilerplate text and HTML artifacts)
+- Marks repeated substrings of 500 bytes or more
+- Removed 14% of text bytes, reducing the corpus to 9.7B documents (36.5T bytes)
+
+This three-stage procedure reduced the web corpus from 38.7B to 9.7B documents (a 75% reduction in document count).
+
+
+[→ Details:]{.detail-link} [Deduplication](deduplication.qmd)
+
+### 2. Token-Constrained Mixing and Quality-Aware Upsampling
+
+Dolma 3 introduces two new approaches to data mixing.
+
+**Token-constrained Mixing**:
+
+- Uses a Swarm-based approach to train and evaluate a large number of small proxy models
+- Uses these results to determine the optimal mix
+- A conditional mixing procedure that accommodates development cycles where data sources are continuously improved and updated
+
+The Token-constrained Mixing procedure:
+
+1. **Swarm construction**: Train a large number of small proxy models with different mixing ratios
+2. **Per-task regression**: Each proxy model maps mixing weights to task performance
+3. **Mix optimization**: Find the mixing that minimizes average task BPB (bits-per-byte)
+
+**Quality-aware Upsampling**:
+
+- Accounts for quality variation within each topic
+- Selectively repeats high-quality documents, concentrating repetition on high-quality data while minimizing overall repetition
+
+
+[→ Details:]{.detail-link} [Data Mixing Methods](data-mixing.qmd)
+
+### 3. olmOCR Science PDFs
+
+olmOCR science PDFs is a new data source that converts academic PDFs to linearized plain text. It was introduced as a replacement for the previous peS2o dataset.
+
+**Features**:
+
+- "Polite" crawling identified as AI2Bot
+- Respects robots.txt and does not circumvent paywalls
+- Crawling focused on academic sites and paper repositories
+- Text extraction using olmOCR (versions 0.1.49-0.1.53)
+
+**Data scale**:
+
+- 238 million unique PDF documents (cutoff date: December 2024)
+- 160 million PDF documents after text extraction
+- 156 million documents after deduplication
+
+
+[→ Details:]{.detail-link} [olmOCR Science PDFs](olmocr-science-pdfs.qmd)
+
+## Data Curation Pipeline
+
+Data curation for Dolma 3 Mix follows the flow shown in @fig-dolma3-pipeline. Common Crawl and academic PDFs go through the same pipeline (HTML/OCR text extraction → heuristic filtering → deduplication → topic & quality classification), while GitHub and FineMath/arXiv/Wiki follow their own dedicated preprocessing, before being consolidated through Mixing and Quality upsampling.
+
+![The Dolma 3 data curation pipeline. Common Crawl and academic PDFs share a common preprocessing chain (text extraction → filtering → deduplication → classification) and are merged with GitHub, FineMath, arXiv, and Wiki at the Mixing stage. Source: Olmo 3 Technical Report (arXiv:2512.13961)](images/dolma3-pipeline.png){#fig-dolma3-pipeline}
+
+**Key pipeline steps**:
+
+1. **Text extraction**: Extract text from HTML or PDF
+2. **Heuristic filtering**: Remove low-quality documents, spam, and adult content
+3. **Deduplication**: Remove exact duplicates, fuzzy duplicates, and substring duplicates
+4. **Topic and quality classification**: Classify documents into 24 topics using the WebOrganizer tool and assign quality scores
+5. **Mixing**: Determine optimal data source ratios via Token-constrained mixing
+6. **Quality upsampling**: Selectively repeat high-quality documents
+
+## Usage Across Three Training Stages
+
+The Dolma 3 dataset is used across three stages of the Olmo 3 training process.
+
+### Stage 1: Pretraining
+
+**Data used**: Dolma 3 Mix (6T tokens)
+
+**Objective**: Build a foundation model with diverse knowledge and capabilities
+
+**Data source breakdown**:
+
+- Common Crawl: 76.1%
+- olmOCR science PDFs: 13.6%
+- Stack-Edu: 6.89%
+- arXiv: 0.86%
+- FineMath 3+: 2.56%
+- Wikipedia & Wikibooks: 0.04%
+
+### Stage 2: Midtraining
+
+**Data used**: Dolma 3 Dolmino Mix (100B tokens)
+
+**Objective**: Enhance critical capabilities such as code, math, and general knowledge QA
+
+**Features**: Deliberately includes instruction data and thinking traces as groundwork for post-training
+
+
+[→ Details:]{.detail-link} [Midtraining](midtraining.qmd)
+
+### Stage 3: Long-Context Extension
+
+**Data used**: Dolma 3 Longmino Mix (50-100B tokens)
+
+**Objective**: Acquire long-context capabilities supporting up to 65K tokens
+
+**Data scale**:
+
+- 7B model: 50B tokens
+- 32B model: 100B tokens
+
+**Source data scale**:
+
+- 8K+ tokens: 22.3M documents (640B tokens)
+- 32K+ tokens: 4.5M documents (380B tokens)
+
+This is the largest openly available collection for long-context research.
+
+
+[→ Details:]{.detail-link} [Long-Context Extension](long-context-extension.qmd)
+
+## Data Mixing Results
+
+Token-constrained mixing determined the optimal ratios across data sources.
+
+**Web text topic distribution**:
+
+- STEM domains ("Science, Math, and Technology", "Software Development") are significantly upweighted
+- Training a 1B parameter model at 5x Chinchilla yielded an average improvement of 0.056 BPB
+- Performance degradation was observed on only 13 of 54 tasks, with a maximum decrease of 0.035 BPB
+
+**Stack-Edu programming language distribution**:
+
+- Python is prioritized over Java and Markdown
+- Improvements are achieved on nearly all coding benchmarks
+
+::: {.callout-note collapse="true"}
+## Sample Mixes for Experimentation
+
+Dolma 3 also releases sample mixes to enable experimentation with fewer compute resources.
+
+**Pretraining sample mix**:
+
+- 150B tokens
+- Same data source composition as Dolma 3 Mix
+
+**Benefits**:
+
+- Enables small-scale experiments
+- Useful for ablation studies on data mixing
+- Accessible to researchers with limited compute resources
+:::
+
+## Summary
+
+Dolma 3 is a large-scale, high-quality dataset used for pretraining the Olmo 3 Base model. It achieves optimal data mixing through innovative methods including global deduplication, Token-constrained mixing, and Quality-aware upsampling.
+
+**Key features**:
+
+- **Diverse data sources**: Web, academic PDFs, code, math, encyclopedia, and more
+- **Large scale**: 6 trillion tokens (Dolma 3 Mix)
+- **High quality**: Quality control through deduplication and heuristic filtering
+- **Optimized mixing**: Optimal ratios determined via Swarm-based methods
+- **Three-stage usage**: Used across Pretraining, Midtraining, and Long-Context Extension
+
+Dolma 3 is fully open, with all data sources, processing pipelines, and mixing ratios publicly released to enable reproducible research.

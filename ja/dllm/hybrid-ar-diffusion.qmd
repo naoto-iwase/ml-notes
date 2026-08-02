@@ -1,0 +1,186 @@
+---
+pagetitle: "Hybrid AR-Diffusion"
+---
+
+# Hybrid AR-Diffusion
+
+自己回帰（Autoregressive, AR）言語モデルは左から右への逐次依存関係を捉えることに長けるが、推論時の逐次デコードがスループットの根本的な律速になる。一方、Diffusion Language Model（DLM）は系列全体を並列に更新できるが、長文の大域的整合性や `[EOS]` の扱いなど AR が当然のように獲得していた性質を別途設計する必要がある。**ハイブリッド AR-Diffusion** は、この相補的な強みを 1 つのモデル族として組み合わせる試みである。本書には既に [BD3-LM の詳細章](block-diffusion.qmd) が用意されているが、本章ではその論文を出発点として、**より広い系譜**（SSD-LM の起源、AR-Diffusion、CtrlDiff、SpecDiff、SDAR、TiDAR、SDLM）を 1 枚の地図に整理する。
+
+ハイブリッドの設計は大きく 2 つの流れに分けられる。**外側 AR / 内側 diffusion** という入れ子構造（block-causal attention を 1 つの transformer に埋め込み、ブロック間は AR、ブロック内は diffusion で生成する）と、**sequence-level hybrid**（AR と diffusion を異種コンポーネントとして組み合わせ、speculative decoding 的に 1 forward に統合する）である。前者は BD3-LM・CtrlDiff・SDAR・SDLM の系統、後者は SpecDiff・TiDAR の系統に対応する。
+
+![AR と DLM、Block-DLM の訓練・推論パラダイム比較。出典: [@li2025dlmsurvey]](images/dllm-paradigms.png){#fig-paradigms}
+
+@fig-paradigms は survey [@li2025dlmsurvey] の図 4 を引用したもので、AR・Discrete DLM・Continuous DLM・Block-DLM の 4 つの paradigm を訓練と推論の両面で比較している。AR は teacher forcing + causal attention、DLM は全位置を並列更新する fully bidirectional attention、Block-DLM はその中間として block-causal attention を採用する。**この図に登場する 4 つの paradigm のうち Block-DLM のセルがハイブリッドの代表的入口**であり、本章で扱うモデル群はこの周辺に分布する。
+
+## 2 つの軸で見るハイブリッド設計空間
+
+ハイブリッドモデルを比較する際、年代順に並べる前に **2 つの直交する軸**を導入しておくと地図が読みやすくなる。
+
+### 軸 1: アーキテクチャレベル統合 vs アンサンブルレベル統合
+
+第 1 の軸は「AR と diffusion を**同じ重みを持つ 1 つの transformer**で表現するか、それとも**別個のモデル**として接続するか」である。
+
+- **アーキテクチャレベル統合**: 1 つの transformer に block-causal attention 等のハイブリッドマスクを入れ、ブロック間 AR とブロック内 diffusion を同じ重みで扱う。BD3-LM・CtrlDiff・SDAR・SDLM・TiDAR がここに属する。block-causal attention や structured causal-bidirectional attention など、attention マスクの設計が貢献の中核を占める
+- **アンサンブルレベル統合**: 軽量な DLM が draft を生成し、大きな AR が verify する、というように**異種の 2 モデルが協調**する。SpecDiff [@christopher2025specdiff] が典型例。speculative decoding のフレームワークを diffusion drafter に拡張したもので、AR LLM 側の生成を加速する狙いが強い
+
+アーキテクチャレベル統合は「単一モデルとして自己完結する」点で実装が素直だが、訓練を最初から組み直す必要がある（または既存 AR から adapt する必要がある）。一方アンサンブルレベル統合は既存の強い AR LLM をそのまま利用できる利点があるが、2 モデルの整合や verify ロジックの設計が必要になる。
+
+### 軸 2: 訓練段階の hybrid vs 推論段階の hybrid
+
+第 2 の軸は「hybrid 性をいつ持ち込むか」である。
+
+- **訓練段階で組む**: AR factorization と diffusion ELBO を組み合わせた目的関数で**最初から hybrid として訓練**する。BD3-LM・SDAR・AR-Diffusion・SDLM・TiDAR がここに属する。ブロック幅や schedule が訓練分布に焼き付けられるため、推論時のサンプラとの整合が取れる
+- **推論段階のみで組む**: 通常の AR LLM と通常の DLM を取ってきて、推論ループで両者を協調させる。SpecDiff がここに属する。訓練コストが追加で発生しないという実利が大きい
+
+LLaDA の semi-autoregressive サンプリング [@nie2025llada] は**訓練は系列全体の masked diffusion のまま、推論時のみ semi-AR**という設計だったので、上の分類で言えば「推論段階の hybrid」に分類できる。BD3-LM はこれを「訓練段階の hybrid」に格上げしたものとして位置付けられる。
+
+## 時系列で系譜を辿る
+
+ハイブリッドの考えは 2023 年から段階的に発展してきた。年代と中核アイデアの対応を整理する。
+
+### 2023 年: 嚆矢としての SSD-LM と AR-Diffusion
+
+**SSD-LM** [@han2023ssdlm] は**semi-autoregressive** という用語を text diffusion 文脈で先んじて使った早期の論文である。ブロック単位で連続 simplex 表現（語彙サイズの確率単体上の点）を denoise し、ブロック間は AR 的に進める。連続拡散側（embedding-space ではなく simplex-space）から hybrid の構造を持ち込んだ点で、後続の discrete 系ハイブリッドとは出発点が異なる。
+
+**AR-Diffusion** [@wu2023ardiffusion] は別角度からの hybrid 化を試みた。系列内の各トークン位置に**異なる timestep**を割り当て、左側の位置ほど先に denoise が進む schedule を導入する。「左ほど先に確定する」という AR の構造を、diffusion の timestep スケジュールに埋め込んだ multi-level diffusion である。block-causal attention とは異なるアプローチで、**ブロック境界を明示せずに位置依存に AR 性を導入**している点が特徴的である。
+
+::: {.callout-note}
+## SSD-LM と AR-Diffusion の違い
+
+両者とも「semi-autoregressive な text diffusion」を名乗るが、設計思想は大きく異なる。SSD-LM はブロック単位の処理を陽に行い、ブロック境界という離散的な構造を持つ。AR-Diffusion はトークンごとに timestep を連続的にずらすことで、ブロック境界を明示せず position-aware に AR 性を導入する。後年の BD3-LM は SSD-LM 系の離散ブロック構造を継承している。
+:::
+
+### 2025 年前半: BD3-LM と CtrlDiff
+
+**BD3-LM** [@arriola2025bd3lms] は本書既存章で詳細を扱っている。ハイブリッド系の中での位置付けを簡潔に整理すると次の通りである。
+
+- **訓練段階で hybrid を組んだ最初の現代的論文**: SSD-LM や AR-Diffusion 以降、masked diffusion の MDLM 定式化 [@sahoo2024mdlm] の上で**訓練時にブロック構造を入れて整合させた**最初の論文。ブロック幅 $K$ が $K=1$ で純 AR、$K=L$ でフル DLM に退化する連続体を提供する
+- **KV-cache 互換を DLM で初めて実用化**: block-causal attention により、確定済みブロックの K/V を保持して後続ブロックに再利用できる。AR LLM と同じ高速化技法が DLM に乗る
+- **現在のハイブリッドのスタンダード**: 後続の CtrlDiff・SDAR・SDLM はいずれも BD3-LM 系の block-causal 構造を踏襲する
+
+[→ 詳細:]{.detail-link} [Block Diffusion](block-diffusion.qmd)
+
+**CtrlDiff** [@huang2025ctrldiff] は BD3-LM の自然な拡張であり、**ブロック幅を入力依存に動的に決める**ことを提案する。BD3-LM ではブロック幅 $K$ がハイパーパラメータとして固定だったが、文の区切りや意味的単位に合わせて動的にブロック境界を引くことで、controllable generation の余地を増やしている。これは block-causal 構造を保ちつつ、ブロック化の粒度をデータ側から決めるという軸での改善である。
+
+### 2025 年中盤-後半: SpecDiff、SDAR、TiDAR、SDLM
+
+2025 年中盤以降、ハイブリッドは**AR エコシステムへの retrofit**という産業的に魅力的な方向に展開する。
+
+**SpecDiff** [@christopher2025specdiff] は speculative decoding のフレームワークを diffusion drafter に拡張する。軽量な DLM がブロック単位で draft を並列生成し、大きな AR LLM が逐次的に verify する。AR を加速するのが主眼であり、ハイブリッドの中では「AR 側の存在を前提とする」性格が最も強い。アーキテクチャレベル統合ではなく**アンサンブルレベル統合**の代表である。
+
+**SDAR**（Synergistic Diffusion-Autoregression）[@cheng2025sdar] は**事前学習済み AR モデルを軽量な adaptation 段階で blockwise DLM 化**する。AR-level の性能を保ちつつ、ブロック内並列化により speedup を達成する点が貢献である。**「ゼロから DLM を訓練するのではなく、既存 AR を改造する」**というルートが現代的なハイブリッドの主流になりつつあることを示す代表例である。同系統の AR→DLM adaptation としては DiffuLLaMA [@gong2025diffullama] や Dream 7B [@ye2025dream7b] があるが、SDAR は特に block 構造の retrofit を強調する。
+
+**TiDAR**（Think in Diffusion, Talk in Autoregression）[@liu2025tidar] は sequence-level hybrid の代表である。1 回の forward pass の中に**並列 drafting**（diffusion 風）と **AR sampling**（左→右の確定）の両方を組み込み、両者を **structured causal-bidirectional attention** で統合する。block 幅というハイパーパラメータを陽に持たず、attention マスクの設計だけで AR と diffusion の役割分担を行う点が新しい。最大 5× のスループット改善を報告している。
+
+**SDLM**（Sequential Diffusion Language Models）[@liu2025sdlm] は **Next Sequence Prediction**（NSP）パラダイムを提案する。AR の next-token prediction を「next-block prediction」に拡張し、ブロックを並列に diffusion 風に確定する。重要な特徴は **KV-cache 互換**を保ったまま AR を retrofit できる点で、3B / 32B 規模での実装が報告されている。SDAR と発想は近いが、NSP という統一的目的関数で AR と diffusion を内挿する点が独自である。
+
+## モデル比較表
+
+ここまで挙げたモデルの主要属性を一覧する。
+
+| モデル | 年 | タイプ | 出発点 | 推論加速 | KV-cache 互換 | 報告された規模 |
+|--------|----|--------|--------|----------|---------------|----------------|
+| SSD-LM [@han2023ssdlm] | 2023 | block-causal (simplex) | from scratch | 中 | 部分的 | 400M |
+| AR-Diffusion [@wu2023ardiffusion] | 2023 | position-aware schedule | from scratch | 中 | なし | 数百 M |
+| BD3-LM [@arriola2025bd3lms] | 2025 | block-causal (discrete) | from scratch | 中〜高 | あり | 170M-1B 級 |
+| CtrlDiff [@huang2025ctrldiff] | 2025 | block-causal (dynamic block) | from scratch / adapt | 高 | あり | 中規模 |
+| SpecDiff [@christopher2025specdiff] | 2025 | speculative (DLM drafter + AR verifier) | 既存 AR + 軽量 DLM | 高 | AR 側はあり | AR LLM の規模に依存 |
+| SDAR [@cheng2025sdar] | 2025 | block-causal | AR adapt | 高 | あり | 1.7B-30B 系列 |
+| TiDAR [@liu2025tidar] | 2025 | sequence-level (causal-bidirectional) | AR adapt | 最大 5× | あり | 1.5B & 8B |
+| SDLM [@liu2025sdlm] | 2025 | block-causal (NSP) | AR adapt | 高 | あり | 3B & 32B |
+
+: ハイブリッド AR-Diffusion モデルの主要属性 {#tbl-hybrid}
+
+@tbl-hybrid を眺めると、2023 年は「from scratch で hybrid を訓練する」が主流であったのに対し、2025 年中盤以降は **AR adapt** が主流になりつつあることが見て取れる。これは次節で論じる「AR 側の影響」と直接結びつく。
+
+## BD3-LM の意義 — ハイブリッド全体の中での位置
+
+BD3-LM の詳細は別章 [Block Diffusion](block-diffusion.qmd) に譲るが、ハイブリッド全体の地図の中で改めて位置を確認しておく。
+
+- **訓練時にブロック構造を入れた最初の現代的論文**: MDLM の定式化 [@sahoo2024mdlm] を踏まえつつ、ブロック間を AR、ブロック内を masked diffusion とする目的関数を明示。LLaDA の semi-AR が「推論時の工夫」だったのを「訓練時の正式な設計」に格上げした
+- **KV-cache 互換を DLM で実用化**: block-causal attention により、確定済みブロックの K/V キャッシュが有効になる。これは後続の SDAR・SDLM・TiDAR の前提条件になっている
+- **現在のハイブリッドのスタンダード**: 2025 年中盤以降のハイブリッド論文は、明示的にせよ暗黙的にせよ BD3-LM の block-causal 構造を参照している
+
+[→ 詳細:]{.detail-link} [Block Diffusion](block-diffusion.qmd)
+
+::: {.callout-tip}
+## BD3-LM 以前と以後の境界線
+
+ハイブリッド AR-Diffusion の系譜には、**BD3-LM 以前**（SSD-LM、AR-Diffusion）と**BD3-LM 以後**（CtrlDiff、SDAR、TiDAR、SDLM）で明確な境界線がある。以前のモデルは「hybrid であることを示す」段階で、規模・性能・KV-cache 等の実用面では AR LLM に追いつかなかった。以後のモデルは「AR LLM をベースに hybrid 化する」段階に入り、規模面で 1B 以上、性能面で AR と同等を狙えるようになった。
+:::
+
+## AR 側の影響 — 産業的に魅力的な経路
+
+SDAR・TiDAR・SDLM の 3 モデルが共通して採用する **AR LLM からの retrofit** は、ハイブリッドの将来を語る上で重要な戦略である。これらは LLaMA / Qwen 等の既存 AR base model を出発点に、軽量な adaptation で blockwise diffusion 化する。
+
+このルートの魅力は次の点にある。
+
+- **AR エコシステムの資産を継承**: tokenizer、pretraining corpus、SFT データ、RLHF のレシピなど、AR LLM の周辺に蓄積された資産を捨てずに済む
+- **訓練コストが低い**: from scratch で 8B-30B 規模の DLM を作るより、AR base に対する adapt は桁違いに安い
+- **既存の推論最適化が転用可能**: AR LLM 向けに整備された KV-cache、量子化、speculative decoding 等の最適化を、retrofit 後も部分的に再利用できる
+
+商用の Mercury [@labs2025mercury] や Gemini Diffusion [@deepmind2024geminidiffusion] が「DLM」を名乗りつつも内部実装の詳細を明かしていない現在、これらが純 DLM である可能性と、ハイブリッド（特に AR retrofit 系）である可能性の両方が残されている。AR エコシステムの厚みを考えると、**産業的にスケールする DLM はハイブリッド形態を取る**という見方は自然である。
+
+::: {.callout-note collapse="true"}
+## AR retrofit と from scratch DLM の関係
+
+LLaDA [@nie2025llada] のような from scratch DLM と、SDAR / TiDAR / SDLM のような AR retrofit ハイブリッドは、最終的に同じ「DLM 的並列性」を狙う。前者は DLM の数理的整合性を優先し、後者は既存資産の活用と実装容易性を優先する、と整理できる。両者は対立するものではなく、どちらが先に商用スケールに乗るかという競争関係にある。
+:::
+
+## ハイブリッド設計の trade-off
+
+ハイブリッドモデルの設計空間は、いくつかの軸でのトレードオフを内包する。代表的なものを整理する。
+
+### ブロック幅をめぐるトレードオフ
+
+block-causal 系のハイブリッドにおいて、ブロック幅 $K$ は設計の中心パラメータである。
+
+- **$K$ 小（AR 寄り）**: ブロック間 AR が支配的になる。1 ブロックあたりの並列度は低いが、各ブロック内の生成品質は高い（AR の左→右の依存に近い）。KV-cache のヒット率も高い
+- **$K$ 大（DLM 寄り）**: ブロック内 diffusion が支配的になる。並列度は高いが、後述の parallel decoding curse のリスクが上がる。KV-cache のヒット率は下がる
+- **中間域**: BD3-LM 論文は中間域に sweet spot があることを報告している。「AR が常に最強ではない」という事実の最も具体的な実証である
+
+### Parallel decoding curse
+
+ブロック内で複数トークンを **同時に確定する**と、それらの間の条件付き依存（あるトークンの値が他のトークンの選択に影響すること）が捨てられる。並列性を上げるほど系列の同時依存を取り損ない、品質が落ちる現象を parallel decoding curse と呼ぶ。この curse は $K$ が大きいほど顕在化し、設計上の上限を作る。
+
+### Sequence-level hybrid という別解
+
+TiDAR の sequence-level hybrid は、ブロック幅という軸そのものを超える設計を提案する。1 forward pass の中で**並列 drafting と AR sampling を共存**させ、structured causal-bidirectional attention で両者を統合する。ブロック境界を明示的に持たないため parallel decoding curse の単純な発現を避けつつ、AR-level の品質を保とうとする。
+
+ただしこのルートは新規のアーキテクチャを要求するため、AR retrofit のコストは block-causal 系より高い。一方で AR の品質と DLM の速度を**動的に切り替える**柔軟性が得られる。
+
+### Trade-off の比較表
+
+| 設計 | 並列度 | 品質 | retrofit コスト | KV-cache |
+|------|--------|------|------------------|----------|
+| 小 $K$ block-causal | 低 | 高（AR 寄り） | 低 | 高 |
+| 大 $K$ block-causal | 高 | 中（curse のリスク） | 低 | 中 |
+| Dynamic block (CtrlDiff) | 可変 | 中〜高 | 中 | 高 |
+| Sequence-level (TiDAR) | 高 | 高（5× 時に AR 並み） | 高 | 高 |
+| Speculative (SpecDiff) | 高 | AR と同等（verify が保証） | 低（追加訓練最小） | AR 側のみ |
+
+: ハイブリッド設計の trade-off 一覧 {#tbl-tradeoff}
+
+@tbl-tradeoff は「正解の設計」ではなく「**選択肢としての多様性**」を示している。タスク・モデル規模・許容できる訓練コストによって、どの軸が有利になるかが変わる。
+
+## ハイブリッドにおける Open Problems
+
+ハイブリッド AR-Diffusion は急速に発展している分野であり、open problem も多い。本書の [Open Problems の章](open-problems.qmd) と重なる部分もあるが、ハイブリッド固有の問いとして次が挙げられる。
+
+- **最適ブロック幅の関数化**: タスク（数学、コード、会話、長文要約）・モデル規模（1B、8B、30B）・データ分布によって、最適な $K$ はどう変化するか。scaling law 的な経験則を構築できるか
+- **訓練時の hybrid vs 推論時の hybrid**: 同じ計算予算（FLOPs）の下で、訓練段階で hybrid を組む（BD3-LM、SDAR、TiDAR）のと推論段階のみで組む（LLaDA の semi-AR、SpecDiff）のとで、どちらが性能上有利か。両者の Pareto 前線はどう描けるか
+- **guidance との互換性**: classifier-free guidance、constrained decoding、infilling 等の推論時介入は、block-causal 構造とどう整合するか。ブロック間の AR 構造には guidance が乗せやすいが、ブロック内の diffusion 部分は別途設計が要る
+- **量子化との互換性**: AR LLM 向けに整備された量子化（INT4、AWQ、GPTQ 等）はハイブリッドモデルにそのまま適用可能か。block-causal の非対称な計算パターンが量子化の品質に与える影響は未解明である
+- **AR retrofit の限界**: SDAR / TiDAR / SDLM のような AR retrofit は、どこまで AR base を活かせるか。完全に from scratch で hybrid を訓練するのと比べた性能差はどう推移するか
+- **sequence-level hybrid のスケール**: TiDAR の structured causal-bidirectional attention は、8B 以上の規模で AR 並みの性能を保てるか。1 forward に詰め込む drafting + sampling の組み合わせは、規模に対して線形にスケールするか
+- **multimodal への拡張**: LLaDA-V [@you2025lladav] や MMaDA [@yang2025mmada] など multimodal DLM が登場している。ハイブリッド構造を multimodal に拡張する際、画像トークンと言語トークンで block 構造をどう揃えるかは新しい設計課題である
+
+これらは独立した問いではなく、相互に絡み合う。例えば「AR retrofit の限界」と「最適ブロック幅の関数化」は同じ実験設計で検証できる。「guidance との互換性」と「量子化との互換性」はどちらも推論時の整合性に関する問いである。ハイブリッドの研究は、まさにこの絡み合いを 1 つずつほどく段階にある。
+
+## まとめ — ハイブリッドの地図
+
+ハイブリッド AR-Diffusion の系譜は、2023 年の SSD-LM・AR-Diffusion から始まり、2025 年の BD3-LM で**訓練段階の hybrid** という正式な設計空間に格上げされ、その後 CtrlDiff（動的 block）・SpecDiff（speculative）・SDAR / SDLM（AR retrofit + block）・TiDAR（sequence-level）と多方向に分岐している。
+
+最も重要な転換点は **BD3-LM が「ブロック幅 $K$ を訓練分布に焼き付けた」**ことであり、これにより AR と DLM の連続体が単一のハイパーパラメータで内挿可能になった。その後の論文は、$K$ を動的にする・$K$ という軸を超える・$K$ をそのままに AR base から retrofit する、といった派生をそれぞれ試みている。
+
+ハイブリッドの研究が示すのは、AR と DLM のどちらが「正解」かを問うのではなく、**両者を結ぶ連続体のどの点が、どのタスク・規模・許容コストに最適か**を問うことの方が生産的だ、という認識である。本書の他章で扱う MDLM の定式化や LLaDA のスケール実証は、この連続体の片端（DLM 側）の解像度を上げる作業であり、ハイブリッド系の研究はその連続体全体を埋める作業として位置付けられる。

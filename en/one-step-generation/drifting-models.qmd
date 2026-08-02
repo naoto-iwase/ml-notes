@@ -1,0 +1,304 @@
+---
+pagetitle: "Drifting Models"
+---
+
+# Drifting Models: A New Paradigm via Distribution Evolution During Training
+
+Generative Modeling via Drifting [@deng2026drifting] is a method that fundamentally overturns the inference paradigm of generative models. While conventional Diffusion Models and Flow Matching perform iterative computation at inference time, Drifting Models **evolve the pushforward distribution during training** and generate samples with only a single forward pass at inference time. It achieves Fréchet Inception Distance (FID) 1.54 (latent space) / 1.61 (pixel space) with 1-NFE (Number of Function Evaluations) on ImageNet 256x256, establishing a new state of the art for one-step generation.
+
+## Background and Motivation {#sec-motivation}
+
+Inference cost in generative models is the greatest barrier to real-time applications. All conventional methods are based on the framework of "performing iterative computation at inference time to transform a noise distribution into a data distribution":
+
+- **Diffusion Models**: Learn a score function $\nabla \log p_t(x)$ and solve a stochastic differential equation (SDE) / ordinary differential equation (ODE) over tens to hundreds of steps
+- **Flow Matching** [@lipman2023flowmatching]: Learn an instantaneous velocity field $v(z_t, t)$ and solve an ODE
+- **MeanFlow** [@geng2025meanflow]: Introduce mean velocity $u(z_t, t)$ to reduce the number of steps ([details](mean-flow.qmd))
+- **Terminal Velocity Matching (TVM)** [@zhou2025tvm]: Promote one-step generation through terminal-time regularization ([details](terminal-velocity-matching.qmd))
+
+What these methods share is the structure of **fixing a trained network $f_\theta$ and performing iterative pushforward at inference time**. While MeanFlow and TVM achieve 1-NFE, they remain extensions within the Flow Matching framework.
+
+Drifting Models abandons this structure altogether. It eliminates iteration at inference time and proposes an entirely different paradigm in which **the training process itself drives the evolution of the distribution**.
+
+## Pushforward Distribution Evolution {#sec-pushforward}
+
+### Conventional Approach
+
+In conventional one-step generation, the network $f_\theta$ aims to directly transform the noise distribution $p_\varepsilon$ into the data distribution $p_\text{data}$:
+
+$$
+f_{\theta\#} p_\varepsilon \approx p_\text{data}
+$$
+
+Here, $f_{\theta\#} p_\varepsilon$ is the pushforward distribution of $p_\varepsilon$ through $f_\theta$. That is, for $\varepsilon \sim p_\varepsilon$, it is the distribution followed by samples $f_\theta(\varepsilon)$.
+
+### The Drifting Approach
+
+In Drifting Models, the parameters $\theta_i$ are updated at each training iteration $i$, and the pushforward distribution $q_{\theta_i} = f_{\theta_i\#} p_\varepsilon$ gradually approaches $p_\text{data}$:
+
+$$
+q_{\theta_0} \to q_{\theta_1} \to q_{\theta_2} \to \cdots \to q_{\theta_N} \approx p_\text{data}
+$$
+
+![Pushforward distribution evolution during training of a Drifting Model on a 2D two-mode toy distribution. The top row visualizes the generated distribution $q_{\theta_i}$ (orange) against the data distribution $p$ (blue) at training iterations $i = 0, 10, 25, 40, 60, 80$; the bottom panel shows the corresponding loss trajectory. The orange distribution starts diffuse and drifts onto the two data modes, with the loss decreasing monotonically. Source: [@deng2026drifting]](images/drifting-teaser.png){#fig-drifting-teaser}
+
+@fig-drifting-teaser shows the core of the design: instead of running iterative pushforward at inference time, the iteration happens during training. The final $f_{\theta_N}$ is applied only once at inference, and the loss converging to zero is equivalent to reaching the equilibrium condition $V_{p,q} = 0$ discussed in @sec-drifting-field.
+
+## Drifting Field {#sec-drifting-field}
+
+The theoretical foundation of Drifting Models is a vector field called the **Drifting Field** $V_{p,q}(x)$. This determines the direction in which sample $x$ should move, playing the role of bringing the generated distribution $q$ closer to the data distribution $p$.
+
+### Decomposition into Attraction and Repulsion
+
+The Drifting Field decomposes into two components:
+
+$$
+V_{p,q}(x) := V_p^+(x) - V_q^-(x)
+$$
+
+where:
+
+- **Attraction term**: $V_p^+(x) = \frac{1}{Z_p(x)} \mathbb{E}_{y^+ \sim p}\left[ k(x, y^+)(y^+ - x) \right]$
+- **Repulsion term**: $V_q^-(x) = \frac{1}{Z_q(x)} \mathbb{E}_{y^- \sim q}\left[ k(x, y^-)(y^- - x) \right]$
+
+The normalization terms are $Z_p(x) = \mathbb{E}_{y^+ \sim p}[k(x, y^+)]$ and $Z_q(x) = \mathbb{E}_{y^- \sim q}[k(x, y^-)]$, respectively.
+
+Intuitively:
+
+- **Attraction term** $V_p^+$: Pulls samples toward data samples $y^+$
+- **Repulsion term** $V_q^-$: Repels from other generated samples $y^-$, preventing mode collapse
+
+![Drifting Field at a single point $\mathbf{x}$. Blue dots are positive samples $y^+ \sim p$ (data), orange dots are negative samples $y^- \sim q$ (currently generated). The attraction vector $V_p^+$ points toward the data modes; the subtracted repulsion vector $V_q^-$ pushes away from other generated samples. Their difference $V$ is the net update direction. Source: [@deng2026drifting]](images/drifting-field.png){#fig-drifting-field width=55%}
+
+@fig-drifting-field illustrates the kernel-weighted nature of the field: contributions of nearby positive and negative samples dominate due to the exponential kernel.
+
+### Kernel Function
+
+The kernel $k(x, y)$ is defined as an exponential kernel:
+
+$$
+k(x, y) = \exp\left(-\frac{\|x - y\|}{\tau}\right)
+$$
+
+Here, $\tau$ is a temperature parameter and $\|\cdot\|$ is the $\ell_2$ norm. The division by the normalization terms $Z_p(x)$ and $Z_q(x)$ corresponds to softmax normalization and bears similarity to the InfoNCE loss.
+
+### Anti-Symmetry
+
+The Drifting Field satisfies an important anti-symmetry property:
+
+$$
+V_{p,q}(x) = -V_{q,p}(x), \quad \forall x
+$$
+
+This means that swapping the roles of attraction and repulsion reverses the direction of the vector field.
+
+### Equilibrium Condition
+
+An important consequence that immediately follows from anti-symmetry:
+
+$$
+q = p \implies V_{p,q}(x) = 0, \quad \forall x
+$$
+
+That is, when the generated distribution $q$ matches the data distribution $p$, the Drifting Field becomes zero and the distribution evolution naturally halts. This is a property that guarantees convergence as a fixed-point iteration.
+
+## Training Objective {#sec-training-objective}
+
+### From Fixed-Point Iteration to MSE Loss
+
+Distribution updates using the Drifting Field are formulated as fixed-point iteration:
+
+$$
+f_{\theta_{i+1}}(\varepsilon) \leftarrow f_{\theta_i}(\varepsilon) + V_{p, q_{\theta_i}}\left(f_{\theta_i}(\varepsilon)\right)
+$$
+
+The training objective is this update rule converted to an MSE loss:
+
+$$
+\mathcal{L} = \mathbb{E}_{\varepsilon}\left[\left\| f_\theta(\varepsilon) - \text{stopgrad}\left(f_\theta(\varepsilon) + V_{p, q_\theta}(f_\theta(\varepsilon))\right) \right\|^2\right]
+$$ {#eq-drifting-loss}
+
+### Role of Stop-Gradient
+
+In @eq-drifting-loss, $\text{stopgrad}(\cdot)$ is an operator that blocks gradient propagation. It "freezes" the target $f_\theta(\varepsilon) + V(f_\theta(\varepsilon))$ and computes gradients only with respect to the network output $f_\theta(\varepsilon)$.
+
+This design achieves:
+
+- Avoids backpropagation through the Drifting Field $V$, stabilizing computation
+- The network learns to "follow" toward the target
+- The loss value $\mathcal{L} = \mathbb{E}[\|V(f(\varepsilon))\|^2]$ corresponds to minimizing the magnitude of the Drifting Field, converging toward the equilibrium condition $V = 0$
+
+## Extension to Feature Space {#sec-feature-space}
+
+### Limitations of Pixel Space
+
+When computing the Drifting Field directly in pixel space, distance computation in high dimensions struggles to capture meaningful similarity. The $\ell_2$ distance of pixel values tends to diverge from human perceptual similarity, causing the kernel $k(x, y)$ to function ineffectively.
+
+### Introduction of Feature Encoder
+
+To solve this problem, Drifting is performed in the feature space of a pretrained encoder $\phi$. The loss function is extended using multi-scale features:
+
+$$
+\mathcal{L} = \sum_j \mathbb{E}\left[\left\| \phi_j(x) - \text{stopgrad}\left(\phi_j(x) + V(\phi_j(x))\right) \right\|^2\right]
+$$
+
+Here, $\phi_j$ is the feature extractor at the $j$-th layer of the encoder. Features are extracted at multiple scales from a ResNet-type encoder, and the Drifting Field is computed independently at each scale, guiding samples from coarse structure to fine texture from multiple perspectives.
+
+### Encoder Selection
+
+The quality of the feature encoder has a decisive impact on results. The following is a comparison with B/2 model at 100 epochs:
+
+| Encoder | Method | Feature Dim | FID |
+|---------|--------|-------------|-----|
+| ResNet | SimCLR | 256 | 11.05 |
+| ResNet | MoCo-v2 | 256 | 8.41 |
+| ResNet | Latent-MAE | 640 | **3.36** |
+
+: FID comparison by feature encoder choice (B/2, 100 epochs) {#tbl-encoder-comparison}
+
+Latent-MAE, trained directly on the variational autoencoder (VAE) latent space, substantially outperforms generic self-supervised learning methods (SimCLR, MoCo-v2). This demonstrates the importance of feature representations specialized for the space in which the generative model operates (VAE latent space).
+
+## Classifier-Free Guidance Integration {#sec-cfg}
+
+For class-conditional generation, Classifier-Free Guidance (CFG) can be integrated. Unlike conventional CFG, which is based on score interpolation at inference time, Drifting Models achieve guidance through **mixing of negative samples**.
+
+The negative distribution is defined as:
+
+$$
+\tilde{q}(\cdot | c) := (1 - \gamma) q_\theta(\cdot | c) + \gamma \, p_\text{data}(\cdot | \varnothing)
+$$
+
+Here, $c$ is the class label, $\varnothing$ denotes unconditional, and $\gamma \in [0, 1)$ is the mixing ratio. When $\gamma > 0$, unconditional generation samples are mixed into the negative samples, and conditional generation samples repel from them, improving fidelity to the condition.
+
+At inference time, the CFG scale $\alpha$ can be freely adjusted to control the trade-off between quality and diversity.
+
+## Experimental Results {#sec-results}
+
+### ImageNet 256x256
+
+Evaluation is performed in both the latent space (VAE latent space) and pixel space:
+
+**Latent space generation**:
+
+| Model | Epochs | FID |
+|-------|--------|-----|
+| B/2 | 100 | 3.36 |
+| B/2 | 320 | 2.51 |
+| B/2 | 1280 | 1.75 |
+| L/2 | 1280 | **1.54** |
+
+: FID scores in latent space (ImageNet 256x256, 1-NFE) {#tbl-latent-results}
+
+**Pixel space generation**:
+
+| Model | FID |
+|-------|-----|
+| B/16 | 1.76 |
+| L/16 | **1.61** |
+
+: FID scores in pixel space (ImageNet 256x256, 1-NFE) {#tbl-pixel-results}
+
+The L/2 model's FID 1.54 sets a new state of the art for 1-NFE generative models. Furthermore, the achievement of FID 1.61 in pixel space is noteworthy, demonstrating that high-quality generation is possible even without going through latent space.
+
+### Comparison with Other Methods
+
+Comparison with other one-step generation methods in pixel space:
+
+- **StyleGAN-XL**: FID 2.30 (1574G floating-point operations (FLOPs))
+- **Drifting L/16**: FID 1.61 (87G FLOPs)
+
+Drifting Models outperform Generative Adversarial Networks (GANs) in FID while substantially reducing computational cost.
+
+### Scaling Properties
+
+Scaling up from B/2 to L/2 yields a substantial FID improvement from 3.36 to 1.54. Additionally, FID monotonically improves with increasing training epochs (100 to 1280 epochs), suggesting high training stability.
+
+### Application to Robot Control
+
+Drifting Models are applicable beyond image generation. Evaluated as an alternative to Diffusion Policy in robot control, they achieve performance equal to or better than 100-NFE diffusion models with 1-NFE:
+
+| Task | Diffusion (100 NFE) | Drifting (1 NFE) |
+|------|---------------------|-------------------|
+| Lift (state) | 0.98 | **1.00** |
+| Can (state) | 0.96 | **0.98** |
+| BlockPush Phase 1 | 0.36 | **0.56** |
+
+: Comparison with Diffusion Policy on robot control tasks {#tbl-robot-control}
+
+Notably, Drifting significantly outperforms Diffusion on the BlockPush task, suggesting that the low latency of one-step inference is advantageous for real-time control.
+
+## Ablations {#sec-ablation}
+
+### Importance of Anti-Symmetry
+
+The impact of breaking anti-symmetry is dramatic (B/2, 100 epochs):
+
+| Setting | FID |
+|---------|-----|
+| Anti-symmetric (default) | 8.46 |
+| 1.5x attraction (excessive increase) | 41.05 |
+| 1.5x repulsion (excessive increase) | 46.28 |
+
+Breaking anti-symmetry causes FID to deteriorate to 41--177. When the balance between attraction and repulsion is disrupted, samples fail to converge to the data distribution, and generation quality degrades catastrophically. This provides experimental evidence that the equilibrium condition described in @sec-drifting-field depends on anti-symmetry.
+
+### Number of Positive and Negative Examples
+
+Under a fixed computational budget, increasing the number of positive examples (data samples) and negative examples (generated samples) improves quality. With $N_\text{pos} = 64$ and $N_\text{neg} = 64$, FID 8.46 is achieved, and increasing the sample count has the effect of improving the estimation accuracy of the Drifting Field.
+
+### Feature Encoder Selection
+
+As shown in @tbl-encoder-comparison, the choice of encoder results in more than a 3x difference in FID. The gap between SimCLR (11.05) and Latent-MAE (3.36) demonstrates that the quality of the feature space determines the effectiveness of kernel-based similarity computation.
+
+::: {.callout-note collapse="true"}
+## Relationship with GANs
+
+Drifting Models and GANs share superficial similarities:
+
+**Similarities**:
+
+- Generation in a single step
+- Implicit distribution matching (no explicit likelihood computation)
+- Generator directly outputs samples
+
+**Differences**:
+
+- **Elimination of adversarial optimization**: GANs solve a min-max game between Generator and Discriminator, but Drifting Models convert fixed-point iteration via the Drifting Field into an MSE loss, without adversarial training
+- **Mode collapse risk**: GANs are prone to mode collapse, but in Drifting Models, the repulsion term $V_q^-$ functions as a mechanism to maintain diversity among generated samples, reducing the risk of mode collapse
+- **Computational efficiency**: While StyleGAN-XL requires 1574G FLOPs, Drifting L/16 requires only 87G FLOPs---approximately 18x more efficient while outperforming in FID
+- **Training stability**: GAN training tends to be unstable, but Drifting Models achieve stable training based on stop-gradient and MSE loss
+:::
+
+::: {.callout-note collapse="true"}
+## Relationship with MeanFlow / TVM
+
+Drifting Models aims for the same "one-step generation" as MeanFlow and TVM, but the approach is fundamentally different.
+
+**MeanFlow** ([details](mean-flow.qmd)):
+
+- Within the Flow Matching framework, learns mean velocity instead of instantaneous velocity
+- Inherits the ODE structure with time parameter $t$
+- Connects mean velocity and instantaneous velocity via the MeanFlow Identity
+
+**TVM** ([details](terminal-velocity-matching.qmd)):
+
+- Within the Flow Matching framework, regularizes the velocity field at the terminal time
+- Theoretically derives an upper bound between the displacement map and 2-Wasserstein distance
+- Requires architecture modifications for Lipschitz continuity
+
+**Drifting Models**:
+
+- A **fundamentally different paradigm** from the Flow / Diffusion framework
+- Has no time parameter $t$ (does not use ODE / SDE structure)
+- An entirely new formulation based on distribution evolution during training
+- Implicit distribution matching through a kernel-based attraction-repulsion mechanism
+
+All three methods were published by Kaiming He's group at MIT, and one can trace a progressive research trajectory toward the shared goal of one-step generation: from refinement of Flow Matching (MeanFlow to TVM) to the creation of a new paradigm (Drifting).
+:::
+
+## Summary
+
+Drifting Models is a method that overturns the fundamental premise of "iterative computation at inference time" in generative models. Through the attraction-repulsion mechanism and anti-symmetry of the Drifting Field, the pushforward distribution naturally converges to the data distribution during training, enabling high-quality generation with only a single forward pass at inference time.
+
+The result of FID 1.54 (latent space) represents overwhelming performance for one-step generation without distillation or pretraining, surpassing both GANs and multi-step diffusion models. Furthermore, the demonstrated application to robot control illustrates the versatility of this method.
+
+Unlike the improvements to Flow Matching (MeanFlow, TVM), Drifting Models presents a new paradigm that completely departs from the ODE/SDE framework, charting a new direction for generative model research.
+

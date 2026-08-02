@@ -1,0 +1,136 @@
+---
+pagetitle: "Midtraining"
+---
+
+# Midtraining
+
+Olmo 3 training includes an additional stage called **Midtraining** after pretraining. This phase uses 100B high-quality tokens to strengthen critical capabilities such as mathematical reasoning, code generation, question answering, instruction following, and chain-of-thought reasoning.
+
+## Overview
+
+Midtraining bridges pretraining and the subsequent SFT (Supervised Fine-Tuning) stage. It uses the **Dolma 3 Dolmino Mix** dataset and has the following characteristics:
+
+- 100B tokens of high-quality data
+- Data source selection targeted at specific capabilities
+- Decontamination to remove evaluation dataset contamination
+- Effective data mix design through Microanneal and integration tests
+
+## Methodological Framework
+
+Data curation for midtraining follows a **two-part framework** (@fig-midtraining-framework). On the left, Distributed exploration lightly probes each data source (Math / Code / QA / Thinking / Instruction / Web). On the right, Centralized assessment validates candidate mixes through Integration tests → SFT tests → Decontamination. The two halves are coupled via a feedback loop: promising sources are promoted to centralized evaluation, and the results flow back to distributed exploration.
+
+![The midtraining data curation framework. Distributed exploration (lightweight per-source evaluation) and Centralized assessment (integration tests of candidate mixes) form a loop. Source: Olmo 3 Technical Report (arXiv:2512.13961)](images/midtraining-framework.png){#fig-midtraining-framework}
+
+### Distributed Exploration
+
+Each data source is evaluated through lightweight feedback loops to assess its effectiveness.
+
+- **Microanneal**: 5B tokens of target data + 5B web data
+- **Baseline**: 10B tokens of web-only data
+- Rapid evaluation to identify promising data sources
+
+### Centralized Assessment
+
+Selected candidate datasets are combined and subjected to integration testing.
+
+- **Integration tests**: Full annealing runs with 100B tokens
+- Evaluates interactions between data sources
+- Measures performance after SFT training as well
+
+## Midtraining Data Composition
+
+The Dolmino Mix shown in Table 5 organizes data sources by the following target capabilities.
+
+| Capability | Dataset | Token Count | Description |
+|------------|---------|-------------|-------------|
+| **Math** | TinyMATH | ~5B | Math problem-solution pairs |
+| | CraneMath | ~3B | Mathematical reasoning |
+| | MegaMatt | ~2B | Advanced mathematics |
+| | Dolmino Math | ~4B | Curated math corpus |
+| **Code** | Stack-Edu (FIM) | ~10B | Educational code with Fill-In-Middle |
+| | CraneCode | ~5B | High-quality code snippets |
+| **QA** | Reddit-to-Flashcards | ~3B | Question-answer extraction |
+| | Wiki-to-RCQA | ~4B | Reading comprehension QA |
+| | Nemotron | ~2B | Synthetic QA pairs |
+| **Instruction** | Tulu3 SFT | ~2B | Instruction-following examples |
+| | Flan | ~3B | Task-oriented instructions |
+| **Thinking** | Meta-reasoning | ~2B | Chain-of-thought reasoning |
+| | Program-verifiable | ~1B | Verifiable reasoning traces |
+| | OMR rewrite | ~1B | Reasoning rewriting |
+| **Web** | Dolma v1.7 Web | ~50B | General web content (baseline) |
+
+::: {.callout-note}
+## Design Philosophy of Dolmino Mix
+
+By combining multiple data sources for each capability, the design avoids dependence on any single dataset and improves generalization performance across capabilities.
+:::
+
+## Capability Improvements
+
+The following summarizes the improvement results for each target capability (Section 3.5.2).
+
+### Math (Mathematical Reasoning)
+
+- TinyMATH: Basic arithmetic and algebra problems
+- CraneMath: Complex equation processing and proofs
+- MegaMatt: University-level mathematics problems
+- Dolmino Math: A curated corpus integrating the above sources
+
+### Code (Code Generation)
+
+- **Stack-Edu (FIM)**: Educational code in Fill-In-Middle format
+- **CraneCode**: High-quality code snippets across multiple languages
+
+::: {.callout-tip}
+## Fill-in-Middle (FIM)
+
+Fill-In-Middle is a task that predicts the middle portion of code, closely simulating real-world code completion scenarios in IDEs.
+:::
+
+### QA (Question Answering)
+
+- **Reddit-to-Flashcards**: Extracts QA pairs from Reddit discussions
+- **Wiki-to-RCQA**: Generates reading comprehension questions from Wikipedia articles
+- **Nemotron**: Synthetic QA dataset
+
+### Instruction (Instruction Following)
+
+- **Tulu3 SFT**: Diverse instruction-following tasks
+- **Flan**: Task-oriented instruction data
+
+### Thinking (Chain-of-Thought Reasoning)
+
+- **Meta-reasoning**: Chain-of-Thought (CoT) style reasoning
+- **Program-verifiable**: Program-verifiable reasoning traces
+- **OMR rewrite**: Rewriting of reasoning processes
+
+## Decontamination
+
+The **decontamination** process is detailed in Section 3.5.3.
+
+A new **decon package** was developed to remove overlaps with evaluation datasets.
+
+- N-gram based matching
+- Contamination detection against evaluation benchmarks
+- Exclusion of contaminated samples from training data
+
+::: {.callout-warning}
+## Risk of Evaluation Data Contamination
+
+High-quality datasets may contain samples that overlap with evaluation benchmarks. Decontamination ensures fair evaluation by removing these overlaps.
+:::
+
+## Key Findings
+
+The main findings from Section 3.5.4 are as follows.
+
+- **Effectiveness of Microanneal**: Lightweight tests with 10B tokens can predict the results of full 100B runs
+- **Complementarity of data sources**: Combining multiple data sources yields greater benefits than any single dataset
+- **Synergy with SFT**: Capabilities strengthened during midtraining continue to improve after SFT
+- **Necessity of decontamination**: Removing contamination significantly improves evaluation accuracy
+
+## Related Sections
+
+- [Overview](overview.qmd): The overall Olmo 3 training pipeline
+- [Dolma 3 Dataset](dolma3-dataset.qmd): Pretraining data for Stage 1
+- [Dolci Dataset](dolci-dataset.qmd): Post-training data for Stage 3

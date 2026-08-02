@@ -1,0 +1,22 @@
+---
+title: "Reliable Reasoning"
+description: "信頼できる LLM reasoning のための信号と手法を体系化"
+date: "2026-05-19"
+date-modified: last-modified
+author:
+  name: "Naoto Iwase"
+  url: "https://iwase.dev"
+categories: [LLM, Reasoning]
+image: "images/rlvr-yue2025-overview.png"
+toc: false
+---
+
+大規模言語モデル（LLM）の reasoning 能力を「信頼できる形で」引き出す研究が 2025–2026 年に急速に発展している。本書は **訓練側の信号**（RLVR、GRPO、Process Reward Model）、**推論 (inference) 側の信号**（Self-consistency、Confidence、Test-time scaling）、**構造的アプローチ**（Tree search、Reasoning 構造の分析、Diffusion LLM）の 3 軸で、ICLR 2026 / ACL 2026 / ICML 2026 / NeurIPS 2025 / EMNLP 2025 など最近の主要研究 190 本超を体系化する。
+
+本書を貫く問いは 3 つある。
+
+- **Q1**: RLVR は base モデルの能力を本当に拡張しているのか、それとも既存能力の re-weighting か。
+- **Q2**: ground truth なしに reasoning trace の「正しさ」をどう推定するか。
+- **Q3**: 限られた inference compute をどこに投資すべきか。
+
+これらの問いに対して独立に発展してきた複数の研究系統が、2025–2026 年に急速に重なり始めている。

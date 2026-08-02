@@ -1,0 +1,266 @@
+---
+pagetitle: "Post-Training (RL)"
+---
+
+# Post-Training for Reasoning: DLM Reinforcement and Reasoning Capability
+
+Around the time the pre-training recipe for Diffusion Language Models (DLM) reached a roughly practical line with LLaDA [@nie2025llada], the research focus began shifting to **post-training** — and in particular to Reinforcement Learning (RL) for improving reasoning capability. Following the skeleton of §3.2 of the survey [@li2025dlmsurvey], this chapter organizes the techniques actually proposed on the DLM side into three streams: **(1) Chain-of-Thought (CoT) adaptation for DLM**, **(2) policy gradient methods (the Group Relative Policy Optimization (GRPO) family)**, and **(3) preference optimization (Direct Preference Optimization (DPO) adapted to DLM)**, and surveys the central technical choices in each. For the connection with pre-training, see [MDLM](mdlm.qmd) and [LLaDA](llada.qmd); for unresolved questions across the field as a whole, see [Open Problems](open-problems.qmd).
+
+## Why RL Is Hard for DLM
+
+The post-training recipe for Autoregressive (AR) Large Language Models (LLMs) — Supervised Fine-Tuning (SFT), followed by Reinforcement Learning from Human Feedback (RLHF), Proximal Policy Optimization (PPO), DPO, and GRPO — has been roughly standardized in recent years [@li2025dlmsurvey]. The fundamental premise is that the AR sequence probability factorizes as
+
+$$
+p_\theta(y \mid x) = \prod_{i=1}^{L} p_\theta(y_i \mid y_{<i}, x)
+$$
+
+so that **the sequence-level log-likelihood $\log p_\theta(y \mid x)$ can be evaluated exactly in a single forward pass**. The PPO ratio $\pi_\theta / \pi_{\theta_\text{old}}$, the DPO preference term, and the GRPO policy ratio are all computed as differences of these log-probs.
+
+For DLM, the same computation does not hold in principle. Generation is an iterative denoising trajectory advancing the time $t$ from $1 \to 0$, and **the exact sequence-level log-prob is intractable as an integral**. The Evidence Lower Bound (ELBO) of MDLM [@sahoo2024mdlm] takes the form
+
+$$
+\log p_\theta(y) \geq -\mathbb{E}_{t, y_t} \left[ \frac{1}{t} \sum_i \mathbf{1}[y_t^i = \texttt{[MASK]}] \log p_\theta(y^i \mid y_t) \right]
+$$
+
+but this is a **stochastic approximation that samples the time $t$ and the mask $y_t$ via Monte Carlo (MC)**, and its estimation variance is large. Furthermore, DLM-specific difficulties arise:
+
+- **At what time $t$ should evaluation occur**: Should the training-time distribution of $t$ also be used for MC estimation, or should $t$ be fixed?
+- **Which mask pattern to use**: Even for the same $t$, the realized value $y_t$ has uncountably many possibilities, and the choice dominates the variance
+- **Schedule interference**: The forward-process mask schedule, the inference-time unmask schedule, and the time at which the reward is provided form three interfering axes, and the meaning of the gradient signal depends on the schedule
+
+In short, RL for DLM boils down to the design problem: "**approximate the intractable log-prob with minimum variance, minimum forward count, and minimum memory**." Many of the differences among the techniques discussed below can be organized along the three axes introduced here — log-prob approximation, reward design, and stabilization.
+
+::: {.callout-note}
+## AR-Side RL Recipe (Three-Line Summary)
+
+Post-training for AR LLMs evolved roughly in the following order:
+
+- **SFT**: supervised training on instruction-response pairs (standard next-token cross-entropy (CE))
+- **RLHF / PPO**: A reward model provides a scalar reward, and PPO updates the policy. Clipping prevents the policy ratio from blowing up
+- **DPO**: Without explicitly going through a reward model, directly maximize the log-prob difference for preference pairs $(y_w, y_l)$
+- **GRPO**: Sample multiple responses from the same prompt, and update with a within-group standardized relative advantage. Critic-free, hence lightweight. Established in the DeepSeek-Math line
+
+All of the DLM-side techniques covered in this chapter adapt one of these lineages so as to circumvent "the problem that DLM log-prob cannot be evaluated."
+:::
+
+## The Three Streams and a Comparison Table
+
+The positioning of the three streams and the core idea of each technique are summarized in @tbl-rl-comparison. Following survey Table 2 [@li2025dlmsurvey] as a reference, this book additionally adds an explicit column for "**how the log-prob is approximated**," because that is the central battleground of DLM-side RL research.
+
+| Method | Algorithm type | Core idea | log-prob approximation | Model |
+|------|---------------|-------------|---------------|--------|
+| **DoT** [@ye2024dot] | Non-RL SFT | Convert serial CoT to parallel diffusion, inject self-correction at training time | (not applicable, not RL) | Plaid / SEDD |
+| **DCoLT** [@huang2025dcolt] | Outcome-based RL | Latent thinking action; Unmask Policy Module learns the order itself | Trajectory-level outcome reward only | LLaDA / SEDD |
+| **SEPO** [@zekri2025sepo] | PG (general PPO/GRPO frame) | Low-variance gradient via importance sampling on score entropy | Estimation via concrete score $s_\theta$ | General discrete diffusion |
+| **diffu-GRPO (d1)** [@zhao2025d1] | GRPO | Two-stage SFT + GRPO; per-token log-prob in a single forward | Mean-field factorization $\log p_\theta(y) \approx \sum_i \log p_\theta(y^i \mid y_t)$ | LLaDA |
+| **coupled-GRPO (DiffuCoder)** [@gong2025diffucoder] | GRPO | Pair of complementary masks covers all tokens | Average of two complementary masks | 7B code DLM |
+| **UniGRPO (MMaDA)** [@yang2025mmada] | GRPO (multimodal) | Structured noising gives even signal across all denoising stages | Average log-likelihood over masked positions | Multimodal DLM |
+| **VRPO (LLaDA 1.5)** [@zhu2025llada15] | DPO | Variance reduction of ELBO estimation (MC allocation + antithetic) | ELBO ($n_t=n$, $n_{y_t}=1$ + shared mask) | LLaDA |
+| **IGPO** [@zhao2025igpo] | GRPO | Inject ground-truth partial thoughts via inpainting to mitigate zero-advantage | diffu-GRPO family | LLaDA |
+| **wd1** [@tang2025wd1] | PG | Reformulate the objective as a weighted likelihood; only one approximation needed | Weighted likelihood (only current policy approximated) | Masked DLM |
+| **SAPO** [@xie2025sapo] | GRPO | Process reward aligned with the latent reasoning hierarchy | diffu-GRPO family | Masked DLM |
+| **SPG** [@wang2025spg] | PG | Sandwich the true log-likelihood between upper and lower bounds to reduce one-sided bias | Two bounds (upper/lower) via block-wise masking | LLaDA |
+| **BGPO** [@lin2025bgpo] | PG | Memory reduction for ELBO RL; large MC at constant memory | Increase MC sample size via gradient accumulation | Masked DLM |
+
+: Comparison of post-training methods for DLM. The "log-prob approximation" column is added with reference to survey Table 2 [@li2025dlmsurvey] {#tbl-rl-comparison}
+
+Viewed by stream, **(1) CoT adaptation** has few methods and is concentrated in DoT and DCoLT. **(2) the GRPO family** is overwhelmingly the largest, with the choice of log-prob approximation being each paper's principal contribution. **(3) Preference Optimization** is in effect represented by VRPO (LLaDA 1.5) alone.
+
+## Stream A: DoT and DCoLT — Adapting CoT to DLM
+
+CoT for AR LLMs has the structure "write out thoughts as intermediate tokens from left to right," which is naturally aligned with AR's sequential generation. Because DLM generates in parallel, the structure of CoT itself needs to be rebuilt.
+
+### DoT (Diffusion-of-Thought)
+
+DoT [@ye2024dot] is a pioneering study that adapted CoT to DLM. It is **an SFT-side technique rather than an RL one**, but is positioned first here because it serves as a prerequisite for the RL-based methods covered in this chapter. Pre-trained DLMs such as Plaid [@gulrajani2023plaid] and SEDD [@lou2024sedd] are fine-tuned on a dataset containing problems, stepwise reasoning, and answers.
+
+The essential contribution of DoT is reformulating AR's serial CoT as **"parallel thoughts distributed across diffusion steps."** To further enhance self-correction capability, two strategies are introduced at training time:
+
+- **Scheduled sampling**: Mix the model's own predictions into intermediate states of the denoising trajectory during training
+- **Coupled sampling**: Couple and sample multiple denoising trajectories for a single problem, increasing the opportunities for the model to be exposed to its own errors
+
+This makes it possible for even DLMs smaller than AR to outperform AR on mathematics and logic benchmarks in some reported cases. The significance of DoT lies in being the first to demonstrate that "**parallel thought is not necessarily weaker than AR's serial thought**."
+
+### DCoLT (Diffusion Chain of Lateral Thought)
+
+DCoLT [@huang2025dcolt] extends the DoT idea to **outcome-based RL**. Whereas DoT provides intermediate-thought token sequences as supervised signal, DCoLT does not directly supervise the intermediate thoughts; instead it regards **each step of reverse diffusion as a latent thinking action** and optimizes the entire trajectory with the final-answer reward. In contrast to AR's "vertical thinking," this is described as "**lateral thinking**."
+
+The largest technical contribution of DCoLT is the **Unmasking Policy Module (UPM)**. The LLaDA sampler uses a rule-based ordering of "unmask the top-$k$ by confidence" (see [LLaDA](llada.qmd)), but UPM **incorporates this unmask order itself into the RL action space and learns it**. That is, the decision of "which token to fix first" is delegated to a learned policy rather than a fixed confidence-based rule.
+
+The reported improvements over LLaDA are large: +9.8% on GSM8K, +19.5% on HumanEval [@huang2025dcolt]. The insight that "**the sampler's order choice can itself be a learning target**" is a design option that is repeatedly referenced in subsequent GRPO-family methods.
+
+::: {.callout-tip}
+## DoT vs DCoLT
+
+Both share the slogan "adapt CoT to DLM," but they target different design layers:
+
+- **DoT**: A training-data-side idea (CoT-augmented data + self-correction augmentation). The learning algorithm is standard SFT
+- **DCoLT**: A learning-algorithm-side idea (outcome RL + order learning). The data only needs answers and a reward function
+
+DoT can be applied as long as CoT data is available and is simple to implement; DCoLT does not require CoT data but does require an RL pipeline. The structure parallels the staged AR-side progression "SFT → RL."
+:::
+
+## Stream B: Design Choices in the GRPO Family
+
+The GRPO family is the center of this chapter. All of these methods are **answering the same question**: "**How should one approximate the DLM sequence log-prob $\log p_\theta(y \mid x)$, and at what forward cost should GRPO be run?**" Below we organize the methods along three axes: (1) log-prob approximation, (2) reward design, and (3) stabilization techniques.
+
+### Choices for Log-Prob Approximation
+
+#### Mean-field factorization (d1 / diffu-GRPO)
+
+d1 [@zhao2025d1] is **the first practical formulation that brought GRPO to LLaDA**. After SFT to fit reasoning data, it runs a custom GRPO variant called **diffu-GRPO**. The core is a **mean-field factorization** approximation of the sequence log-prob:
+
+$$
+\log p_\theta(y \mid x) \;\approx\; \sum_{i=1}^{L} \log p_\theta\!\left(y^i \,\big|\, y_t, x\right)
+$$
+
+Here $y_t$ denotes the fully masked (all-`[MASK]`) completion, and a random mask is applied to the prompt $x$. **A single forward pass yields per-token probabilities at every position, and their simple product (under an independence assumption) is treated as the sequence log-prob**, drastically reducing the cost of computing the GRPO policy ratio. It is also reported that changing the random mask on the prompt at each inner gradient step acts as a regularizer.
+
+The mean-field assumption ignores token-to-token correlations and is theoretically a coarse approximation, but **in practice it provides gradient signal sufficient for GRPO's policy updates**, as demonstrated by d1's empirical success. Since then, nearly every DLM-GRPO method starts from this framework of "produce per-token probabilities in one forward and approximate the sequence."
+
+#### Coupled complementary mask (DiffuCoder / coupled-GRPO)
+
+DiffuCoder [@gong2025diffucoder] is a 7B-scale DLM for code generation, and proposes **coupled-GRPO**. While d1's mean-field approximation is "one forward at one mask pattern," coupled-GRPO **constructs a pair of complementary masks**: the pair is built so that each position is `[MASK]` in exactly one of the two masks and non-`[MASK]` in the other.
+
+$$
+M_1 \cup M_2 = \{1, \dots, L\}, \quad M_1 \cap M_2 = \emptyset
+$$
+
+Log-prob estimation is done by averaging the loss over two forward passes. As a result:
+
+- **Every token is evaluated under a partial-mask context** (full token coverage)
+- **Variance is reduced** compared to a single random mask (thanks to the complementary structure)
+- **Better alignment with the training distribution** than a full mask (d1's choice), since the partial-mask context corresponds to the middle of inference
+
+As a side effect, it is reported that models trained with coupled-GRPO in DiffuCoder exhibit a **less AR-like, more parallel decoding pattern**. This can be interpreted as coupled-GRPO acting as a regularizer that prevents falling into the degenerate solution of unmasking left-to-right in an AR-like fashion.
+
+#### Structured noising (UniGRPO / MMaDA)
+
+UniGRPO [@yang2025mmada] is the unified multimodal RL algorithm introduced in the RL stage of MMaDA. It criticizes d1's choice of "make the completion fully masked" and instead adopts **structured noising that samples the mask rate $p_i \in [0,1]$ uniformly**.
+
+This means:
+
+- The model is exposed to all stages from "nearly fully masked" to "nearly fully unmasked"
+- The training distribution becomes aligned with the pre-training MDLM ELBO (which also uses $t \sim \mathcal{U}(0,1)$)
+- Multi-step denoising capability does not decay during RL
+
+The sequence log-likelihood is approximated by **averaging over masked positions**. UniGRPO was designed in a multimodal context, but the idea itself — "**align the noise schedule of RL with the schedule of pre-training**" — also transfers to single-modality DLMs.
+
+#### Sandwich bound (SPG)
+
+SPG [@wang2025spg] focuses on the fact that conventional DLM-RL relying on a single lower bound (the ELBO) suffers from **one-sided bias**. Since the ELBO always pushes $\log p_\theta(y)$ from below, the gradient signal can be systematically distorted. SPG sandwiches it between an upper and lower bound:
+
+$$
+\mathrm{LB}(\theta) \;\leq\; \log p_\theta(y) \;\leq\; \mathrm{UB}(\theta)
+$$
+
+Both bounds are estimated by MC, and **block-wise masking** stabilizes the MC estimation. Applied to LLaDA, it reports state-of-the-art (SOTA) on various reasoning benchmarks [@wang2025spg]. The contribution is bringing the perspective that "the ELBO is merely one side of the approximation" into DLM-RL.
+
+#### Weighted likelihood (wd1)
+
+wd1 [@tang2025wd1] reformulates the problem itself. Standard PPO/GRPO needs to **approximate log-probs of both the current policy $\pi_\theta$ and the old policy $\pi_{\theta_\text{old}}$** (both are needed for the policy ratio $\pi_\theta / \pi_{\theta_\text{old}}$), but wd1 rewrites the objective into a **weighted likelihood** form so that **only one log-prob approximation of the current policy is needed**.
+
+This yields:
+
+- The number of approximations is halved, reducing compute
+- Avoids the bias of accumulated approximation error across two stages
+- Training stability improves
+
+The reported effect is **+16% accuracy** over prior work on reasoning tasks [@tang2025wd1]. The direction of "**redesign the RL objective itself for DLM**" opens up territory that cannot be reached by improving log-prob approximation alone.
+
+### Reward Design
+
+#### Outcome-only (DCoLT)
+
+The simplest choice is **outcome-based RL that uses only the correctness of the final answer as the reward**. DCoLT is the representative example, supervising the trajectory toward the final reward without any supervision over intermediate-thought quality. Implementation is simple, and it is well suited to math and code tasks with verifiable answers.
+
+#### Process reward (SAPO)
+
+SAPO [@xie2025sapo] sits at the opposite extreme of outcome-only. It introduces a **step-aware, fine-grained process reward**, providing rewards aligned with a latent reasoning hierarchy (problem framing → decomposition → execution → verification, etc.). This:
+
+- Suppresses "unstructured refinement" (aimless rewriting)
+- Yields more interpretable multi-step reasoning traces
+
+This is a DLM adaptation of the AR-side Process Reward Model (PRM), but for DLMs the "step" corresponds to progression in time $t$, making the time axis of the PRM essentially different from AR — an interesting distinction.
+
+#### Inpainting injection (IGPO)
+
+IGPO [@zhao2025igpo] incorporates **a DLM-specific capability — inpainting** into the RL exploration strategy. GRPO samples multiple trajectories from the same prompt and computes within-group advantage, but **if all trajectories are roughly equally correct (or equally incorrect)**, the advantage vanishes and the gradient signal disappears (the **zero-advantage problem**).
+
+In this situation, IGPO **injects ground-truth partial reasoning traces into the trajectory via inpainting**. That is, during sampling, parts of the correct reasoning are provided as true values rather than `[MASK]`, and the model completes the rest. This:
+
+- Allows partial-success trajectories even when a group fully fails
+- Restores reward variance within the group so gradients can flow
+- Expands the exploration range
+
+In AR RL, the operation "continue from a partial completion" is non-trivial (there are constraints around KV-cache consistency and generation order), but in DLM, infilling is natural by construction and can be realized at no extra cost. IGPO is important in showing the design pattern of **"using a DLM-specific operation as the RL exploration apparatus."**
+
+### Stabilization Techniques
+
+#### Constant memory (BGPO)
+
+The largest implementation constraint on ELBO-based RL is **memory**. Increasing the MC sample size reduces estimation variance, but memory grows linearly with the number of forward passes, making it essentially infeasible for large models. BGPO [@lin2025bgpo] combines a **boundary-guided lower bound** with **gradient accumulation** to enable training **at constant memory independent of MC sample size**.
+
+As a result, several to a dozen times more MC samples can be taken on the same hardware. Variance drops directly, and reasoning performance improves. The contribution is the diagnosis "**RL quality is rate-limited by the memory budget**" and the corresponding remedy.
+
+#### Order as an RL target (DCoLT's UPM, revisited)
+
+The perspective that the sampler's unmask order can be a learning target rather than a rule-based (confidence-based) choice was first shown by UPM. Subsequent GRPO-family methods do not adopt explicit order RL, but designs on the mask-pattern side — such as coupled masks and structured noising — indirectly address the order problem.
+
+## Stream C: Preference Optimization (VRPO)
+
+On the AR side, DPO is the standard for preference optimization, but in adapting it to DLM, **the variance of the ELBO** becomes the dominant obstacle. **VRPO (Variance-Reduced Preference Optimization)**, proposed by LLaDA 1.5 [@zhu2025llada15], is effectively the only serious study that confronts this problem head-on.
+
+### DPO Adaptation to DLM and ELBO Variance
+
+AR's DPO minimizes
+
+$$
+\mathcal{L}_\text{DPO} = -\log \sigma\!\left( \beta \left[ \log\frac{\pi_\theta(y_w)}{\pi_\text{ref}(y_w)} - \log\frac{\pi_\theta(y_l)}{\pi_\text{ref}(y_l)} \right] \right)
+$$
+
+on preference pairs $(y_w, y_l)$. In DLM, since $\log \pi_\theta(y)$ cannot be computed directly, one must **replace it with an ELBO estimate**, but the ELBO is itself an MC estimate, leading to the following issues:
+
+- **Independently estimating the ELBO for both $\pi_\theta$ and $\pi_\text{ref}$** means the estimation errors do not cancel, and the variance of the difference grows
+- As a result, the gradient signal is buried in noise and training becomes unstable
+
+VRPO suppresses this with **two unbiased variance-reduction techniques**.
+
+### (1) Optimal MC Budget Allocation
+
+ELBO estimation requires sampling both the time $t$ and, at each time, the mask $y_t$. Given an MC budget $n = n_t \times n_{y_t}$, the split between $n_t$ (number of times) and $n_{y_t}$ (masks per time) is free. VRPO shows that **$n_t = n$, $n_{y_t} = 1$** (many times, only one mask per time) minimizes variance.
+
+Intuition: the ELBO integral is continuous in $t$, so densifying the coverage of $t$ directly reduces "variance along the time direction." On the other hand, taking different $y_t$ at the same $t$ does not buy as much, since the conditional variance of $y_t$ is not that large, so redundancy does not help.
+
+### (2) Antithetic Sampling
+
+The second technique is to **share the same time $t$ and mask pattern $y_t$ between the policy $\pi_\theta$ and the reference $\pi_\text{ref}$**. That is, sample $(t, y_t)$ once and estimate both ELBOs at the same value.
+
+Intuition: what is wanted is the **difference** of the ELBOs, and noise terms shared by both sides cancel in the difference. With independent samples this common term does not cancel and variance accumulates, but with antithetic sampling, this correlation can be actively exploited for variance reduction.
+
+The combination of these two, applied to LLaDA, is **LLaDA 1.5**, which reports consistent improvements on math, code, and alignment benchmarks [@zhu2025llada15]. It is a good example showing how **the seemingly abstract issue of ELBO variance reduction directly determines the practicality of preference optimization**.
+
+::: {.callout-note}
+## Implications of VRPO
+
+Both VRPO techniques can be unified under the idea: "**when taking the difference of a preference pair, leave the common terms to cut variance**." AR's DPO uses deterministic log-probs and never exposes this problem, but for DLM, the moment stochastic approximation enters, "**what to share and what to keep independent**" becomes the dominant design choice. This idea runs through coupled masks and antithetic constructions in the GRPO family, and is broadly applicable as a general principle of DLM-RL.
+:::
+
+## Remaining Issues and Open Problems
+
+The methods examined in this chapter advance the DLM adaptation of recipes established for AR one by one, but many areas remain untouched.
+
+- **Inconsistent evaluation axes**: Each method uses different benchmarks, models, and hyperparameters, making it hard to compare numbers side by side. Direct head-to-head results such as "LLaDA 8B + diffu-GRPO vs LLaDA 8B + SPG" are limited
+- **DLM adaptation of critic-based RL**: GRPO is a critic-free, lightweight method, but on the AR side PPO + value head remains influential. Designing a $t$-dependent value function for DLM has not yet been organized
+- **DLM adaptation of the reward model itself**: In AR RLHF, the reward model is also an AR LLM. Whether one should construct a reward model for DLM outputs with a DLM, reward designs that leverage bidirectional attention, etc., are largely untouched
+- **Long-horizon credit assignment**: DLM reasoning unfolds as multi-step denoising, but giving reward only at the final step dilutes credit to early steps. Process reward (SAPO) partially addresses this, but a theory of credit propagation along the $t$ direction is not yet established
+- **Integrating AR and DLM RL**: Block diffusion systems such as BD3-LMs [@arriola2025bd3lms] have a hybrid structure of "within-block = DLM, across-blocks = AR." RL also needs to switch per block, but the design guidelines are not established
+- **Inference-time RL**: To bring the AR-side test-time compute progress (from the o1 line) to DLMs, three axes — step count, guidance strength, and remask strategy — must be co-optimized. The freedom of DLMs comes back as a high-dimensional design space
+
+These open issues, together with broader field perspectives, are also discussed in the [Open Problems](open-problems.qmd) chapter. The methods in this chapter sit at the stage where "the basics of the **list of DLM adaptations of AR RL recipes**" are starting to be filled in, and each of the unaddressed items above is an open space large enough to support a full paper of its own.
+
+[→ More:]{.detail-link} [Open Problems in the DLLM Field](open-problems.qmd)
+
+[→ More:]{.detail-link} [LLaDA: Large-Scale Masked DLM and Sampling](llada.qmd)
+
+[→ More:]{.detail-link} [MDLM: Masked Diffusion Language Models](mdlm.qmd)

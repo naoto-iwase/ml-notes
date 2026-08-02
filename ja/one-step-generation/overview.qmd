@@ -1,0 +1,131 @@
+---
+pagetitle: "概要"
+---
+
+# One-Step Generation: 1ステップ生成モデルの最前線
+
+## 概要
+
+拡散モデル（Diffusion Models）や Flow Matching [@lipman2023flowmatching] は高品質な画像生成を実現したが、推論時に数十〜数百ステップの反復計算が必要であるという根本的な課題を抱えている。この計算コストはリアルタイム応用やエッジデバイスでの展開を困難にしてきた。
+
+2025〜2026年にかけて、**1ステップ（1-NFE（Number of Function Evaluations, ネットワーク評価回数））で高品質な生成を実現する手法**が急速に発展している。本シリーズでは、この分野を牽引する4つの論文を時系列順にキュレートし、Flow Matching の拡張から全く新しいパラダイムまでの技術的進化を追う。
+
+**共通するテーマ**:
+
+- 蒸留（distillation）や事前学習モデルへの依存を排除し、スクラッチから訓練可能
+- 理論的な保証（Wasserstein 距離の上界など）を伴う定式化
+- ImageNet 256×256 での Fréchet Inception Distance（FID）スコアによる定量評価
+
+## 手法の全体像
+
+![Flow Matching を起点とする 1 ステップ生成手法の幾何学的比較（左）と、これらが生成する ImageNet クラス条件付きサンプルの例（右）。Flow Matching は変位マップの開始時刻での微分が瞬間速度に一致することを要請するのに対し、MeanFlow は変位の時間平均を、TVM は変位マップの終端時刻での微分を制御する。右側のサンプルは TVM 由来。出典: [@zhou2025tvm]](images/tvm-teaser.png){#fig-overview-tvm-teaser}
+
+@fig-overview-tvm-teaser は、Flow Matching・MeanFlow・TVM がいずれも「変位マップ $f(x_t, t, s)$」を共通の言語として扱いつつ、**どこに微分条件を課すか**で異なるアプローチを取っていることを示す。Drifting Models はこれらと根本的に異なる枠組み（時間パラメータなし、訓練中の分布進化）を採るため、この図には含まれない。
+
+
+```{mermaid}
+%%| label: fig-overview-flow
+%%| fig-cap: "1ステップ生成モデルの系譜。Flow Matching を起点に、3つの手法が並行して発展し、Drifting Models が新たなパラダイムを確立した。各手法の数値比較は @tbl-fid-comparison を参照。"
+
+flowchart TB
+    FM["Flow Matching<br/>(Baseline)"]
+    MF["MeanFlow (2025)"]
+    TM["Transition Matching (2025)"]
+    TVM["Terminal Velocity Matching (2025)"]
+    DM["Drifting Models (2026)"]
+
+    FM --> MF
+    FM --> TM
+    FM --> TVM
+    MF --> DM
+    TVM --> DM
+```
+
+## 各論文の位置づけ
+
+### 1. MeanFlow（2025年5月）
+
+Flow Matching が「瞬間速度（instantaneous velocity）」を学習するのに対し、MeanFlow [@geng2025meanflow] は**「平均速度（average velocity）」**という新しい量を導入する。平均速度は変位を時間間隔で割った量であり、1ステップで直接サンプルを生成できる。
+
+**核心的アイデア**: MeanFlow Identity と呼ばれる恒等式が、平均速度と瞬間速度の関係を結びつける。この関係式により、積分を明示的に計算することなく訓練が可能となる。
+
+**成果**: ImageNet 256×256 で FID 3.43（1-NFE）を達成。蒸留なし・事前学習なしのスクラッチ訓練としては当時の最高性能である。
+
+
+[→ 詳細:]{.detail-link} [MeanFlow](mean-flow.qmd)
+
+### 2. Transition Matching（2025年6月）
+
+Transition Matching [@shaul2025transition] は、拡散モデル・Flow Matching・自己回帰モデルを**離散時間のマルコフ遷移**として統一するフレームワークである。3つのバリアント（DTM（Difference Transition Matching）、ARTM（Autoregressive TM）、FHTM（Full History TM））を提案し、それぞれ異なる設計空間を探索する。
+
+**核心的アイデア**: 生成過程を確率的な遷移カーネルの列として定式化し、各遷移を独立にマッチングする。これにより、確定的な Flow Matching とは異なる柔軟な設計が可能となる。
+
+**成果**: DTM は Flow Matching の 7 倍の高速化（128 → 16 forward pass）を実現しつつ、画像品質とプロンプト整合性で上回る。FHTM は完全因果的モデルとして初めて Flow Matching を凌駕した。
+
+
+[→ 詳細:]{.detail-link} [Transition Matching](transition-matching.qmd)
+
+### 3. Terminal Velocity Matching（2025年11月）
+
+Terminal Velocity Matching [@zhou2025tvm] は Flow Matching を一般化し、軌道の**終端時刻（terminal time）**での速度場を正則化する手法である。MeanFlow が開始時刻で微分するのに対し、TVM は終端時刻で微分することで、理論的に強い保証を得る。
+
+**核心的アイデア**: 変位マップの終端時刻における微分条件を課すことで、2-Wasserstein 距離の明示的な上界を導出する。実用上は、Lipschitz 連続性を確保するためのアーキテクチャ修正（RMSNorm、QK-normalization）が鍵となる。
+
+**成果**: ImageNet 256×256 で FID 3.29（1-NFE）、FID 1.99（4-NFE）を達成。4-NFE で 500-NFE の拡散モデルを超える性能を示した。
+
+
+[→ 詳細:]{.detail-link} [Terminal Velocity Matching](terminal-velocity-matching.qmd)
+
+### 4. Generative Modeling via Drifting（2026年2月）
+
+Kaiming He らによる全く新しいパラダイムである [@deng2026drifting]。従来の手法が推論時に反復する「pushforward」を行うのに対し、Drifting Models は**訓練中に pushforward 分布を進化させる**。推論時には1回のフォワードパスのみで済む。
+
+**核心的アイデア**: 「Drifting Field」と呼ばれるベクトル場が、生成されたサンプルをデータ分布に向かって引き寄せ、他の生成サンプルから反発させる。反対称性（anti-symmetry）により、分布が一致したとき自然に均衡に達する。
+
+**成果**: ImageNet 256×256 で FID 1.54（潜在空間）/ FID 1.61（ピクセル空間）を達成。1-NFE としての新たな State-of-the-Art（SOTA）を確立した。
+
+
+[→ 詳細:]{.detail-link} [Drifting Models](drifting-models.qmd)
+
+## 性能比較
+
+| 手法 | 年月 | 1-NFE FID | 4-NFE FID | 蒸留不要 | 特徴 |
+|------|------|-----------|-----------|---------|------|
+| Diffusion Transformer（DiT）(FM) | 2023 | - | - | - | ベースライン（250-NFE: 2.27） |
+| MeanFlow | 2025-05 | 3.43 | - | ✅ | 平均速度、スクラッチ訓練 |
+| TVM | 2025-11 | 3.29 | 1.99 | ✅ | 終端正則化、W2上界 |
+| Drifting | 2026-02 | **1.54** | - | ✅ | 新パラダイム、訓練中に分布進化 |
+
+: ImageNet 256×256 での FID スコア比較。低いほど良い。Transition Matching は異なるデータセット（Shutterstock 350M）で評価されているため直接比較は含めていない。 {#tbl-fid-comparison}
+
+## 技術的背景
+
+### Flow Matching の基本
+
+Flow Matching は、ノイズ分布 $p_0$ からデータ分布 $p_1$ への連続的な変換を学習する。時刻 $t \in [0, 1]$ における速度場 $v(z_t, t)$ をニューラルネットワークで近似し、ODE を解くことでサンプリングする:
+
+$$
+\frac{dz_t}{dt} = v_\theta(z_t, t)
+$$
+
+サンプリング時には、$z_1 \sim p_1$（ノイズ）から出発し、ODE を逆方向に解いて $z_0$（データ）を得る。ステップ数が多いほど精度は向上するが、計算コストも増大する。
+
+### 1ステップ生成の困難さ
+
+1ステップ生成は、ODE の全軌道を1回のニューラルネットワーク評価で近似することに相当する。これは本質的に以下の課題を伴う:
+
+- **軌道の曲率**: 直線的でない軌道は1ステップで近似しにくい
+- **モード崩壊**: 多様な出力を維持しつつ高品質を保つのが困難
+- **一貫性**: 異なるスケールでの一貫性を保証する必要がある
+
+本シリーズの各論文は、これらの課題に対してそれぞれ独自のアプローチで取り組んでいる。
+
+## 今後の展望
+
+1ステップ生成モデルの急速な進化は、以下の方向性を示唆している:
+
+- **リアルタイム応用**: ビデオ生成、インタラクティブな画像編集への展開
+- **ロボティクス**: Drifting Models は既に Diffusion Policy の代替として有効性を示している
+- **マルチモーダル統合**: Transition Matching の FHTM は大規模言語モデル（Large Language Model, LLM）アーキテクチャとの統合を可能にする
+- **理論的理解**: 各手法の理論的関係性の統一的理解
+

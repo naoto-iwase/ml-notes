@@ -1,0 +1,273 @@
+---
+pagetitle: "MeanFlow"
+---
+
+# MeanFlow: One-Step Generation via Average Velocity
+
+Flow Matching [@lipman2023flowmatching] has achieved high-quality image generation, but it requires tens to hundreds of ordinary differential equation (ODE) solver steps at inference time. MeanFlow [@geng2025meanflow] introduces a novel quantity called the **mean velocity** and achieves one-step generation through training from scratch, without distillation or pretraining.
+
+## Background and Motivation {#sec-background}
+
+### Limitations of Flow Matching
+
+Flow Matching learns a velocity field $v_\theta(z_t, t)$ that describes a continuous transformation from a noise distribution $p_1$ to a data distribution $p_0$. Since sampling requires numerically solving an ODE, high-quality generation typically demands 50--250 network evaluations (NFE: Number of Function Evaluations). This poses a significant bottleneck for real-time applications and deployment on edge devices.
+
+### Prior Work: Distillation and Consistency Models
+
+Existing approaches for achieving one-step generation can be broadly classified into two categories:
+
+- **Distillation**: Transfers knowledge from a multi-step teacher model. Representative methods include Progressive Distillation [@salimans2022progressive] and ADD (Adversarial Diffusion Distillation) [@sauer2023add]. However, these require a pretrained high-quality teacher model, which complicates the training pipeline
+
+- **Consistency Models**: Proposed by Song et al. [@song2023consistency], this approach directly learns "consistency"---the property that different points on the same ODE trajectory at different times map to the same data point. A distillation-free variant (Consistency Training) also exists, but stable training requires imposing architectural constraints on the neural network
+
+MeanFlow takes a fundamentally different approach. By exploiting a **mathematical identity**, it directly learns the quantity needed for one-step generation without imposing structural constraints on the neural network.
+
+## Instantaneous Velocity vs Mean Velocity {#sec-velocities}
+
+The core of MeanFlow lies in introducing a new quantity called the "mean velocity" alongside the "instantaneous velocity" that conventional Flow Matching learns.
+
+### Instantaneous Velocity
+
+The velocity field $v(z_t, t)$ learned by Flow Matching represents the instantaneous velocity at point $z_t$ on the ODE trajectory:
+
+$$
+v(z_t, t) = \frac{dz_t}{dt}
+$$ {#eq-instantaneous}
+
+This represents the infinitesimal rate of change at time $t$. Precise sampling requires integrating along this velocity field through many small steps.
+
+### Mean Velocity
+
+The mean velocity $u(z_t, r, t)$ introduced by MeanFlow is defined as the **displacement divided by the time interval** from time $t$ to $r$:
+
+$$
+u(z_t, r, t) = \frac{z_r - z_t}{r - t} = \frac{1}{r - t} \int_t^r v(z_s, s) \, ds
+$$ {#eq-mean-velocity}
+
+Here, $z_r$ is the point obtained by integrating the ODE from $z_t$ to time $r$. The mean velocity is the average of the instantaneous velocity over the interval $[t, r]$, representing the "overall direction" of the trajectory.
+
+### Direct Use for One-Step Sampling
+
+From the definition of mean velocity, the following relationship immediately follows:
+
+$$
+z_r = z_t + (r - t) \cdot u(z_t, r, t)
+$$
+
+In particular, setting $t = 1$ (noise) and $r = 0$ (data):
+
+$$
+z_0 = z_1 + (0 - 1) \cdot u(z_1, 0, 1) = z_1 - u_\theta(z_1, 0, 1)
+$$ {#eq-one-step}
+
+That is, if the mean velocity $u_\theta(z_1, 0, 1)$ can be accurately learned, data $z_0$ can be directly generated from noise $z_1$ with a single network evaluation. This is equivalent to approximating the entire ODE trajectory in one step.
+
+![Geometric visualization of the mean velocity $u(z, r, t)$. Left: the displacement from a point $t$ on the trajectory to the terminal $r$, divided by the interval width, equals the mean velocity, which is the interval average of the instantaneous velocity $v$ (blue arrows). Right: the mean velocity vectors (orange arrows) seen from different $t$ all point to the terminal point $r$ on the trajectory. Source: [@geng2025meanflow]](images/mean-flow-overview.png){#fig-mean-velocity}
+
+@fig-mean-velocity illustrates the geometric meaning: while the instantaneous velocity $v$ is tangent to the trajectory at each point, the mean velocity $u$ is a chord that directly connects the two endpoints. One-step generation amounts to evaluating a single such chord from $t=1$ to $r=0$.
+
+![Particle-level comparison of Flow Matching (left) and MeanFlow (right). Flow Matching transforms noise into data via many fine-grained trajectories that follow the instantaneous velocity $v(z_t, t)$, while MeanFlow moves each sample directly using a single mean-velocity vector. Source: [@geng2025meanflow]](images/mean-flow-flows.png){#fig-flows-comparison}
+
+## MeanFlow Identity {#sec-identity}
+
+The greatest challenge in learning the mean velocity is that the definition in @eq-mean-velocity involves integrating the ODE. Naively, each training step would require solving the ODE to compute the target, incurring prohibitive computational cost. The MeanFlow Identity is the key equation that resolves this challenge.
+
+### Derivation of the Identity
+
+Differentiating both sides of the mean velocity definition $u(z_t, r, t) = \frac{z_r - z_t}{r - t}$ with respect to $t$. Since $z_r$ does not depend on $t$ (it is a fixed point on the ODE trajectory) while $z_t$ does depend on $t$:
+
+$$
+\frac{\partial}{\partial t} u(z_t, r, t) = \frac{\partial}{\partial t} \left( \frac{z_r - z_t}{r - t} \right)
+$$
+
+Differentiating the numerator and denominator separately:
+
+$$
+\frac{\partial u}{\partial t} = \frac{-v(z_t, t)(r - t) - (z_r - z_t)(-1)}{(r - t)^2} = \frac{-v(z_t, t)}{r - t} + \frac{u(z_t, r, t)}{r - t}
+$$
+
+Rearranging yields the **MeanFlow Identity**:
+
+$$
+u(z_t, r, t) = v(z_t, t) - (t - r) \frac{\partial}{\partial t} u(z_t, r, t)
+$$ {#eq-meanflow-identity}
+
+### Meaning of the Identity
+
+@eq-meanflow-identity expresses a **local relationship** among the mean velocity $u$, the instantaneous velocity $v$, and the time derivative of $u$. The key points are as follows:
+
+- **No integration required**: Although the definition of $u$ involves integration from $t$ to $r$, this identity holds locally at any time $t$. Therefore, there is no need to solve the ODE
+- **Self-consistency**: If $u_\theta$ is trained to satisfy this identity, it will converge to the correct mean velocity as a result
+- **Natural derivation of consistency**: While Consistency Models require embedding consistency conditions into the neural network architecture, MeanFlow derives consistency naturally from mathematical structure. Functions satisfying the identity automatically define a consistent mapping
+
+::: {.callout-tip collapse="true"}
+## Distinction Between Total and Partial Derivatives
+
+The $\frac{\partial}{\partial t} u(z_t, r, t)$ in @eq-meanflow-identity is a **total derivative** that accounts for the dependence of $z_t$ on $t$. Specifically:
+
+$$
+\frac{d}{dt} u(z_t, r, t) = \frac{\partial u}{\partial z} \cdot v(z_t, t) + \frac{\partial u}{\partial t}
+$$
+
+Here, the first term is the indirect contribution through changes in $z_t$, and the second term is the direct contribution from $t$. In the training algorithm, this total derivative is efficiently computed using JVP (Jacobian-Vector Product).
+:::
+
+## Training Algorithm {#sec-training}
+
+MeanFlow's training uses the identity @eq-meanflow-identity as a loss function.
+
+### Target Construction
+
+Applying the MeanFlow Identity to $u_\theta$, the target is constructed as follows:
+
+$$
+u_{\text{tgt}} = v_t - (t - r) \cdot \frac{d}{dt} u_\theta(z_t, r, t)
+$$ {#eq-target}
+
+Here, $v_t = v_\theta(z_t, t)$ is the output of a pretrained (or jointly trained) Flow Matching model, and the total derivative in the second term expands to:
+
+$$
+\frac{d}{dt} u_\theta(z_t, r, t) = \frac{\partial u_\theta}{\partial z} \cdot v_t + \frac{\partial u_\theta}{\partial t}
+$$
+
+### Efficient Differentiation via JVP
+
+Computing the total derivative requires the Jacobian $\frac{\partial u_\theta}{\partial z}$ of $u_\theta$, but computing the full Jacobian is impractical for high-dimensional inputs. MeanFlow leverages the **JVP (Jacobian-Vector Product)**:
+
+$$
+\frac{\partial u_\theta}{\partial z} \cdot v_t
+$$
+
+JVP can be efficiently computed using forward-mode automatic differentiation, at roughly the same cost as a single forward pass of $u_\theta$. In PyTorch, this is implemented as `torch.func.jvp`.
+
+### Use of Stop-Gradient
+
+Since the target @eq-target contains $u_\theta$ itself, naive training would cause the target to fluctuate with parameter updates, destabilizing training. To address this, **stop-gradient** is applied when computing the target:
+
+$$
+\mathcal{L} = \mathbb{E}_{z_t, r, t} \left[ \| u_\theta(z_t, r, t) - \text{sg}(u_{\text{tgt}}) \|^2 \right]
+$$
+
+Here, $\text{sg}(\cdot)$ is the operation that blocks gradient backpropagation. This treats the target as a fixed value under the current parameters, stabilizing training.
+
+### Training Pipeline Overview
+
+| Step | Operation | Notes |
+|:----:|-----------|-------|
+| 1 | Sample $z_t, r, t$ | |
+| 2 | Compute $v_t = v_\theta(z_t, t)$ | FM forward |
+| 3 | Compute $u_\theta(z_t, r, t)$ | MF forward |
+| 4 | Compute $\frac{d}{dt} u_\theta$ via JVP | JVP forward |
+| 5 | Construct $u_{\text{tgt}} = v_t - (t - r) \cdot \frac{d}{dt} u_\theta$ | |
+| 6 | $\mathcal{L} = \| u_\theta - \text{sg}(u_{\text{tgt}}) \|^2$ | |
+| 7 | Backprop through $u_\theta$ only | |
+
+: MeanFlow training pipeline. The Notes column indicates the type of forward pass required at each step. {#tbl-training-pipeline}
+
+### Training Cost
+
+MeanFlow training requires a forward pass of the Flow Matching model, plus a forward pass of the mean velocity network $u_\theta$ and the JVP computation. According to the authors, the training overhead is **approximately 20%**. This is because $u_\theta$ and $v_\theta$ share parameters ($u_\theta$ is simply $v_\theta$ with an additional time input $r$).
+
+## Classifier-Free Guidance Integration {#sec-cfg}
+
+In conditional image generation, **Classifier-Free Guidance (CFG)** is an essential technique for improving sample quality. In conventional multi-step sampling, the conditional and unconditional predictions are linearly interpolated at each step:
+
+$$
+\tilde{v}(z_t, t, c) = v(z_t, t, \varnothing) + w \cdot \bigl(v(z_t, t, c) - v(z_t, t, \varnothing)\bigr)
+$$
+
+Here, $c$ is the condition (e.g., class label), $\varnothing$ denotes unconditional, and $w$ is the guidance scale.
+
+### CFG Integration in MeanFlow
+
+MeanFlow treats CFG not as an **inference-time trick but as a property of the ground-truth velocity field**. Specifically, the velocity field $\tilde{v}$ after CFG application is treated as the "true velocity field," and its mean velocity is learned:
+
+$$
+\tilde{u}(z_t, r, t) = \frac{1}{r - t} \int_t^r \tilde{v}(z_s, s, c) \, ds
+$$
+
+Under this formulation, the MeanFlow Identity holds directly for the guided velocity field. By incorporating CFG during training, **guided sampling with 1-NFE** becomes possible at inference time. While previous one-step methods struggled with CFG integration, MeanFlow naturally resolves this issue.
+
+## Experimental Results {#sec-experiments}
+
+### ImageNet 256x256
+
+MeanFlow's primary experimental results are obtained on ImageNet 256x256 class-conditional image generation, reported using the Fréchet Inception Distance (FID).
+
+| Model | Parameters | NFE | FID |
+|-------|-----------|-----|-----|
+| MeanFlow-B/2 | 130M | 1 | 11.07 |
+| MeanFlow-L/2 | 458M | 1 | 5.21 |
+| MeanFlow-XL/2 | 675M | 1 | **3.43** |
+| MeanFlow-XL/2 | 675M | 2 | **2.20** |
+
+: MeanFlow FID scores on ImageNet 256x256. Uses Diffusion Transformer (DiT) [@peebles2023dit] architecture size variants (B/2, L/2, XL/2). {#tbl-meanflow-results}
+
+### Scaling with Model Size
+
+As shown in @tbl-meanflow-results, FID consistently improves with increasing model size. From B/2 (130M parameters) with FID 11.07 to XL/2 (675M parameters) with FID 3.43, approximately 3.2x scaling yields roughly a 3x improvement in FID. This demonstrates that MeanFlow fully benefits from larger models.
+
+![1-NFE FID scaling with model size and training epochs. As the model is scaled from B/2 to M/2, L/2, and XL/2, and as training proceeds, FID monotonically improves, showing that MeanFlow benefits cleanly from compute and capacity. Source: [@geng2025meanflow]](images/mean-flow-fid.png){#fig-meanflow-scaling}
+
+@fig-meanflow-scaling shows that the FID curves for all four model sizes decrease monotonically with training, and at every epoch the larger model achieves lower FID, indicating that MeanFlow scales predictably along both axes.
+
+### Improvement with 2-NFE
+
+MeanFlow can be used not only with 1-NFE but also with 2-NFE (2 steps). By introducing an intermediate time $t_{\text{mid}}$ and generating in two stages $z_1 \to z_{t_{\text{mid}}} \to z_0$, 2-NFE achieves **FID 2.20**, which surpasses the quality of 250-step DiT (FID 2.27).
+
+### Summary of Ablation Results
+
+The authors report the following ablations:
+
+- **Sampling range of $r$**: Randomly sampling $r \in [0, t)$ is more effective than fixing $r = 0$. This increases the diversity of training signals and improves the estimation accuracy of the mean velocity
+
+- **JVP vs finite differences**: Exact differentiation via JVP outperforms finite difference approximation
+
+- **CFG scale**: A CFG scale of $w = 1.5$ is optimal during training. This can be set independently of the inference-time CFG scale
+
+## Comparison with Other Methods {#sec-comparison}
+
+::: {.callout-note collapse="true"}
+## Differences from Consistency Models
+
+Consistency Models [@song2023consistency] learn a "consistency function" that maps points on the same ODE trajectory to the same output. To guarantee this consistency, **boundary conditions** must be embedded into the neural network architecture (e.g., $f(z_0, 0) = z_0$).
+
+MeanFlow imposes no architectural constraints. Consistency is naturally derived from the mathematical structure of the MeanFlow Identity (@eq-meanflow-identity). This difference means:
+
+- MeanFlow can use standard DiT architectures as-is
+- Training instabilities that plague Consistency Models are significantly reduced
+- MeanFlow can share parameters with the Flow Matching model, resulting in minimal additional memory cost
+:::
+
+::: {.callout-note collapse="true"}
+## Comparison with Shortcut Models
+
+Shortcut Models [@frans2024shortcut] introduce an additional "step size" input to Flow Matching, training a model capable of sampling with an arbitrary number of steps. However, their 1-NFE performance on ImageNet 256x256 remains at **FID 10.60**, a significant gap from MeanFlow's FID 3.43.
+
+The primary cause of this performance gap is that Shortcut Models lack the theoretical guarantees needed for accurate mean velocity approximation. The MeanFlow Identity mathematically justifies the learning of mean velocity and guarantees training convergence.
+:::
+
+::: {.callout-note collapse="true"}
+## Impact on Subsequent Research
+
+MeanFlow established a framework that leverages the relationship between mean velocity and instantaneous velocity, significantly influencing subsequent research:
+
+- **Terminal Velocity Matching (TVM)** [@zhou2025tvm]: While MeanFlow differentiates with respect to the start time $r$, TVM differentiates with respect to the terminal time $t$. This "dual" approach yields an explicit upper bound on the 2-Wasserstein distance, strengthening theoretical guarantees. TVM achieves FID 3.29 at 1-NFE, slightly surpassing MeanFlow
+
+  [→ Details:]{.detail-link} [Terminal Velocity Matching](terminal-velocity-matching.qmd)
+
+- **Drifting Models** [@deng2026drifting]: Proposes a fundamentally different paradigm from MeanFlow. Rather than iteration at inference time, it evolves distributions during training, achieving 1-NFE FID 1.54. However, the fact that MeanFlow's framework (the concept of mean velocity) demonstrated the feasibility of one-step generation accelerated research in this direction
+
+  [→ Details:]{.detail-link} [Drifting Models](drifting-models.qmd)
+:::
+
+## Summary
+
+MeanFlow achieves one-step image generation independent of distillation or pretraining by combining the concept of "mean velocity" with the "MeanFlow Identity." Its key contributions are as follows:
+
+- **Introduction of mean velocity**: Defines a quantity that aggregates information about the entire ODE trajectory into a single vector
+- **MeanFlow Identity**: A mathematical structure that enables learning mean velocity without computing integrals
+- **Natural CFG integration**: Treats guidance as a property of the velocity field, enabling guided generation with 1-NFE
+- **Scalability**: Uses standard DiT architectures and demonstrates favorable scaling with model size
+
+MeanFlow is positioned as a natural extension from Flow Matching to one-step generation, paving the way for subsequent work such as Terminal Velocity Matching and Drifting Models.

@@ -1,0 +1,14 @@
+---
+title: "Diffusion Language Models"
+description: "拡散言語モデル（DLLM）の主要文献とサーベイを体系的に整理"
+date: "2026-05-15"
+author:
+  name: "Naoto Iwase"
+  url: "https://iwase.dev"
+date-modified: last-modified
+categories: [LLM, Generative Models]
+image: "images/dllm.png"
+toc: false
+---
+
+Diffusion Language Models（DLLM）は、画像生成で成功した拡散モデルの考え方を言語モデリングに持ち込む試みであり、近年 LLaDA や Dream といった大規模な実装例、Mercury や Gemini Diffusion といった商用クラスの実装例が登場している。本書は、現代的な DLLM を理解するための主要文献と、Li et al. 2025 のサーベイで提示された taxonomy を統合し、定式化・サンプリング・連続拡散との対応・AR からの適応・派生 discrete モデル・ハイブリッド・推論加速・guidance・事後学習・マルチモーダル化・応用領域までを体系的にまとめる。

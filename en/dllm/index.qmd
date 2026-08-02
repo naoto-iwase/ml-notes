@@ -1,0 +1,14 @@
+---
+title: "Diffusion Language Models"
+description: "Systematic survey of Diffusion Language Model literature (formulation through applications)"
+date: "2026-05-15"
+author:
+  name: "Naoto Iwase"
+  url: "https://iwase.dev"
+date-modified: last-modified
+categories: [LLM, Generative Models]
+image: "images/dllm.png"
+toc: false
+---
+
+Diffusion Language Models (DLLM) bring the ideas behind the diffusion models that succeeded in image generation into language modeling. Recent years have seen large-scale implementations such as LLaDA and Dream, alongside commercial-grade systems including Mercury and Gemini Diffusion. This book consolidates the key references needed to understand modern DLLMs, integrating the taxonomy presented in the Li et al. 2025 survey, and systematically covers formulation, sampling, the correspondence with continuous diffusion, adaptation from AR models, derivative discrete models, hybrid architectures, inference acceleration, guidance, post-training, multimodal extensions, and downstream applications.

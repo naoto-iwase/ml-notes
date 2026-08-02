@@ -1,0 +1,155 @@
+---
+pagetitle: "PTRM"
+---
+
+# PTRM
+
+Probabilistic Tiny Recursive Model (PTRM) is a test-time scaling framework released in May 2026 by Sghaier and Parviz at Mila Québec AI Institute / École de Technologie Supérieure (ETS), together with Jolicoeur-Martineau, the original author of Tiny Recursive Model (TRM) [@sghaier2026ptrm]. In one sentence, PTRM lets TRM escape the **bad latent basin** that its deterministic recursion falls into, by adding Gaussian noise of scale $\sigma$ to the latent at every deep recursion step and running $K$ trajectories in parallel, and then **reusing the Q head that TRM already learned for adaptive halting as a verifier** to pick the best trajectory. **No retraining and no task-specific augmentation are required**, and it lifts TRM from 87.4 % to 98.75 % on Sudoku-Extreme and from 62.6 % to 91.2 % on Pencil Puzzle Bench (PPBench). Around the same time, a mechanistic analysis paper by Efstathiou & Balwani [@efstathiou2026attractor], presented at the ICLR 2026 Workshop on Latent and Implicit Thinking, independently arrived at the same attractor hypothesis, and this chapter treats the two papers as a pair. As a test-time extension of [TRM](trm.qmd), the ARC Prize 2025 Paper Award winner, this book places PTRM as "the third strategy that puts a trained model directly to work as is".
+
+![Performance comparison of PTRM. On the PPBench puzzle set (left), it lifts TRM from 62.6 % to 91.2 %, beating the ensemble of the top 7 LLMs (assuming a perfect verifier) at 55.1 % by 36 pp. On Sudoku-Extreme (right), where Chain-of-Thought style frontier LLMs score 0 %, it reaches state-of-the-art at 98.75 %. Source: [@sghaier2026ptrm]](images/ptrm-headline.png){#fig-ptrm-headline width="95%"}
+
+## TRM Failure Modes: Trapped in a Bad Basin
+
+The mechanistic analysis in Section 3 of the PTRM paper is the starting point. The authors recorded TRM's latent trajectories on PPBench, for 100 puzzles at a time and at the granularity of one supervision step, and projected them onto the principal plane via Principal Component Analysis (PCA). The trajectories fall into three qualitative modes.
+
+- **Quick success**: within a few steps the trajectory moves into a convergent region and stays there. The Q value (halting logit) and the cell accuracy (the fraction of predicted cells that are correct) rise in sync and saturate at the same supervision step.
+- **Delayed success**: the trajectory oscillates for many steps inside a bounded region, and then at some step suddenly escapes to a different region and converges. The Q value and the cell accuracy spike at the same moment of escape.
+- **Failure**: the trajectory keeps oscillating in the bounded region, the Q value stays negative throughout (below 0.5 after sigmoid), and the cell accuracy never reaches 100 %.
+
+From these observations, the authors introduce the vocabulary of **good basin / bad basin**. A good basin is a latent region in which the cell accuracy stays high, and a bad basin is one in which it does not. The key finding is that **failure and delayed success behave identically in the early phase**. Both are trapped in the same bad basin, and only the latter happens to escape through some stochastic fluctuation and reaches the correct answer. PTRM's diagnosis is that "failure is not a lack of capability but a lack of an escape mechanism".
+
+![The three modes of TRM trajectories. The top row shows the latent trajectories projected onto the principal plane via PCA (light shades are early steps, dark shades are later steps, circles are starts, squares are ends), and the bottom row shows the Q value (solid line, left axis) and the cell accuracy (dashed line, right axis) over supervision steps. Failure and delayed success oscillate in the same bounded region in the early phase, and only the latter escapes. Source: [@sghaier2026ptrm]](images/ptrm-trajectory-modes.png){#fig-ptrm-trajectory-modes width="85%"}
+
+### The Q Head Tracks Trajectory Quality
+
+The second finding that anchors the PTRM design is in Section 3.2. TRM's Q head was originally trained as the halting signal of Adaptive Computation Time (ACT) [@graves2016act], with a binary cross-entropy on whether "the current prediction matches the ground truth". Aggregating over 100 PPBench validation puzzles, the authors find that the Q head's logit $\hat q$ tracks the cell accuracy almost perfectly at every supervision step.
+
+At convergence, the two groups separate sharply, with $\hat q \approx +6$ (sigmoid about 1) on correct trajectories and $\hat q \approx -6$ (sigmoid about 0) on incorrect ones. The core interpretation of PTRM is that "as a by-product of the ACT auxiliary loss, TRM had effectively learned a **verifier** inside itself". The downstream test-time procedure reuses this Q head as a rollout selector without any additional training.
+
+![The Q value tracks the cell accuracy step by step. Aggregated over 100 PPBench validation puzzles, split into two groups by their final correctness. On correct trajectories (green), the Q value and the cell accuracy rise almost in perfect synchrony, while on incorrect ones (red) the Q value stays negative throughout. Source: [@sghaier2026ptrm]](images/ptrm-q-tracks-accuracy.png){#fig-ptrm-q-tracks-accuracy width="80%"}
+
+## PTRM Method
+
+PTRM assembles the two findings of the previous section into a single inference-time procedure. **At every deep recursion step, Gaussian noise of scale $\sigma$ is added to the latent $z$.** This is run as $K$ parallel rollouts, and the best trajectory is chosen by the terminal Q value of each rollout. TRM's architecture is left untouched, and the checkpoint is used as is. The intervention is purely at test time on a trained model.
+
+### Algorithm
+
+We reproduce Algorithm 1 of the paper here. `rec` is TRM's deep recursion step (one round of latent recursion), $f_O$ is the output head, and $f_Q$ is the Q head. $D$ is the number of supervision steps.
+
+```python
+def ptrm_inference(x, K, D, sigma, z0, y0):
+    candidates = []
+    for k in range(K):                       # K parallel rollouts
+        z, y = z0, y0
+        for t in range(D):                   # D deep recursion steps
+            eps = sigma * randn_like(z)      # Gaussian noise
+            z = z + eps
+            z, y = rec(x, z, y)              # standard TRM step
+        y_hat = argmax(f_O(y))
+        q_hat = f_Q(y)
+        candidates.append((y_hat, q_hat))
+    k_star = argmax([q for _, q in candidates])
+    return candidates[k_star][0]
+```
+
+What deserves attention is that the noise injection happens **at every supervision step, not only at the first one of a rollout**. As discussed below, this is consistent with GRAM's [@baek2026gram] ablation that "adding noise only to the initial $z$ does not work", and shows that independent stochasticity is needed at each step of the trajectory.
+
+![The PTRM mechanism. (a) Standard TRM runs a single deterministic rollout of depth $D$ along the depth axis. (b) PTRM runs $K$ rollouts in parallel at the same depth and injects Gaussian noise $\epsilon$ into the latent at every deep recursion step. The Q head picks the best trajectory among the $K$ candidates (width axis $K$). Source: [@sghaier2026ptrm]](images/ptrm-architecture.png){#fig-ptrm-architecture width="90%"}
+
+### Empirical Demonstration of Bad-Basin Escape
+
+Section 4.1 takes a single failure puzzle from @fig-ptrm-trajectory-modes and runs $K=100$ rollouts on it. Of the 100, 92 stay in the same bad basin, and only 8 escape to a distinct region and reach the correct answer. The number of escapes increases monotonically with $K$, from 0 at $K=5$, to 1 at $K=25$, to 8 at $K=100$. This quantitatively confirms that Gaussian noise generates a **per-rollout escape probability**.
+
+![Principal-plane projection of 100 rollouts that PTRM generates on the same failure puzzle. 92 rollouts (red) remain in the bad basin, while 8 (green) escape to a different region and reach the correct answer. Source: [@sghaier2026ptrm]](images/ptrm-bad-basin-escape.png){#fig-ptrm-bad-basin-escape width="55%"}
+
+### Width Scaling and the Verifier Quality of the Q Head
+
+Section 4.2 organizes PTRM's most practical contribution. The authors distinguish three aggregation metrics.
+
+- **pass@$K$**: the probability that any of the $K$ rollouts is correct (oracle upper bound)
+- **best-Q@$K$**: the probability that the rollout with the highest Q value is correct (the practical metric)
+- **mode@$K$**: the probability that the most frequent answer is correct (voting)
+
+On PPBench validation, as $K$ increases from 1 to 100, both pass@$K$ and best-Q@$K$ rise from 76.4 % to 89.5 %, and the gap between them stays below 1 pp throughout. This means that the Q head functions almost as well as an oracle verifier. By contrast, mode@$K$ rises by only 1.3 pp. **The gains from width scaling come from Q head selection, not from voting.**
+
+The comparison with the depth axis is also in Section 4.2. With $K=1$ fixed, increasing depth $D$ from 16 to 48 lifts PPBench validation from 76.4 % to only 79.5 % (+3.1 pp). With $D=16$ fixed, increasing $K$ from 1 to 100 lifts it by +13 pp. Combined with the computational property that rollouts are independent and parallelizable while depth is sequential, **width becomes the primary test-time scaling axis**.
+
+![Dependence of pass@$K$, best-Q@$K$, and mode@$K$ on $K$ on PPBench validation. pass@$K$ and best-Q@$K$ rise almost in sync with $K$ (gap < 1 pp), showing that the Q head works as a strong verifier. mode@$K$ stays nearly flat, indicating that voting yields no gain. Source: [@sghaier2026ptrm]](images/ptrm-width-scaling.png){#fig-ptrm-width-scaling width="75%"}
+
+## Main Results
+
+Section 5 of the paper evaluates PTRM on three benchmarks. The shared protocol is to "use the public TRM checkpoint as is and only change the inference settings $(K, D, \sigma)$".
+
+### PPBench
+
+PPBench [@waugh2026ppbench] is a constraint satisfaction puzzle collection with 62,231 puzzles across 94 puzzle types and is the main benchmark of PTRM. The authors focus on 6 types (sudoku, lightup, nurikabe, shakashaka, heyawake, tapa) and measure per-puzzle accuracy on the 300-puzzle golden set defined by Waugh et al. They aggregate over the 5 types that exclude shakashaka, which deterministic TRM already solves at 100 %.
+
+The main result is that PTRM ($K=100, D=48, \sigma=0.2$) reaches an aggregate of 91.2 %, broken down as sudoku 97.8 %, lightup 100 %, nurikabe 88.9 %, heyawake 85.7 %, and tapa 80.0 %. This is +28.6 pp above deterministic TRM ($K=1, D=16$) at 62.6 %. TRM with depth alone increased ($K=1, D=48$) reaches only 66.0 % (+3.4 pp), confirming that most of the gain is from width.
+
+The comparison with frontier LLMs is taken on the same golden set. With direct prompting, `gemini-3.1-pro` reaches 24.5 %, `gpt-5.2@xhigh` 24.5 %, and `claude-opus-4-6@thinking` 34.7 %. The **ensemble** of the top 7 LLMs with multi-step agentic prompting (assuming a perfect verifier) reaches 55.1 %. PTRM beats this by 36 pp at 91.2 %, and the cost per puzzle is $0.001, three orders of magnitude cheaper than the LLM ensemble at $2.66.
+
+### Sudoku-Extreme, Maze-Hard, ARC-AGI-2
+
+Section 5.3 evaluates PTRM on the same three benchmarks used by the original TRM paper. On Sudoku-Extreme, TRM 87.28 % becomes PTRM 98.75 % ($K=100, D=64, \sigma=0.3$, state-of-the-art). On Maze-Hard, 83.80 % becomes 86.73 % ($K=100, D=16, \sigma=1.0$). On ARC-AGI-2, pass@1 goes from 7.36 % to 8.47 % and pass@100 from 14.31 % to 15.97 % ($K=25, D=16, \sigma=0.2$, with pass@2 at 9.72 %, roughly on par).
+
+Sudoku-Extreme is the benchmark on which PTRM most dramatically eliminates the basin trap that was deterministic TRM's weakness, and PTRM reaches state-of-the-art there. On ARC-AGI-2, however, it does not reach the large LLMs in the Grok-4 family, and on Maze-Hard best-Q@$K$ falls well short of pass@$K$ (see the ablation below). One of the limits of PTRM, acknowledged by the paper itself, is that there are tasks where "the verifier quality of the Q head becomes the ceiling".
+
+### Noise Ablation
+
+Section 5.4 and Appendix B sweep $\sigma$ on the three benchmarks. The optimal $\sigma$ is task-dependent.
+
+- **Sudoku-Extreme**: hits the ceiling around $\sigma \approx 0.1$ and stays roughly flat up to $\sigma = 1.0$. best-Q@$K$ is 98.5 %, within 1 pp of pass@$K$ at 99.3 %.
+- **Maze-Hard**: pass@$K$ keeps rising up to $\sigma \approx 1.0$, from 83.8 % to about 96 %. best-Q@$K$ stays around 86 %, and the gap between the two opens to about 10 pp. A large verifier headroom remains.
+- **ARC-AGI-2**: peaks around $\sigma \approx 0.6$. The gap between best-Q@$K$ and pass@$K$ is also not negligible.
+
+The wide gaps on Maze-Hard and ARC-AGI-2 show that what limits PTRM is not "search capability" but "verifier capability". The central direction of the paper's Future Work is that **a stronger verifier, trained or attached, could pick up the rollouts that the current Q head is missing**.
+
+![$\sigma$ ablation on the three benchmarks. Horizontal axis is the noise scale $\sigma$, and the lines are pass@$K$ (blue), best-Q@$K$ (orange), and mode@$K$ (green). Sudoku-Extreme hits the ceiling at $\sigma = 0.1$ and stays flat. Maze-Hard's pass@$K$ keeps rising up to $\sigma = 1.0$ but the gap with best-Q@$K$ widens. ARC-AGI-2 peaks at $\sigma = 0.6$. The shaded region is the verifier headroom. Source: [@sghaier2026ptrm]](images/ptrm-noise-ablation.png){#fig-ptrm-noise-ablation width="100%"}
+
+::: {.callout-note}
+## A Negative Result: Langevin Sampling Did Not Help
+
+In Appendix C, the authors try a Langevin dynamics update that uses the Q head's gradient to push the latent toward a high-Q region, $z \leftarrow z - \eta \nabla_z E(z) + \sqrt{2\eta}\, \xi$ (with $E(z) = -\log \mathrm{sigmoid}(f_Q(z))$ and $\xi \sim \mathcal{N}(0, I)$). On PCA plots, $\nabla_z f_Q$ does point toward the good basin, so the idea looked promising, but the accuracy matched a noise-only ablation in which the gradient term was set to zero. **All of the gain came from the noise term, and the gradient guidance added nothing.** Based on this, the authors dropped the Langevin variant and converged to the simpler PTRM. This is a methodological finding that test-time gradient guidance on a trained model, at least through TRM's Q head, did not work.
+:::
+
+## Related Work and Positioning in This Book
+
+Crossing Section 6 of the paper with the axes of this book, we organize the related work along five points.
+
+### Relation to GRAM: Train-Time vs Test-Time Stochasticization
+
+[GRAM](gram.qmd) [@baek2026gram] solved the same "single-solution problem of deterministic RRMs" at **training time**. It adds a learnable Gaussian guidance as a residual to the high-level latent and trains the model with amortized variational inference. PTRM, by contrast, uses the trained TRM checkpoint as is and intervenes only at test time. The PTRM paper cites the negative result GRAM reported for ablations that add noise only to the initial $z$, and uses it to argue that "noise must be injected at every supervision step". **GRAM requires retraining, while PTRM does not.** The two stand as complementary branches of test-time scaling.
+
+### Efstathiou & Balwani: An Independent Path to the Attractor Hypothesis
+
+Efstathiou & Balwani [@efstathiou2026attractor] is a mechanistic analysis paper presented at the same ICLR 2026 LIT workshop, which independently arrives at the same diagnosis as PTRM. Using sparse autoencoders on TRM's latent dynamics, the authors report that (i) the model forms a hypothesis early on and then the feature activations stabilize into periodic patterns (rather than incremental refinement), (ii) trajectories branch early depending on initialization and fall into local minima, and (iii) failure runs plateau at high-loss stable attractors. Their conclusion is that "recursive reasoning is not stepwise refinement but **adaptive search over an attractor landscape**".
+
+While PTRM provides a production-ready solution (a test-time stochastic intervention), Efstathiou & Balwani provide a theoretical account (the attractor hypothesis). **Reading the two papers in parallel, as two independent arrivals at the same solution to the same problem, gives a three-dimensional picture of the true dynamics of the TRM lineage.** This also extends the line started by Ren & Liu's mechanistic analysis of HRM [@ren2026hrmguessing] (covered in the [HRM](hrm.qmd) chapter of this book).
+
+### Hakimi RSM: A Different Axis of Training Efficiency
+
+Hakimi's Recursive Stem Model (RSM) [@hakimi2026stem] is a method that speeds up TRM training by 20x, targeting training-time efficiency through hidden-state detachment, terminal-only loss, and stochastic depth. While PTRM "raises the inference-time search capability of a trained TRM", RSM "lowers the training-time compute of TRM". They can be placed side by side as two directions of TRM successors.
+
+### The Deep Thinking Lineage
+
+The idea of "taking a trained recurrent model and running it deeper at test time" has a prehistory. Schwarzschild et al. [@schwarzschild2021algorithm] on "recurrent networks that generalize from easy to hard", Bansal et al. [@bansal2022overthinking] on recall plus progressive training, and Bear et al. [@bear2024lipschitz] on stabilization via Lipschitz constraints are representative examples. Bear et al. in particular pushed toward "guaranteeing convergence to a unique fixed point", which sits in direct opposition to the observation, shared by PTRM and Efstathiou & Balwani, that "converging too well creates the bad basin trap". Within the Deep Thinking lineage, this can be read as an internal branching of directions.
+
+### Concurrent Work on Test-Time Stochastic Exploration
+
+You et al. [@you2025paralleltts] in October 2025 explored parallel test-time scaling for latent reasoning models with a combination of Monte Carlo Dropout, Additive Gaussian Noise, and a Latent Reward Model (LRM). PTRM's contribution is that **by reusing TRM's Q head as the verifier, it removes the need to train a separate LRM**. Wang et al. [@wang2026gts] on the Gaussian Thought Sampler (GTS) go in the opposite direction, sophisticating the sampler by learning the noise distribution through policy optimization. **PTRM (training-free) and GTS (learned)** can be contrasted along the training-free / learned axis of test-time noise injection.
+
+In the lineage of mechanistic interpretation, Blayney et al. [@blayney2026loopedmech] probed looped language models and found that each iteration converges to a separate fixed point, which runs in parallel as a language-model version of PTRM's trajectory mode analysis. Bae et al. [@bae2025mor] on Mixture of Recursions (MoR) also sits next door as a recursive depth controller.
+
+## Limits and Contributions in This Book
+
+Section 7 / Conclusion of the PTRM paper acknowledges three limits. First, the validation is mainly on grid-shaped puzzles, and the gains on ARC-AGI-2 and Heyawake are small. Second, the verification quality of the Q head is the ceiling, and on Maze-Hard a large gap between best-Q@$K$ and pass@$K$ remains. Third, the development of a stronger verifier is left as future work.
+
+In the context of this book, PTRM's contributions can be organized into three points.
+
+First, it **diagnoses "the deterministic limit of TRM" at the mechanism level**. The vocabulary of three trajectory modes on the PCA plot, and of bad / good basins, becomes a shared language for talking about the behavior of the TRM lineage. Combined with Efstathiou & Balwani's attractor hypothesis, the dynamics interpretation of small recursive models like HRM / TRM enters a new stage.
+
+Second, it **establishes width scaling as a test-time compute axis**. Depth is sequential, cannot be parallelized, and from some point onward starts to incur overfitting cost (consistent with TRM's Table 4, which already showed that "deeper is not always better"). Width does not have these properties, and gains rise linearly with the number of rollouts. As one answer to the question of "what to invest test-time compute in", width scaling is now an established option.
+
+Third, the finding that **a trained Q head can be reused as a verifier** is an observation that carries over to recursive reasoning models in general. A head trained as an auxiliary loss for adaptive halting actually works as a trajectory selector. If future RRM designs build in the assumption that halting signals can "double as a verifier", the efficiency of test-time scaling becomes easier to raise.
+
+In this book, as a continuation of the "subtraction" performed in [TRM](trm.qmd) (peeling off the HRM story through ablations), PTRM presents the **minimal intervention that puts a trained TRM directly to work at test time**. Lined up with [GRAM](gram.qmd) (the "addition" that introduces stochasticity at training time) and [LDT](ldt.qmd) (which "sounds up" the latent via lattice projection), the three form a series in which the intervention onto the TRM core grows progressively larger. PTRM is the lightest of the three, and by changing only the test-time procedure while keeping the checkpoint untouched, it sits at the position that first asks "what is gained and what is lost" relative to the heavier modifications that follow.

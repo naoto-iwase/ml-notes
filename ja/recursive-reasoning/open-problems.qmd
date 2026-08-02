@@ -1,0 +1,211 @@
+---
+pagetitle: "未解決問題"
+---
+
+# 未解決問題
+
+本書の各章末に散在した「限界」「future work」を、本章で 1 か所に集約する。各問題は (i) 現状の到達点、(ii) 何が分かっていないか、(iii) 取り掛かるなら、の 3 部で整理する。(iii) は筆者の見立てで、論文の主張ではない。
+
+問題群は取り掛かりやすさの順に並べる。P1–P3 は既存手法の組み合わせで取り組める実証研究、P4–P6 はベンチマーク・理論・機構解釈、P7–P9 は分野全体を相対化する大きな問いである。通読は想定せず、興味のある問題だけ拾えばよい。
+
+## P1. CoT と recurrent depth の adaptive allocation
+
+### 現状の到達点
+
+[Depth vs Token Scaling](scaling.qmd) で扱ったように、test-time compute を支払う媒体には sequential token scaling（CoT）と recurrent depth scaling（HRM/TRM 系）の 2 系統がある。**理論的には等価な計算能力を持ち得る**が、コスト構造の非対称性が大きく、適材適所が task によって変わる。
+
+CoT 側では Snell ら [@snell2024computeoptimal] の compute-optimal selection、Chen ら [@chen2024llmcalls] の adaptive LM call 最適化、Brown ら [@brown2024monkeys] の log-linear coverage という形で「同じモデルで予算配分を変える」研究が進んでいる。Recurrent depth 側では HRM の Q-head（ACT）、PTRM の width axis $K$、GRAM の $N \times K$ の 2 軸 scaling が、それぞれ単独の予算軸を扱っている。
+
+### 何が分かっていないか
+
+**両系統を統一的に扱う adaptive allocation 理論が存在しない**。具体的に未解明な問いを 3 つ挙げる。
+
+1. **どんな task で recurrent depth が CoT より compute-optimal か**: Sudoku/Maze/ARC では recurrent depth が CoT を桁単位で上回るが、open-domain では CoT が圧倒する。この境界がどこにあるかを task の structural property（state space の有限性、verifier の有無、解の一意性など）から予測する理論はまだ無い。
+2. **同一モデルで両 paradigm を切り替えられるか**: Coconut [@hao2024coconut] が連続補間の最初の系として登場したが、test-time に CoT と continuous thought を adaptive に切り替える設計はまだ確立していない。
+3. **3 軸 Pareto（depth × width × token-length）の最適配分**: PTRM の width $K$、HRM の depth $D$、CoT の token length $L$ という 3 つの test-time 軸を同時に動かしたときの Pareto frontier がどう描かれるかは未解決。
+
+### 取り掛かるなら
+
+最も入門しやすいのは「同じ task で CoT scaling と recurrent depth scaling を等価 FLOPs で比較する」実証研究である。Sudoku-Extreme・Maze-Hard・PPBench は recursive reasoning が圧倒する task として、HLE・FrontierMath・GSM8k は CoT が圧倒する task として、それぞれ片側の極を提供する。中間の task（algorithmic reasoning, knowledge graph reasoning, planning など）で両 paradigm が交差する点を探すと、何が境界の予測子になるかが見えてくる可能性がある。
+
+理論側に踏み込むなら、Merrill & Sabharwal の circuit complexity の解析を recursive depth と CoT の双方に適用し、「等価な深さを実現する token 数と recursion 数の比」を明示的に書き下す方向が一つの取り掛かりになる。
+
+## P2. Verifier の天井問題
+
+### 現状の到達点
+
+PTRM の最大の発見は、TRM の Q head が **事実上の verifier として機能する** ことであった ([PTRM](ptrm.qmd) 章 Section 3.2）。Adaptive halting 用の補助損失で訓練した head が、trajectory selector としても oracle に近い性能（pass@$K$ との gap が 1 pp 以内）を出す。GRAM は同じ問題を Latent Process Reward Model（LPRM）として明示的に学習する形で解いた。
+
+### 何が分かっていないか
+
+PTRM 論文 Section 5.4 が示した最大の限界は、**Maze-Hard で best-Q@$K$ が pass@$K$ から約 10 pp 離れる**事実である。Sudoku のような「verifier が容易な」task では Q head は oracle に近いが、Maze や ARC-AGI のような「verifier が難しい」task では gap が広がる。これは PTRM の Q head が adaptive halting 用に訓練された副産物であるという出自に由来し、より強力な verifier を別途学習・接続できれば現在取りこぼしている rollout も拾える、というのが論文 future work の中心である。
+
+具体的な未解決問題:
+
+1. **Verifier 専用の post-training**: TRM の checkpoint に対して Q head のみを margin loss / DPO 系の損失で再訓練すると、Maze-Hard の gap は埋まるか。
+2. **Process reward model の latent 版**: GRAM の LPRM が step ごとの正答率を回帰する設計だが、step ごとの「進歩」を別の信号で測る方向（GFlowNet 的な flow consistency、attractor 距離など）はまだ試みられていない。
+3. **Verifier の transfer**: Sudoku で訓練した Q head が Maze や ARC でも機能するか。task 横断的な verifier はそもそも存在するのか。
+
+### 取り掛かるなら
+
+最小コストの実験として、**TRM の checkpoint を固定して Q head のみを post-train する**設計が考えられる。Maze-Hard の train split で「正解 trajectory vs 不正解 trajectory」のペアを生成し、margin loss で Q head を fine-tune するだけで、PTRM 論文の best-Q@$K$ が改善するかが測れる。改善が見えれば「PTRM の Q head は under-trained だっただけ」という診断になり、見えなければ「Maze の verifier 困難さは本質的」という診断になる。どちらに転んでも知見が得られる実験である。
+
+## P3. Latent state の解釈性
+
+### 現状の到達点
+
+HRM/TRM/PTRM/GRAM の latent state は不透明な hidden state として扱われるため、CoT の自然言語 trace に適用できる解釈手法（attribution graph、prefix consensus、faithfulness 分析）が直接使えない。
+
+ただし 2026 年に入り、機構解釈の進展が始まった。Efstathiou & Balwani [@efstathiou2026attractor] は sparse autoencoder で TRM の latent dynamics を probe し、「再帰 reasoning は incremental refinement ではなく **attractor landscape 上の adaptive search**」と結論した。Ren & Liu [@ren2026hrmguessing] は HRM の fixed-point property が成立していないことを示し、HRM の解き口が「reasoning より guessing」に近いことを機構レベルで指摘した。Blayney ら [@blayney2026loopedmech] は looped language model の各 iteration が個別の固定点に収束することを probe で確認した。LDT は別経路として、latent state を lattice に投影することで解釈可能性を獲得した ([LDT](ldt.qmd) 章）。
+
+### 何が分かっていないか
+
+1. **Probe 手法の標準化**: sparse autoencoder、linear probing、causal intervention などの解釈手法のうち、recursive reasoning model に最適なものは何か。Coconut 系 ([Latent reasoning の分類](latent-reasoning.qmd) グループ B）と HRM/TRM 系（グループ E）では probe の prefer する手法が違うかもしれない。
+2. **Failure mode の自動検出**: Efstathiou & Balwani は failure trajectory が高損失の安定 attractor で plateau することを示したが、これを推論時に **オンラインで** 検出して abstain させる手法は未確立。LDT の CLS head と組み合わせると有効かもしれない。
+3. **可視化と human-in-the-loop**: HRM/TRM の latent を人間が読める形に変換する手法は皆無に近い。LDT の lattice projection は「人間が読める」方向の一つの解だが、他のアプローチ（concept bottleneck、natural language description of latent）も検討の余地がある。
+
+### 取り掛かるなら
+
+[PTRM](ptrm.qmd) 章で扱った PCA 上の 3 trajectory mode 分析は、誰でも再現できる最小手段である。TRM checkpoint に対して PPBench validation set を流し、PCA で principal plane を取って trajectory を可視化するだけで、quick success / delayed success / failure の 3 モードが見える。この上で sparse autoencoder を載せ、各 trajectory mode で活性化する feature を抽出すれば、Efstathiou & Balwani の機構解析を独立に追体験できる。
+
+## P4. Open-domain への汎化
+
+### 現状の到達点
+
+HRM/TRM/PTRM/GRAM/LDT が圧倒する Sudoku、Maze、ARC-AGI はいずれも **格子状の構造化出力**を持つタスクで、訓練時に puzzle 識別子（puzzle_id embedding）による条件付けが許される。それ以外の reasoning タスク（HLE、FrontierMath、open-domain QA、code generation など）への汎化は未検証である（[概要](overview.qmd) 章「観察 5」）。
+
+PTRM は PPBench という別の verifier 装備の benchmark で 91.2 % を出すことを示しているが、これも依然「閉じた constraint satisfaction」のスコープで、open-domain との橋渡しは未解決のまま残されている。
+
+### 何が分かっていないか
+
+1. **Recursive reasoning の汎用化条件**: 「閉じた CSP で効く」というのは何が必要条件で、何が十分条件か。output space の有限性？ Verifier の存在？ Solution の一意性？ これらの条件を緩めたとき性能はどう劣化するか。
+2. **言語の組み込み**: Geiping ら [@geiping2025recurrentdepth] は LLM 規模で recurrent depth を実現したが、HRM/TRM のような task-specific small net とは設計思想が真逆である。両者を統合した「言語入出力を持つ recursive reasoning」は未開拓。
+3. **NVARC 路線の体系化**: ARC Prize 2025 で 24 % を取った NVARC は TRM components を合成データ + TTT と統合した ensemble だった ([ARC-AGI](arc-agi.qmd) 章）。この「素の TRM を ensemble に組み込んでパワーアップする」パターンが他の open-domain task にも適用できるかは未確認。
+
+### 取り掛かるなら
+
+「TRM の出力を text token に変換する」最小の橋渡しから始めるのが現実的。たとえば数学の文章題で、問題を grid 状の状態として表現し、TRM で状態遷移を学習し、最終状態を text にデコードする pipeline は構築可能。GSM8k のような単純な数学問題から始めて、どこで recursive reasoning の優位性が消えるかを観察するのが、open-domain への境界線を引く実証研究になる。
+
+::: {.callout-note}
+## 著者の見立て: ARC-AGI-3 はむしろ TRM 系に向く可能性
+
+TRM 著者の Jolicoeur-Martineau 氏は ARC Prize 2025 公式インタビュー [@jolicoeur2025interview] で、ARC-AGI-3 の構造（each level has its own simple state to solve、turn-based）は ARC-AGI-2 の multi-example でコンテキスト長が膨らむ問題を回避するため、TRM の素直な適用が効きやすい可能性に言及している。本書 [ARC-AGI と小規模モデル](arc-agi.qmd) 章は ARC-AGI-3 を「全 Frontier LLM が 1 % 未満に押し戻されている」難所として扱うが、recursive reasoning 系には別の見通しがあり得る点として記録しておく。
+:::
+
+## P5. Lattice / abstract domain の自動設計
+
+### 現状の到達点
+
+LDT は Sudoku の grid powerset lattice という abstract domain を**人手で設計**している。Snowflake Sudoku への拡張も手作業で、$15 \times 10$ covering グリッドと per-cell `in-puzzle` mask channel を追加することで対応した ([LDT](ldt.qmd) 章）。これは abstract interpretation 一般の問題でもあり、program analysis の文脈でも domain 設計は人手依存の部分が大きい。
+
+### 何が分かっていないか
+
+1. **自動 abstract domain 発見**: 任意の task から適切な abstract domain を自動構築する手法は無い。Singh ラボの SAIL [@gu2026sail] が LLM を abstract interpreter 学習に使う方向で動いているが、abstract domain 自体の発見はまだ手付かず。
+2. **Soundness と precision のトレードオフ**: Grid powerset lattice はセル間相関を捨てる粗い抽象だが、それでも soundness を保てる。より精密な abstract domain（例: pair-wise correlation を保持）に置き換えたとき、性能はどう変わるか。lattice の coarse-to-fine な階層を学習で動かす方向は未試行。
+3. **Non-grid task への移植**: ARC-AGI のように「task ごとに rule を少数の demonstration から推論する」設定では LDT が naive port で 36 % に plateau する（[LDT](ldt.qmd) 章 Section 6）。「解の集合」ではなく「解を生成する program の集合」の上に abstract domain を構築する必要があるが、これは LDT 論文自身も future work として置いている。
+
+### 取り掛かるなら
+
+LDT の lattice encoding（9×9×9 のバイナリ sigmoid + CLS head）を別の constraint satisfaction task に移植する作業が、最も技術的に直接的な研究になる。N-Queens、Graph Coloring、SAT instance などの「答えの集合が候補集合の積として表現できる」task は LDT の枠組みが直接適用できる。性能が出なかった場合に「何が足りないか」を分析することが、abstract domain 設計の手がかりになる。
+
+## P6. Train compute → Test compute substitution の理論
+
+### 現状の到達点
+
+LDT が示した最も独自な観察は、**訓練 compute を増やすほど推論時の forward 数が桁単位で減少する** という train/test trade-off である（[LDT](ldt.qmd) 章「Train / test compute トレードオフの意味」節、[Depth vs Token Scaling](scaling.qmd) 末尾）。これは CoT scaling や HRM/TRM の recurrent depth scaling とは方向が逆で、「sound deduction を学習できれば、追加の学習が推論時 search を肩代わりして消す方向に働く」という新しい trade-off を示している。
+
+### 何が分かっていないか
+
+1. **どんな条件で substitution が成立するか**: LDT が sound deduction を学習できたのは abstract interpretation の lattice projection が soundness を保証するためだった。Soundness 保証を持たない HRM/TRM では同じ trade-off が成立するのか、それとも単に test-time search を消すための soundness が必要条件なのか。
+2. **Pareto frontier の定式化**: Train compute と test compute の 2 軸 Pareto curve は経験的にしか描かれていない。理論的には「正しい deduction を学習するコスト」と「学習されない場合の search コスト」のトレードオフは情報理論的に書ける可能性があり、その定式化は未着手。
+3. **CoT 側との対応物**: CoT scaling では「より長く考える」ことで test-time compute を伸ばす。LDT 流の train→test substitution が CoT 側にも持ち込めるか（つまり「学習段階で reasoning を deeper に内在化して短い trace で済ませる」という戦略）は未検討。
+
+### 取り掛かるなら
+
+LDT の train/test trade-off 実験を、abstract domain なしで再現できるか試すのが直接的な検証になる。TRM や Sotaku の checkpoint で、訓練 step 数を変えながら test-time の有効 recursion 数を測る。同じ trade-off が見えるならば soundness は必要条件ではない、見えないならば soundness が本質、という診断になる。
+
+## P7. Recursive reasoning の scaling 法則
+
+### 現状の到達点
+
+CoT 側では Hoffmann ら（Chinchilla）以来の scaling laws が確立しており、parameter 数・データ量・FLOP の関係から最適配分が決まる。Recursive reasoning 側では Geiping ら [@geiping2025recurrentdepth] が 3.5B parameters の recurrent depth model で test-time recurrence を増やすと perplexity が単調改善することを示したが、これは「単一モデルの test-time scaling」であって「parameter 数を変えた scaling law」ではない。
+
+HRM/TRM の論文値（7M, 27M, 800K parameters）は離散的な点でしかなく、recursive reasoning model の表現力が parameter 数に対してどうスケールするかは未解明である。
+
+### 何が分かっていないか
+
+1. **Parameter 数のスケーリング**: TRM の 7M を 700M に増やすと Sudoku-Extreme は何 % になるか。100M, 1B でどう変わるか。logarithmic な scaling law が成立するか、それとも plateau するか。
+2. **データ規模のスケーリング**: HRM/TRM は 1000 サンプルで訓練する設計だが、10000、100000 サンプルで訓練すると性能はどう変わるか。Augmentation を増やすのと根本的にどう違うのか。
+3. **Recursion 深さの最適配分**: TRM Table 4 は「深いほど良いは成立しない」ことを示したが、これは parameter 数を固定した条件下の観察である。$P$ parameters で $D$ 深さの recursive model が一定 FLOPs を消費するとき、$(P, D)$ の最適比はどう決まるか。
+
+### 取り掛かるなら
+
+scaling 実験は本質的にコストがかかる（複数の parameter スケールで訓練を回す必要がある）が、Sudoku-Extreme なら 1 設定あたり L40S 1 枚 × 1 日で済むため、5 点（800K, 7M, 27M, 100M, 300M）の scaling sweep は H100 4 枚 × 2 週間程度で実行可能。これは大規模 LLM の scaling 実験より 2 桁安く、academic lab でも手が届くスケールである。
+
+## P8. ベンチマーク選定バイアス
+
+### 現状の到達点
+
+[概要](overview.qmd) の「観察 5」と [ARC-AGI と小規模モデル](arc-agi.qmd) で扱ったように、HRM/TRM/PTRM/GRAM/LDT が圧倒する Sudoku、Maze、ARC-AGI はいずれも格子状の構造化出力タスクで、Frontier LLM の弱点を突くベンチマークとして選定されている。「小規模モデルが Frontier LLM を上回る」というナラティブを評価するには、ベンチマーク選定バイアスを明示的に意識する必要がある。
+
+### 何が分かっていないか
+
+1. **Negative result の publication**: 仮に HRM/TRM が解けない reasoning task（たとえば semantic parsing、commonsense reasoning、tool use）が大量に存在しても、negative result としては論文にならない。recursive reasoning model が解ける task と解けない task の分布を網羅的に測ったレポートは存在しない。
+2. **Frontier LLM が弱い設定の他例**: Sudoku、Maze、ARC-AGI 以外に Frontier LLM が苦戦する閉じた reasoning task は何か。PPBench [@waugh2026ppbench] は 1 つの追加例だが、これも閉じた CSP の集合体である。
+3. **「LLM が苦戦するから recursive reasoning の貢献」という論証の脆弱性**: 大規模 LLM が 1 年後に同じ task を 90 % で解けるようになる可能性は常にある（ARC-AGI-1 が 9 か月で 8 % → 85 % まで進んだのが端的な例）。Recursive reasoning の貢献を「LLM との差分」で測る論証は時間に対して脆弱で、より構造的な評価軸が必要。
+
+### 取り掛かるなら
+
+新規 benchmark の提案は容易ではないが、既存の reasoning benchmark を「recursive reasoning 系が解けるか」の観点で分類するメタ研究は始めやすい。BIG-Bench Hard、GSM8k、MATH、HumanEval、HumanEval-X、HLE、FrontierMath、Chess endgame、Game-of-24 などの 10–20 個の reasoning benchmark に TRM / GRAM / LDT を適用し、どこで性能が崩壊するかを記述する論文は、まだ書かれていない（と思われる）が研究界全体にとって価値が高い。
+
+## P9. Recursive reasoning は AGI への道か
+
+### 現状の到達点
+
+François Chollet は ARC-AGI を「現在の LLM は memorize と recombine に留まり、program synthesis としての learning が欠落している」という主張のベンチマーク化として位置付け、HRM/TRM のような **deep learning-guided program synthesis** が AGI への道だと示唆している ([ARC-AGI](arc-agi.qmd) 章「Chollet と Ndea」節）。
+
+一方で 2026 年中盤のコミュニティ主流見解は「ARC ≒ AGI」を **否定** する方向に収束している。ARC-AGI-1 の saturate は test-time compute と TTT の勝利であり本質的一般化ではない、HRM 解析が示すように small-net 路線も「ARC の inductive bias をうまく突くトリック」の側面が強い、というのが論拠である。
+
+### 何が分かっていないか
+
+1. **「skill acquisition efficiency」の operationalization**: Chollet の定義する「人間のような skill acquisition efficiency」を測る具体的な metric は ARC-AGI 以外に存在しない。Recursive reasoning model の skill acquisition efficiency を測る別の方法は未提案。
+2. **Program synthesis としての recursive reasoning**: HRM/TRM の latent space 内の反復は「program 空間の探索」と読めるか。LDT の lattice projection は確かに symbolic な制約を扱うが、これを「program synthesis」と呼ぶことが妥当かは未解決。
+3. **「AGI への道」と「特定 task の SOTA」の区別**: 本書執筆時点で recursive reasoning は確実に「特定 task の SOTA」の道として価値がある（Sudoku 100 %、PPBench 91 % など）。これが「AGI への道」に発展するかは、技術的問題というより哲学的・実証的問題として残っている。
+
+### 取り掛かるなら
+
+この問題は具体的に研究を起こす取り掛かりが最も難しいが、**「recursive reasoning が解ける task の分布を記述する」P8 の延長**として、「人間の skill acquisition と recursive reasoning model の skill acquisition の差を測る」実験設計を考えることは可能である。たとえば「100 個の demonstration から rule を学ぶ task」を multiple domain で構築し、人間と recursive reasoning model のどちらが少ない demonstration から rule を抽出できるかを測る meta-study などが考えられる。
+
+## 研究計画のスターターキット
+
+本章の問題群を「どのリソースで何ヶ月あれば何ができるか」の観点で整理する。以下は筆者の私的な目安で、実際のスコープは研究者の習熟度と環境で変わる。
+
+### 1 か月 + L40S 1 枚レベル
+
+- P2 (Verifier 強化): TRM checkpoint の Q head を margin loss で post-train して Maze-Hard の gap が埋まるか測る
+- P3 (Latent state 解釈性): PTRM 流の PCA 解析を別の puzzle task で再現
+- P6 (Train→Test substitution): TRM の train step と test recursion 数の trade-off を測る
+
+### 3 か月 + H100 4 枚レベル
+
+- P1 (Adaptive allocation): CoT scaling と recurrent depth scaling の等価 FLOPs 比較
+- P4 (Open-domain): TRM を GSM8k のような数学文章題に橋渡しする pipeline 構築
+- P5 (Lattice 自動設計): LDT の lattice encoding を N-Queens / Graph Coloring に移植
+- GRAM の再現（公式コード未公開）
+
+### 半年〜1 年 + cloud GPU 予算ありレベル
+
+- P7 (Scaling law): 800K → 1B の parameter scaling sweep
+- P8 (Benchmark バイアス): 10–20 個の reasoning benchmark への TRM / GRAM / LDT 横断適用
+- 新規アーキテクチャの提案（PTRM/GRAM/LDT の限界に対する独自解）
+
+### より長期 / 共同研究レベル
+
+- P9 (AGI への道): Skill acquisition efficiency の operationalization
+- 統一的な adaptive allocation 理論
+
+## 章のまとめ
+
+9 つの未解決問題を取り掛かりやすさの順に並べた。前半 P1–P3 は既存実装の組み合わせで取り組める実証研究、中盤 P4–P6 はベンチマーク・理論・機構解釈、後半 P7–P9 は分野全体を相対化する長期的な問いである。
+
+recursive reasoning 系列は arXiv で半年単位で動きが速い。本章で「未解決」と書いた問題のいくつかは本書執筆後の数か月で解決されている可能性があるため、研究を始める前に arXiv で関連語（recursive reasoning, latent reasoning, looped transformer, depth recurrence, abstract interpretation neural）を検索することを推奨する。

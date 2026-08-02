@@ -1,0 +1,32 @@
+---
+title: "ML Notes（日本語）"
+description: "機械学習・深層学習に関するまとめ（日本語版）"
+author:
+  name: "Naoto Iwase"
+  url: "https://iwase.dev"
+listing:
+  id: listing-ja-page
+  contents:
+    - "*/index.qmd"
+  sort: "date desc"
+  type: default
+  categories: true
+  sort-ui: false
+  filter-ui: true
+  fields: [image, date, title, categories, description]
+  page-size: 25
+  feed:
+    title: "ML Notes — 日本語"
+    type: full
+---
+
+```{=html}
+<a href="/ja/index.xml" class="rss-link"><i class="bi bi-rss"></i> RSSで購読</a>
+```
+
+::: {#listing-ja-page}
+:::
+
+```{=html}
+<script src="/js/listing.js"></script>
+```

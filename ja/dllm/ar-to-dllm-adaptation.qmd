@@ -1,0 +1,250 @@
+---
+pagetitle: "AR-to-DLM Adaptation"
+---
+
+# AR-to-DLM Adaptation
+
+Diffusion Language Model（DLM）を構築する素朴な道筋は、masked diffusion の目的関数で**ゼロから事前学習する**ことである。LLaDA-8B [@nie2025llada] はその代表例で、2.3T トークン規模の独自事前学習を経て自己回帰（Autoregressive, AR）LLM に匹敵する性能を達成した。一方で、既に世の中には十分に学習された AR LLM の重みが大量に存在しており、それらを**そのまま流用して DLM に変換できないか**という発想は自然である。本章ではこの **adaptation アプローチ**——具体的には DiffuGPT / DiffuLLaMA [@gong2025diffullama]、Dream-7B [@ye2025dream7b]、そして画像拡散モデルを起点とする D-DiT [@li2025ddit] / Muddit [@shi2025muddit]——を、survey 論文 [@li2025dlmsurvey] の §3.1 をなぞる形で整理する。
+
+## なぜ adaptation か
+
+LLaDA-8B が示した最大のメッセージは、masked DLM が AR LLM と同程度の scaling 則に従って性能を伸ばす、という事実そのものであった。`[MASK]` を段階的に埋めるという生成方式の選択は、もはや「実験的なオモチャ」ではなく、production scale で AR と並ぶ choice として成立する。ただし LLaDA はそれを示すために 2T を超えるトークンを使い、AR LLM の事前学習に匹敵する計算コストを払っている。
+
+ここに「もう既に AR LLM の事前学習で 1T〜10T トークン規模の言語知識が蒸留されているのだから、その重みを再利用してから masked diffusion 目的関数に切り替えればよいのではないか」という発想が立ち上がる。AR LLM と masked DLM のアーキテクチャは、Transformer backbone を共有しており、本質的に異なるのは次の 3 点しかない。
+
+- **Attention mask**: AR は下三角（causal）、DLM は全方向（bidirectional）
+- **訓練タスク**: AR は next-token prediction、DLM は masked-token prediction
+- **生成手順**: AR は左→右の逐次、DLM は信頼度ベースの並列 unmask
+
+これら 3 点のうち、損失関数とサンプリング戦略は推論時の話で、訓練時に切り替えれば済む。残る causal → bidirectional の attention mask 変更も、Transformer の forward pass の `mask` パラメータを差し替えるだけの実装変更にすぎない。つまり**意外と単純なルートで AR の事前学習知識を masked DLM に持ち越せる**のではないか、というのが adaptation 路線の出発点である。
+
+実際 DiffuLLaMA は LLaMA2-7B [@gong2025diffullama] を出発点に、わずか元の事前学習量の 2% 程度に相当するトークンの追加訓練で、AR baseline を超える性能を達成した。Dream-7B は Qwen2.5-7B からの bootstrap で LLaDA-8B / LLaMA3-8B を多くのベンチマークで上回ると報告されている。**from-scratch と比べて 1〜2 桁安いコストで実用的な DLM が得られる**点が adaptation の最大の利点である。
+
+## 目的関数は MDLM のそれをそのまま使う
+
+adaptation 路線の重要な観察として、**損失関数は from-scratch の MDLM [@sahoo2024mdlm] からそのまま借用する**点を最初に押さえておきたい。すなわち、
+
+$$
+\mathcal{L}_\text{adapt} = \mathbb{E}_{t \sim \mathcal{U}(0,1)} \, \mathbb{E}_{x_t \sim q(\cdot \mid x_0)} \left[ \frac{1}{t} \sum_{i=1}^{L} \mathbf{1}[x_t^i = \texttt{[MASK]}] \, \log p_\theta(x_0^i \mid x_t) \right]
+$$ {#eq-adapt-loss}
+
+(@eq-adapt-loss) は MDLM の目的関数 [@sahoo2024mdlm] と完全に同一であり、adaptation 系のすべてのモデル（DiffuGPT / DiffuLLaMA / Dream-7B）は事実上この式を共有している。違いは初期化の重みと追加訓練に使う token 数のみである。
+
+詳細は MDLM 章を参照されたいが、簡単にまとめると次のようになる。
+
+- 連続時間 $t \in [0,1]$ で各トークンを独立に確率 $t$ で `[MASK]` に吸収する forward 過程
+- 変分下限（Evidence Lower Bound, ELBO）から $1/t$ 重み付き masked cross-entropy への簡略化
+- 推論時は離散時刻でのサンプリングループ、または confidence-based unmask
+
+[→ 詳細:]{.detail-link} [MDLM: Masked Diffusion Language Models](mdlm.qmd)
+
+この事実は重要で、**adaptation は「新しい目的関数を発明する」研究ではなく、「既存の目的関数を別の初期化条件で適用する」研究**である。理論的な新規性は乏しいが、実用上のインパクトは大きい——既に存在する AR LLM の生態系（Llama / Qwen / GPT 等）から自然に DLM を派生させられる道を開いたからである。
+
+## AR から DLM への切替で必要な実装変更
+
+adaptation の中身は驚くほど単純である。具体的に必要な変更は以下の 5 点に集約される。
+
+1. **Attention mask の切替**: 下三角 causal mask を取り除き、`[MASK]` 位置も含む全位置から全位置への bidirectional attention に切り替える。Transformer 実装上は `attention_mask` を `None`（または全位置 1）に変えるだけの場合が多い
+2. **回転位置エンコーディング（Rotary Position Embedding, RoPE）の双方向化**: 多くの近代 LLM は RoPE を使う。AR では「過去」しか見ないので RoPE は左方向だけが意味を持っていたが、DLM では左右両方向の相対位置を活かす形で適用する必要がある。RoPE の式自体は変えなくてよいが、attention の組み合わせ方として双方向で意味を持つようになる
+3. **Token embedding と vocabulary の継承**: 既存の token embedding と LM head はそのまま流用する。AR LLM が学習済みの「単語の表現」は masked DLM でもそのまま機能する
+4. **`[MASK]` トークンの追加と embedding 初期化**: AR LLM の語彙には通常 `[MASK]` が存在しないため、語彙に新たに `[MASK]` を加え、その embedding を初期化する。DiffuLLaMA では既存の特殊トークン（`<unk>` 等）の embedding 平均で初期化するなどの工夫がある
+5. **Loss を masked positions に限定**: cross-entropy は `[MASK]` 位置でのみ計算し、観測位置の loss はゼロにする。AR の next-token loss と異なり、全位置で loss が立つわけではない
+
+実装的にはこれだけである。Transformer backbone そのもの（attention 機構、MLP、LayerNorm、residual connection）には**一切の変更を加えない**。これが「AR LLM の重みをそのまま流用できる」根拠になっている。
+
+::: {.callout-note}
+## causal mask の名残
+
+逆に言えば、Transformer の層の中には「causal mask で訓練されたときに最適化されたパラメータ」が残っており、それを bidirectional で動かしているわけである。理論的には post-hoc な mask 変更が学習済み表現にどう影響するかは自明ではないが、実証的には少量の追加訓練で十分馴染むことが分かっている。詳しくは本章末尾の open challenges を参照。
+:::
+
+## DiffuGPT / DiffuLLaMA: AR LLM からの直接適応
+
+DiffuGPT と DiffuLLaMA [@gong2025diffullama] は、AR LLM を出発点に masked DLM を作る現代的な adaptation 研究の基準点である。ICLR 2025 で発表された本論文は、127M（GPT-2 サイズ）から 7B（LLaMA2 サイズ）までのスケールで adaptation の有効性を体系的に検証した。
+
+### 訓練レシピ
+
+論文の主要な貢献は **「驚くほど少ない追加訓練 token で DLM 化できる」** という事実の実証である。具体的には次のような訓練量で adaptation が完了する。
+
+| モデル | 起源モデル | パラメータ規模 | 追加訓練 token 数 | 元事前学習比 |
+|--------|-----------|---------------|------------------|-------------|
+| DiffuGPT-S | GPT-2 (124M) | 124M | 約 6B token | ~2% |
+| DiffuGPT-M | GPT-2-medium (355M) | 355M | 約 6B token | ~2% |
+| DiffuLLaMA | LLaMA2-7B | 7B | 約 65B token | ~3% |
+
+: DiffuGPT / DiffuLLaMA の adaptation 規模 {#tbl-diffullama-budget}
+
+ここで重要なのは「元の AR LLM が事前学習に使った token 数の 2-3% 程度」で十分という点である。LLaMA2-7B の事前学習は 2T tokens（2 × 10^12）規模であり、その 3% は約 60-70B tokens に相当する。これは LLaDA が 2.3T tokens で from-scratch 訓練したのと比べると **30 倍以上のコスト削減**になる。
+
+### 実験で示された事実
+
+論文の実験は、adaptation 後のモデルが次のような性質を持つことを示している。
+
+- **数学的推論（GSM8K）で AR baseline を上回る**: DiffuLLaMA-7B は GSM8K で LLaMA2-7B 自身を超えるスコアを記録。Chain-of-Thought スタイルの推論が masked diffusion でも機能することを示唆
+- **In-context learning が継承される**: AR で獲得した few-shot 能力が DLM 化後も維持される
+- **GPT-2 ベースの DiffuGPT は perplexity でも改善**: 古典的な言語モデリング指標でも、bidirectional attention により AR を上回る場合がある
+
+::: {.callout-tip}
+## BERT のスケール版という見方
+DiffuLLaMA を「BERT の自然なスケールアップ」とみなすと理解しやすい。BERT は 110M-340M スケールの bidirectional masked language model だったが、生成能力は限定的だった。MDLM の枠組みは BERT の masked LM 訓練に「マスク率を $t \in [0,1]$ で動かす」連続時間一般化を加えたものであり、これを 7B スケールまで持ち上げれば自然に生成モデルとして機能する、という主張が DiffuLLaMA で実証されたとも読める。
+:::
+
+### 双方向性は「後から獲得」できる
+
+DiffuLLaMA の哲学的に最も重要な観察は、**AR で causal mask 下で学習された Transformer が、後から bidirectional attention で fine-tune するだけで実用的な双方向モデルになる**という点である。「過去だけを見て次を予測する」訓練と「全体を見て欠損を埋める」訓練は表面的には別物に見えるが、Transformer の内部表現はそれほど方向に縛られていない、ということを示唆する。
+
+これは AR LLM と DLM の関係を考える上での示唆に富む。両者のアーキテクチャ上の差はゼロに近く、訓練目的関数の差も損失計算位置と attention mask だけの違い。**「AR と DLM は同じ Transformer の異なる訓練レジーム」**という統一的な視点が見えてくる。
+
+## Dream-7B: Qwen2.5 からの bootstrap
+
+Dream-7B [@ye2025dream7b] は、HKU NLP（香港大学 NLP グループ）が 2025 年に公開したモデルで、Qwen2.5-7B [@li2025dlmsurvey] を出発点として bootstrap した masked DLM である。LLaDA-8B / LLaMA3-8B を多くのベンチマークで上回ると報告されている。
+
+### 訓練設定
+
+公開ブログによれば次のような設定である。
+
+- **起源モデル**: Qwen2.5-7B（事前学習済み AR LLM、18T tokens で訓練済み）
+- **追加訓練 token 数**: 約 580B tokens
+- **目的関数**: MDLM と同等の masked cross-entropy
+- **比較対象**: LLaDA-8B は 2.3T tokens で from-scratch、LLaMA3-8B は 15T tokens で AR から訓練済み
+
+580B tokens という規模は Qwen2.5-7B の事前学習量の約 3% に相当し、DiffuLLaMA の比率と整合する。**「元 AR LLM の事前学習量の 2-3% で DLM 化が完了する」**という経験則は、現在 adaptation 研究の事実上の標準になりつつある。
+
+### 公開の特殊性
+
+Dream-7B について注意すべき点は、**現時点で公式論文が存在せず、HKU NLP のブログ記事のみが情報源**であることだ [@ye2025dream7b]。本格的なベンチマーク表や ablation は公開されているが、査読付き論文としての検証は経ていない。本書では adaptation 系の重要なデータ点として扱うが、引用に際しては「ブログでの報告」であることを念頭に置くべきである。
+
+::: {.callout-warning}
+## 情報源としての注意
+
+Dream-7B は HKU NLP のブログ記事のみで公開されており、論文は未発表である [@ye2025dream7b]。ベンチマーク数値は著者主張に基づくものであり、第三者による独立検証は限定的である点に留意したい。
+:::
+
+## 画像拡散モデルからの適応: D-DiT と Muddit
+
+adaptation の方向性は AR LLM 起点だけではない。**画像拡散モデルを起点として、テキスト分岐を追加することでマルチモーダル DLM を作る**という逆方向の試みも存在する。代表例が D-DiT [@li2025ddit] と Muddit [@shi2025muddit] である。
+
+### 出発点としての MM-DiT
+
+両者の起点は、Stable Diffusion 3（SD3）系の MM-DiT（Multi-Modal Diffusion Transformer）アーキテクチャである。MM-DiT は CLIP 系のテキストエンコーダの出力と画像 latent を joint attention で結ぶ設計で、**テキスト条件付き画像生成のために訓練された段階で、内部表現は強くテキストとアライメントしている**。すなわち、画像生成のためだけに訓練されたモデルであっても、その latent には「言語と整合する構造」がすでに焼き付いているという観察が出発点になる。
+
+### D-DiT: SD3 への DLM 分岐の追加
+
+D-DiT [@li2025ddit] は SD3 の MM-DiT backbone を起点に、テキスト側に **離散 masked diffusion** を加えることで、画像生成と言語モデリングを単一モデルで扱う unified diffusion を構築する。
+
+- **画像側**: 既存の連続 latent diffusion をそのまま継承
+- **テキスト側**: トークン列に対して masked diffusion を新規に追加
+- **共有 backbone**: MM-DiT のテキスト/画像 joint attention をそのまま利用
+
+これにより、画像→テキスト（image captioning）とテキスト→画像（text-to-image）の両方が、単一の denoising loop で実現される。CVPR 2025 で発表された。
+
+### Muddit: Meissonic からの軽量化派生
+
+Muddit [@shi2025muddit] は Meissonic（discrete masked image generation の系譜のモデル）を出発点に、**軽量な text decoder を後付けで追加**することで multimodal DLM を構築する。Meissonic はすでに画像側で discrete masked diffusion を採用しているため、text 側を加えるのが構造的に自然である。
+
+D-DiT が SD3 のように連続側起点なのに対し、Muddit はもともと離散側だった画像モデルからの派生であり、**画像とテキストで「同じ離散 masked diffusion」の枠組みを共有**できる利点がある。
+
+### Vision-Language Model（VLM）とは逆向きの試み
+
+これらの研究は概念的には興味深い位置にある。**VLM の標準的アプローチは「事前学習済み LLM の知識を借りて、それに視覚を後付けする」**（例: LLaVA、Qwen2-VL 等）方向だが、D-DiT / Muddit は**逆に「事前学習済み画像拡散モデルの知識を借りて、それに言語を後付けする」**方向に進んでいる。MM-DiT が text-image joint training を経て獲得した内部表現が「言語アライメント済み」であるからこそ可能な発想であり、画像拡散モデルが内部に持つ言語表現の質を間接的に示している。
+
+[→ 詳細:]{.detail-link} [連続拡散と離散拡散の橋渡し](continuous-discrete-bridge.qmd)
+
+## 比較表
+
+ここまで紹介した adaptation 系モデルを 1 つの表にまとめる。
+
+| モデル | 起源モデル | 追加 token 数 | 規模 | 主な結果 | 損失関数 |
+|--------|-----------|--------------|------|---------|---------|
+| DiffuGPT-S | GPT-2 (124M) | ~6B | 124M | LM perplexity 改善 | MDLM ELBO |
+| DiffuGPT-M | GPT-2-medium | ~6B | 355M | LM perplexity 改善 | MDLM ELBO |
+| DiffuLLaMA | LLaMA2-7B | ~65B | 7B | GSM8K で AR 超え | MDLM ELBO |
+| Dream-7B | Qwen2.5-7B | ~580B | 7B | LLaDA-8B / LLaMA3-8B 超え | MDLM ELBO |
+| D-DiT | SD3 MM-DiT | 非公開 | ~2B | 画像 + テキストの unified diffusion | MDLM ELBO（テキスト側）+ DDPM（画像側） |
+| Muddit | Meissonic | 非公開 | ~1B | 軽量 multimodal DLM | 離散 masked diffusion 共有 |
+| (参照) LLaDA-8B | from-scratch | 2.3T | 8B | AR と同等 scaling | MDLM ELBO |
+
+: adaptation 系 DLM の比較 {#tbl-adaptation}
+
+@tbl-adaptation を読むときの観点は次の通り。
+
+- **追加 token 数の桁の違い**: adaptation 系は from-scratch（LLaDA）の 1/30 〜 1/300 の追加トークンで完了する
+- **起源モデルの選択**: AR LLM 起点（DiffuGPT 系）と画像拡散起点（D-DiT 系）の 2 系統
+- **損失関数の共通性**: テキスト側はすべて MDLM ELBO を共有しており、新規の数学的貢献は無い
+
+## From-scratch との比較
+
+adaptation 路線と from-scratch 路線（LLaDA-8B 等）はトレードオフの関係にある。両者の特徴を整理する。
+
+### Adaptation の利点
+
+- **訓練コスト**: 元 AR LLM の事前学習量の 2-3% 程度で済む。GPU-hour ベースで 1〜2 桁の削減
+- **推論時の AR との互換性**: 重みのフォーマットを揃えれば、AR LLM 用に作られた推論ハードウェア / インフラ（vLLM, TGI 等）の知見を流用しやすい
+- **AR 生態系との接続**: Llama / Qwen / GPT 系のすべてのバリエーション（base / chat / code 特化等）から、対応する DLM 版を派生させられる
+- **段階的な実証**: 同じ起源モデルから AR baseline と DLM 版を直接比較できるため、ablation 研究の対照群が明確
+
+### Adaptation の欠点
+
+- **AR の induced bias**: causal mask 下で最適化された表現を bidirectional に転用するため、ある種の偏りが残る可能性がある。例えば「過去だけを見て予測する」レジームで形成された注意パターンは、双方向 attention で完全には剥がれない
+- **双方向性の最適化が limited**: from-scratch では最初から bidirectional 表現が訓練されるが、adaptation では「後付け」となるため、表現空間の最適化が中途半端になる懸念がある
+- **語彙の制約**: 元 AR LLM の vocabulary をそのまま使うため、`[MASK]` を後から追加する必要があり、その embedding は他のトークンと同程度には十分に訓練されない
+
+### データ効率: DLM は data-hungry だが compute-rich
+
+survey 論文 [@li2025dlmsurvey] §3.1 末尾は、最新の scaling 則研究を引用しつつ DLM の特性を次のようにまとめている。
+
+- DLM は AR と比べて **substantially more data-hungry**（同じ計算量でより多くのデータを必要とする）
+- 一方で、**multi-epoch training に強い**（同じデータを何周も使ってもパフォーマンスが伸び続ける）
+
+この性質は adaptation 系では特に効くと推察される。**AR LLM の事前学習データそのものを再利用する形で multi-epoch を回せる**ため、追加データを集める必要がない。DiffuLLaMA や Dream-7B が「元事前学習量の 2-3%」という小さなコストで成立する裏には、おそらくこの multi-epoch 耐性が効いている。
+
+::: {.callout-note}
+## compute vs data のトレードオフ
+
+AR LLM の最適 Chinchilla 則では「計算量とデータ量を 1:1 でスケール」が推奨される。DLM ではこの比が異なる可能性があり、「同じデータをより長く回す」方が optimal になり得る。詳細は survey [@li2025dlmsurvey] §3.1 を参照。
+:::
+
+[→ 詳細:]{.detail-link} [DLLM 分野の現状と未解決問題](open-problems.qmd)
+
+## 関連: LLaDA-MoE の系譜
+
+adaptation とは独立の流れだが、関連する大規模 DLM 研究として **LLaDA-MoE** [@zhu2025lladamoe] にも触れておく。これは LLaDA の系譜に Mixture-of-Experts（MoE）アーキテクチャを組み入れたもので、20T tokens 規模の訓練を行い Qwen2.5-3B-Instruct と同等の性能を達成したと報告されている。
+
+MoE は AR LLM の世界では Mixtral / DeepSeek / Qwen2-MoE 等で確立した手法であり、その DLM 版が登場したのは「DLM が AR の手法を取り込むフェーズに入った」ことの象徴と言える。adaptation 路線が「事前学習済み AR の重み」を流用するのに対し、MoE 路線は「AR で発展したアーキテクチャ選択」を移植する。両者は補完的で、いずれ「MoE backbone を AR で事前学習してから DLM に adapt する」というハイブリッド戦略が現れても不思議ではない。
+
+## Open challenges
+
+adaptation アプローチには未解決の問題がいくつか残されている。
+
+### 最適な追加訓練量はどれくらいか
+
+DiffuLLaMA は元事前学習量の ~2%、Dream-7B は ~3%、と経験的に近い値に落ち着いているが、**最適値が原理的にどう決まるかは不明**である。追加トークンを増やせば DLM としての性能は伸びるが、ある時点で from-scratch と区別がつかなくなる（つまり AR の事前学習の利点が薄れる）。「**初期化 vs 追加訓練のトレードオフ曲線**」を体系的に描いた研究はまだない。
+
+### Attention mask の段階移行
+
+現状の adaptation は「ある時点で causal mask から bidirectional mask に切り替える」one-shot 移行を採用している。しかし**段階的な遷移**（例: 訓練初期は causal に近く、徐々に bidirectional の重みを増やす）を採用すれば、AR の induced bias をより滑らかに抜けるかもしれない。この種の curriculum は提案されているが体系的な評価は限定的である。
+
+### AR 重みの induced bias の定量化
+
+adaptation で得られた DLM が、from-scratch DLM と比べて「どの能力で劣り、どの能力で勝るか」を定量的に切り分けた研究は乏しい。直感的には、
+
+- **AR 起点の DLM**: 左→右の流れに沿った生成（自然言語の文章生成、コード生成）に強い可能性
+- **From-scratch DLM**: 順序に依存しない infilling や対称的な穴埋めに強い可能性
+
+という仮説が立つが、これを支持する明確な実証は未だ存在しない。
+
+### 長文性能の差
+
+adaptation で得られた DLM の**長文性能**は、from-scratch の DLM と比べてどうか。AR LLM は長文での自己回帰生成に強いが、その性質が DLM 化後も保持されるかは検証が必要である。関連して LongLLaDA [@liu2025longllada] や UltraLLaDA [@he2025ultrallada] のような長文 DLM 研究との比較も今後の課題である。
+
+### 多言語性・コード等の特化能力の継承
+
+AR LLM が事前学習で獲得した多言語能力や、コード生成能力（GitHub データで訓練済み）が DLM 化後にどれだけ残るかも興味深い問題である。DiffuCoder [@gong2025diffucoder] はこの方向の探索の 1 つだが、adaptation 起点での体系的研究はこれからの領域である。
+
+## まとめ
+
+AR LLM からの adaptation は、DLM 研究において **コスト効率と実用性を担保する重要な路線**である。LLaDA-8B が「from-scratch でも DLM が成立する」ことを証明した一方で、DiffuLLaMA / Dream-7B は「**既存の AR LLM 資産を低コストで DLM 化できる**」ことを実証した。両者は対立というより補完関係にあり、現実の DLM 開発は「**from-scratch で生まれた研究的成果と、adaptation で生まれた実用モデルが並走する**」フェーズに入っている。
+
+D-DiT / Muddit のような画像拡散モデル起点の adaptation は、VLM とは逆方向に「画像側の事前学習資産を言語側に流す」という独特の視点を提供しており、multimodal DLM の独自の進化路線として注目に値する。
+
+理論的には新規の目的関数は導入されていない——すべて MDLM の masked cross-entropy 損失の上に立っている——が、**実装と訓練戦略のレベルで DLM の実用化を一気に押し進めた**点で、これらの研究は現代 DLM の発展における重要なマイルストーンである。

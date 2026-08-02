@@ -1,0 +1,228 @@
+---
+pagetitle: "Long-Context Training"
+---
+
+# Long-Context Training
+
+## Overview
+
+Long-Context Training is the final training stage, conducted as **Stage 3** of Molmo2. While using the same data mix as Stage 2 Supervised Fine-Tuning (SFT), it **significantly extends the context length** to improve the ability to handle long videos and large numbers of images.
+
+This stage is conducted for only a **short duration** due to its high overhead, but it plays a crucial role in improving performance on long-video understanding tasks.
+
+## Objectives
+
+The main objectives of Long-Context Training are as follows:
+
+1. **Long video understanding**: Improving the ability to process videos longer than 10 minutes
+2. **Processing large numbers of frames**: Handling more frames simultaneously to capture temporal context more accurately
+3. **Complex multimodal inputs**: Handling inputs with high token counts, such as videos with subtitles or multiple image sets
+
+## Comparison with Stage 2
+
+The main differences between Stage 2 (SFT) and Stage 3 (Long-Context Training) are shown in the table below.
+
+| Parameter | Stage 2 (SFT) | Stage 3 (Long-Context) | Change |
+|:---------|:--------------|:----------------------|:------|
+| **Sequence length** | 16,384 | 36,864 | +225% |
+| **Max frames (F)** | 128 | 384 | +300% |
+| **Training steps** | 30,000 | 2,000 | -93% |
+| **Batch size** | 128 | 128 | No change |
+| **Data mix** | SFT data mix | SFT data mix (same) | No change |
+| **Parallelism** | Standard Data Parallelism | Context Parallelism (CP) | Added |
+
+::: {.callout-note}
+
+## Why Only a Short Duration?
+
+Long-Context Training is conducted for only **2,000 steps** (6.7% compared to Stage 2's 30,000 steps). This is because the **computational overhead from Context Parallelism is significant**.
+
+Specifically:
+
+- Each example is processed by a **group of 8 GPUs**
+- Distributed processing of the vision encoder and attentional pooling is required
+- Communication costs are higher than standard training
+
+Even with short-duration training, **significant improvement** on long-video benchmarks has been confirmed (Table 11).
+
+:::
+
+## Context Length Extension
+
+In Stage 3, the maximum sequence length is extended from **16,384 to 36,864** tokens. This enables handling inputs such as the following.
+
+**Examples**:
+
+- **Long videos**: 384 frames (approximately 3 minutes 12 seconds at 2 fps) + subtitles
+- **Complex QA**: Multi-turn conversations about videos with long captions (averaging 924 words)
+- **Multi-image**: Large numbers of high-resolution images (including multiple crops)
+
+With the extended sequence length, the packing algorithm can pack up to **36,864 tokens** and **384 image crops** into a single packed sequence (compared to the Stage 2 limit of 16,384 tokens and 128 crops).
+
+## Frame Count Extension
+
+In Stage 3, the maximum video frame count is extended from **F = 128 to F = 384**.
+
+**Sampling Method**:
+
+- **Sampling rate**: 2 fps (unchanged)
+- **Maximum duration**: 384 / 2 = **192 seconds** (approximately 3 minutes 12 seconds)
+- **Frame selection**: If video length exceeds F/S, F frames are uniformly sampled
+- **Last frame**: Always included (because video players display the last frame)
+
+| Stage | Max Frames (F) | Max Video Duration (2 fps) |
+|:------|:-----------------:|:-----------------|
+| Stage 2 (SFT) | 128 | 64 seconds (approx. 1 min) |
+| Stage 3 (Long-Context) | 384 | 192 seconds (approx. 3 min) |
+
+::: {.callout-tip}
+
+## Frame Count Extension at Inference
+
+While F = 384 during training, it is possible to process even more frames at inference time using **test-time scaling**.
+
+According to the ablation study (Table 13), Molmo2-8B (after SFT, before Long-Context Training) achieved its best performance with **224 frames** at inference. After Long-Context Training, it may be possible to process even more frames.
+
+:::
+
+![Long-video benchmark average as a function of the maximum number of input frames at inference, for Molmo2-8B after Stage 2 SFT (no Long-Context Training). Performance rises from 128 frames, peaks near **224 frames**, and then degrades, dropping sharply by 512 frames. This motivates the Stage 3 design choice of training with F = 384 -- it pushes the operating range to longer videos without exceeding the regime where the model is still beneficial. Source: [@clark2026molmo2]](images/molmo2-long-video-frames.png){#fig-long-video-frames width=75%}
+
+## Context Parallelism (CP)
+
+Long-Context Training uses **Context Parallelism (CP)** for the LLM. This is a parallelization method that distributes long sequences across multiple GPUs for processing.
+
+### Ulysses Attention
+
+Molmo2 adopts **Ulysses attention** [@jacobs2023ulysses] as its CP implementation.
+
+**Reasons for Selection**:
+
+- **Flexibility of all-gather operations**: Can handle the **custom attention masks** used by Molmo2's packing and message tree system
+- **Communication efficiency**: Splits along the sequence dimension and all-gathers only the necessary information
+
+**Operation Overview**:
+
+1. Each GPU processes **a portion of the sequence**
+2. During attention computation, information from other GPUs is aggregated via **all-gather**
+3. Custom attention masks (for packing and message trees) are applied
+
+::: {.callout-note}
+
+## Context Parallelism Configuration
+
+- **CP group size**: 8 GPUs
+- **Processing per example**: A group of 8 GPUs processes one example
+- **Scope**: LLM only (vision encoder is distributed separately)
+
+Reference: [56] Ulysses attention
+
+:::
+
+### Vision Encoder Distribution
+
+Context Parallelism is applied to the LLM, but the **vision encoder** and **attentional pooling** are also distributed across the CP group.
+
+**Distribution Method**:
+
+1. **Frame splitting**: 384 frames are split across 8 GPUs (each GPU processes 48 frames)
+2. **Vision encoder**: Each GPU runs the Vision Transformer on its assigned frames
+3. **Attentional pooling**: Vision tokens are pooled for the LLM (3x3 pooling for video)
+4. **Aggregation**: Pooled visual tokens are combined as input to the LLM
+
+**Benefits**:
+
+- **Reduced memory footprint**: Vision encoder activations are distributed across multiple GPUs
+- **Computational efficiency**: Frame processing is parallelized
+
+::: {.callout-important}
+
+## Importance of Vision Encoder Distribution
+
+The paper states that distributing the vision encoder and attentional pooling was **highly effective** in reducing the model's memory footprint.
+
+Processing 384 frames requires enormous memory (each frame is split into multiple patches and processed by the ViT), making training infeasible without this distribution.
+
+:::
+
+## Training Details
+
+### Hyperparameters
+
+Long-Context Training uses the **same hyperparameters** as Stage 2 (SFT) (Table 12).
+
+- **Optimizer**: AdamW
+- **Learning rate**: Cosine decay (decaying to 10%)
+- **Warmup**: Extended warmup for both ViT and LLM
+- **Weight decay**: None
+
+### Training Time
+
+| Model | GPU Count | Wall Time | GPU Hours |
+|:------|:------:|:---------|:---------|
+| Molmo2-4B | 128 | 25.3 hours | 3,200 GPU-hr |
+| Molmo2-O-7B | 128 | 25.7 hours | 3,300 GPU-hr |
+| Molmo2-8B | 128 | 26.0 hours | 3,300 GPU-hr |
+
+**Note**: GPUs used are Nvidia H100
+
+Compared to Stage 2 (SFT), training time is approximately 40% (4B: 7.5k to 3.2k GPU-hr). This is because the number of steps is much smaller (2k vs 30k).
+
+## Ablation Results
+
+The results of the ablation study verifying the effect of Long-Context Training (Table 11) are as follows.
+
+| Setting | Short Video QA | Long Video QA | Molmo2 Video Cap. | Image QA |
+|:-----|:------------:|:------------:|:----------------:|:-------:|
+| **With Long-Context SFT** | 69.4 | **67.4** | 39.9 | 80.6 |
+| **Without Long-Context SFT** | 69.6 | 64.4 | **42.3** | 80.5 |
+
+**Observations**:
+
+- **Long Video QA**: +3.0 point improvement (67.4 vs 64.4)
+- **Short Video QA**: Almost no change (-0.2 points)
+- **Video Captioning**: -2.4 point decrease (42.3 to 39.9)
+- **Image QA**: Almost no change (+0.1 points)
+
+::: {.callout-warning}
+
+## Trade-Off: Decline in Captioning Performance
+
+Long-Context Training improves long-video understanding but causes a slight decrease in **video captioning** performance.
+
+This suggests that in the process of adapting to longer contexts, the ability to generate short outputs (captions) may be slightly compromised. In practice, it is important to choose whether to apply Long-Context Training depending on the task.
+
+:::
+
+## Challenges with Long Videos
+
+Although Molmo2 improved long-video understanding through Long-Context Training, it does not match the best open-weight models (such as Eagle2.5-8B).
+
+**Main Causes**:
+
+1. **Lack of open data**: Annotated data for long videos (over 10 minutes) is extremely scarce
+2. **Computational limitations**: Training with ultra-long contexts is computationally expensive and difficult to conduct at scale
+3. **Training duration constraints**: With only 2,000 steps, the acquisition of capabilities specialized for long videos is limited
+
+::: {.callout-note}
+
+## Future Outlook
+
+The paper states that the **lack of open-source long-video data** is the primary bottleneck.
+
+If the community builds annotated data for long videos and enables longer Long-Context Training, Molmo2's long-video understanding capabilities could improve further.
+
+:::
+
+## Summary
+
+Long-Context Training (Stage 3), as the final stage of the Molmo2 training pipeline, achieves the following:
+
+1. **Context length**: 16,384 to 36,864 (+125%)
+2. **Frame count**: F = 128 to F = 384 (+200%)
+3. **Parallelism**: Uses Context Parallelism (Ulysses attention) with processing across 8 GPUs
+4. **Vision encoder distribution**: Distributes frame processing across the CP group to reduce memory
+5. **Short-duration training**: Only 2,000 steps (due to overhead)
+
+Even with this short training duration, a **+3.0 point** performance improvement was achieved on Long Video QA, demonstrating the effectiveness of Long-Context Training. However, a trade-off of slight decline in video captioning performance was also observed.
+
+In the future, if open-source long-video data becomes more abundant and longer Long-Context Training becomes feasible, Molmo2's long-video understanding capabilities could improve further.

@@ -1,0 +1,136 @@
+---
+pagetitle: "概要"
+---
+
+# Reliable Reasoning: 信頼できる LLM reasoning のための信号と手法
+
+## 2025–2026 年に何が起きているのか
+
+DeepSeek-R1 と OpenAI o1 が公開されてからの 18 ヶ月で、大規模言語モデル（Large Language Model, LLM）の reasoning 研究は新しい局面に入った。「効く手法を増やす段階」から「効くと思われていたものを疑い直す段階」への転換である。本書はその過程を ICLR 2026 / ACL 2026 / ICML 2026 / NeurIPS 2025 / EMNLP 2025 等の主要研究 190 本超で追跡し、**訓練側の信号**・**推論 (inference) 側の信号**・**構造的アプローチ** の 3 軸で整理する。
+
+この期間に最も頻繁に独立な複数チームから再発見されたのは、reasoning 研究の前提自体を揺さぶる種類の知見だった。
+
+- **Reinforcement Learning with Verifiable Rewards (RLVR) は新たな reasoning 能力を獲得していないらしい**。Yue ら [@yue2025rlbeyond] が「pass@K では base が逆転する」と報告して以降、Path Not Taken [@yang2025pathnot]、Sparse but Critical [@gao2026sparse]、Post-Training as Reweighting [@li2025consistency]、Reshaping Reasoning [@chen2025reshaping]、GRPO Transcend [@ni2025grpotranscend] が独立に「base 分布内の再重み付け」という同じ結論に到達した
+- **Reasoning model の confidence は構造的に壊れている**。Decoupling Reasoning [@ma2026decoupling]、Taming Overconfidence [@leng2024taming]、Reasoning about Uncertainty [@mei2025reasoningknow]、DINCO [@wang2026dinco]、Wired for Overconfidence [@zhao2026wired] が、それぞれ独立に RLHF/RLVR 後の severe miscalibration を報告した
+- **「深く考えている」と見える trace は実は myopic である**。Extracting Search Trees [@kim2026extract] は LLM の reasoning trace から探索木を抽出し、深いノードを展開していても実際の手選択は浅い情報で決定されることを定量化した。Reasoning Horizon [@ye2026horizon] は CoT の 70–85% 以降が回答に対する因果的影響をほぼ持たないことを示した
+- **Process Reward Model (PRM) -guided 探索は素朴な Best-of-N を一貫しては超えない**。Limits of PRM-Guided [@chen2025prmlimits] と Hard2Verify [@xie2025hard2verify] は、frontier-level の問題で既存 PRM の generalization が崩れることを実証した
+
+技術的な改善は続いている。しかし「何が本当に効いているのか」を巡る基礎研究が、目に見える効率改善と少なくとも同じ強度で進んでいる。
+
+並行してもう一つ、本書を貫く observation がある。**4 つの普段は交わらない研究系統 — 訓練、推論、探索、faithfulness 検査 — が独立に同じ操作（CoT を prefix で切って何かを測る）に到達している**。詳細は後段の「横断的観察」で扱う。
+
+## 本書を貫く 3 つの問い
+
+::: {.callout-note}
+## 中心問題
+
+- **Q1. 訓練側**: RLVR は base モデルの能力を本当に拡張しているのか、それとも既存能力の re-weighting にすぎないのか
+- **Q2. 推論側**: モデルが出した reasoning trace の「正しさ」を、ground truth なしにどう推定するか
+- **Q3. 予算側**: 限られた inference compute を、長さ・本数・探索のいずれに投じるべきか
+:::
+
+これら 3 つは独立に発展してきた複数の研究系統が、2025–2026 年に急速に重なり始めている地点である。本書はその交差点を地図化する。
+
+## 9 章の射程
+
+### RLVR の理論と限界
+
+「RLVR は何をしているのか」という基礎の問いが、2025–2026 年に最大の論争に発展した。5 グループ以上が独立に「再重み付け説」に到達する一方、CoT-Pass@K [@wen2025cotpass] のような別指標は逆に「RLVR は base を真に超える」と反論する。Two-Stage Dynamic View [@yue2025twostage] による「訓練ステージと問題難易度の関数として動的に切り替わる」という和解案までを追跡する。
+
+[→ 詳細:]{.detail-link} [RLVR の理論と限界](rlvr-theory.qmd)
+
+### GRPO と Reward 設計
+
+Group Relative Policy Optimization (GRPO) はもはやベースラインで、DAPO [@yu2025dapo] / Dr. GRPO [@liu2025drgrpo] / GSPO [@zheng2025gspo] / VAPO [@yue2025vapo] のいずれかを使う前提で議論が進む。さらに大きな潮流は「policy 自身の confidence や consistency を reward に流用する」系（TTRL、Intuitor、PPPO、PRIME 等）で、これらが本書を貫く「prefix」の観察と直接結びつく。一方で Spurious Rewards [@shao2025spurious] はランダム reward でも Qwen の精度が伸びるという衝撃的結果で、新規 reward 提案に cross-model robustness の検証義務を課した。
+
+[→ 詳細:]{.detail-link} [GRPO と Reward 設計](grpo-and-reward.qmd)
+
+### Process Reward Models
+
+step ラベルの希少性が PRM 普及の最大障壁だったが、MC rollout・log-likelihood ratio・outcome から逆伝播した pseudo label・next-token 確率・completer 一致という 5 つの独立な信号源で「ラベル無し PRM」が出揃った。同時に scalar head から CoT-verbalized verifier への「生成型 PRM」化が進み、verifier 側でも test-time compute scaling が可能になった。一方で Hard2Verify [@xie2025hard2verify] のような difficulty 拡張ベンチでは既存 PRM が大幅に性能を落とし、PRM の generalization 限界が露呈している。
+
+[→ 詳細:]{.detail-link} [Process Reward Models](process-reward-model.qmd)
+
+### Self-Consistency と重み付き多数決
+
+Wang らの Self-Consistency [@wang2023selfconsistency] を起点に、2025–2026 年は (i) 重み付け（DeepConf [@fu2025deepconf]、CISC [@taubenfeld2025cisc]、CER [@razghandi2025cer]、Self-Certainty [@kang2025selfcertainty]、IEW [@sharma2025iew]）、(ii) prefix の活用（PoLR [@jindal2026polr]、Path-Consistency [@zhu2025pathconsistency]、Prefix-Confidence Scaling [@otth2025prefixconf]、ST-BoN [@wang2025stbon]、Beyond the Last Answer [@hammoud2025beyond]、Prefix Consistency [@iwase2026pc]）、(iii) 理論的支柱（加重多数決の MAP 最適性 [@kuang2025aggregation]）、(iv) adaptive sampling（BEACON [@wan2025beacon]、ReASC [@kim2026reasc]）の 4 方向に拡張された。特に prefix を活用する系は 6 グループ以上が独立に同じ操作に到達した、本書を象徴する収束事例である。
+
+[→ 詳細:]{.detail-link} [Self-Consistency と重み付き多数決](self-consistency.qmd)
+
+### Confidence と Uncertainty
+
+「モデルは自分の正しさを知っているか」を測る古典的な 3 経路（logit-based、verbalized、sampling-based）のうち、reasoning model では logit と verbalized の両方が信頼できないことが 2026 年に確定した。内部回路レベル（Wired for Overconfidence [@zhao2026wired]）、decision-theoretic（Faithful? [@wang2026faithful]）、直接比較（DINCO [@wang2026dinco]）の 3 方面から否定的証拠が揃い、sampling-based 信号への移行が事実上の標準になりつつある。
+
+[→ 詳細:]{.detail-link} [Confidence と Uncertainty](confidence-and-uncertainty.qmd)
+
+### Test-Time Compute Scaling
+
+「推論 (inference) 時に compute を投資すれば精度が上がる」という事実は確立した。問いは「上がるか」から「どこに、どう投資するか」に移った。Budget Forcing [@muennighoff2025s1] と adaptive allocation（CaTS [@zhang2026cats]、T1 [@chen2026t1]、Fractional Reasoning [@li2026fractional]）、system 側最適化（ThinKV [@kim2026thinkv]、SpecReason [@wang2025specreason]、Sleep-time Compute [@li2025sleep]）、latent reasoning（Coconut [@hao2024coconut]）、Markovian Thinker [@aghajohari2025markovian] による linear scaling 化を扱う。同時に「CoT は長すぎても短すぎても精度が下がる」という非単調性、そして数学に最適化された動作点が医療には自動転移しないというドメイン依存性 [@huang2025m1] も整理する。
+
+[→ 詳細:]{.detail-link} [Test-Time Compute Scaling](test-time-scaling.qmd)
+
+### Tree Search と MCTS
+
+AlphaMath [@chen2024alphamath] と rStar-Math [@guan2025rstarmath] の MCTS 系、AB-MCTS [@inoue2025wider] による wider/deeper の動的選択、VG-Search [@chen2025vgsearch] による「検証粒度」のスペクトラム統合、uncertainty-aware 系（UATS [@liu2026uats]、UVM [@chen2025uvm]）、verifier-free 系（SELT [@wu2025selt]、MoB [@rakhsha2025mob]）が並走する。Extracting Search Trees [@kim2026extract] が示した「LLM の深い trace は myopic decision で説明できる」という faithfulness 警鐘は本章の決定的な観察である。
+
+[→ 詳細:]{.detail-link} [Tree Search と MCTS](tree-search.qmd)
+
+### Reasoning 構造の分析
+
+集約系・confidence 系・探索系とは別の第 4 の信号軸として、CoT 自身の **構造** を読む系統が 2025–2026 年に独立に立ち上がった。Reasoning Horizon [@ye2026horizon] は trace の 70–85% 以降が因果的に空であることを介入実験で示し、FSF [@feng2025fsf] は CoT を reasoning graph に変換した上で failed-step 比率が長さや review 率より強い予測因子だと実証した。CRV [@zhao2025crv] は内部 attribution graph から step の正誤を AUROC 92 で予測し、Four Habits of STaRs [@gandhi2025fourhabits] は自己改善モデルに共通する 4 つの認知パターンを同定した。
+
+[→ 詳細:]{.detail-link} [Reasoning 構造の分析](reasoning-structure.qmd)
+
+### Reasoning in Diffusion LLMs
+
+LLaDA [@nie2025llada]、Dream [@ye2025dream]、MMaDA [@chen2025mmada] 等の masked diffusion LLM では、AR とは異なる「denoising trajectory」が時間軸になる。Prophet [@kim2025prophet] は同一 trajectory 上で answer が早期に確定する現象を、Time-is-a-Feature [@park2025timefeature] は同一 trajectory の denoising step 間 majority vote を、I-DLM [@wang2026idlm] は単一 forward 内 self-verify を提案する。AR で発展した prefix-based aggregation が DLLM では denoising step を時間軸として再発明されている。
+
+[→ 詳細:]{.detail-link} [Reasoning in Diffusion LLMs](diffusion-llm.qmd)
+
+## 横断的観察
+
+各章は独立して読めるが、章をまたいで観察される複数のパターンが本書の主張の核心である。
+
+### 観察 1: 4 つの研究系統が「prefix」という共通の操作に独立収束した
+
+訓練、推論、探索、faithfulness 検査という普段は交わらない 4 つの系統が、いずれも「CoT を prefix で切って何かを測る」という同一の操作に到達している。
+
+- **訓練側**: prefix の segment ごとに正解確率を probe して reward に流す GRPO-VPS [@wang2025grpovps]、正解確率の単調増加性を reward に組み込む PACR [@yoon2025pacr]、prefix を MDP 状態として価値推定する PPPO [@sun2025pppo]
+- **推論側**: 短い prefix を起点に後続を多サンプリングして集約する PoLR [@jindal2026polr]、Prefix-Confidence Scaling [@otth2025prefixconf]、Path-Consistency [@zhu2025pathconsistency]、ST-BoN [@wang2025stbon]、Beyond the Last Answer [@hammoud2025beyond]、Prefix Consistency [@iwase2026pc]
+- **探索側**: prefix を node として展開する MCTS 系（AlphaMath [@chen2024alphamath]、rStar-Math [@guan2025rstarmath]）
+- **Faithfulness 側**: CoT を切断して回答させて忠実性を測る Early Answering [@lanham2023faithfulness]（再生成系と物理的に同操作・目的は逆）
+
+互いを参照しないまま同じ操作に収束する事象が同時多発したことは、**prefix が reasoning における load-bearing な単位である** ことを強く示唆する。本書を通底するもっとも重要な観察である。
+
+### 観察 2: 「効くと思われていた信号」への系統的疑念
+
+2025–2026 年に独立に積み上がった 4 つの否定的発見が、reasoning 研究の前提を揺さぶっている。
+
+- **RLVR の能力拡張仮説への疑念**: Yue ら [@yue2025rlbeyond] 以来 5 グループが独立に「再重み付け」を確認（[RLVR の理論と限界](rlvr-theory.qmd)）
+- **Verbalized confidence への疑念**: 5 グループが独立に severe miscalibration を確認（[Confidence と Uncertainty](confidence-and-uncertainty.qmd)）
+- **Faithfulness への疑念**: 深い trace と実際の意思決定の乖離（[Tree Search と MCTS](tree-search.qmd)、[Reasoning 構造の分析](reasoning-structure.qmd)）
+- **PRM-guided 探索への疑念**: 素朴な BoN を一貫しては超えない（[Process Reward Models](process-reward-model.qmd)）
+
+これらを駆動力として、verifier-free 系、uncertainty-aware 系、sampling-based confidence、reasoning 構造分析といった「新しい信号源」探索が爆発的に増えた。観察 1 の収束現象は、この探索が独立に同じ着地点に向かっていることの裏返しでもある。
+
+### 観察 3: ICLR 2026 で adaptive allocation が default になった
+
+固定 K の self-consistency や固定 token budget の CoT は古いベースラインへ後退した。問題の難しさや confidence に応じて動的に compute を割り当てる手法 — CaTS [@zhang2026cats]、T1 [@chen2026t1]、Fractional Reasoning [@li2026fractional]、ThinKV [@kim2026thinkv]、DiffAdapt [@kim2026diffadapt]、BEACON [@wan2025beacon]、ReASC [@kim2026reasc] — が ICLR 2026 で同時採択された事実は、コミュニティが「適応的に決める」を default に切り替えたことを象徴する。
+
+### 観察 4: trace の「構造」を読む新しい信号軸
+
+集約系（複数 trace の合意）、confidence 系（単一 trace の token 分布）、test-time compute（trace 本数や長さの予算配分）に並ぶ第 4 の信号軸として、CoT 自身の **構造** を読む系統が独立に立ち上がった。Reasoning Horizon の causal vacuum、FSF の failed-step 比率、CRV の内部 attribution graph、Four Habits の認知パターンは、いずれも「単一の長さや confidence では捉えられない構造的特徴に予測信号がある」という直観に基づく。集約系（外部観測）と内部観測の統合は 2026 年の open question である。
+
+### 観察 5: RLVR 後の miscalibration が Q1 と Q2 を接続する
+
+RLHF / RLVR で訓練した reasoning model が confidence calibration を失う事象は、Q1（RLVR は何を学んでいるか）と Q2（推論時の信号として何が効くか）を直接接続する。再重み付けが既存の高確率分布を更に sharpen するという RLVR 像（観察 2 の前段）と、SFT 段階で 0.7–0.9 帯に幅広く分布していた confidence が RLHF 後に 1.0 近傍へ collapse する観察 [@leng2024taming] が、同じ "sharpening" 現象の 2 つの表れとして読める可能性がある。両者を mechanistic に接続する研究はまだ少なく、open question である。
+
+### 観察 6: ドメインで reasoning の性質が変わる
+
+本書で扱う inference-time 手法の多くは数学に暗黙の最適化を受けている。医療など knowledge-intensive ドメインでは KI（Knowledge Index）–accuracy 相関が InfoGain–accuracy を支配し（Knowledge or Reasoning? [@wu2025knowledge]）、最適 thinking budget は ~4K トークンで頭打ちになる（m1 [@huang2025m1]）。budget forcing は正しい初期回答を覆す方向に働きうる。数学で得られた知見の transferability は章を跨いだ open question である。
+
+## 本書の使い方
+
+- **特定領域だけを知りたい**: 該当章に直接飛んでよい。すべて独立して読めるよう設計した
+- **領域全体を俯瞰したい**: [Self-Consistency と重み付き多数決](self-consistency.qmd)（推論側の信号空間）と [RLVR の理論と限界](rlvr-theory.qmd)（訓練側の信号空間）から読むのが最短経路
+- **新規研究を始める**: 上記 6 観察のいずれかをエントリポイントにすると複数領域を横断する切り口が得やすい。特に観察 1（prefix 収束）と観察 2（系統的疑念）は本書の最強の主張で、各章を読むときに背景に置くと章をまたいだパターンが見えやすい

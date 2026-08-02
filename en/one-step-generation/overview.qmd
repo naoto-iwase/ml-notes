@@ -1,0 +1,126 @@
+---
+pagetitle: "Overview"
+---
+
+# One-Step Generation: The Frontier of Single-Step Generative Models
+
+## Overview
+
+Diffusion Models and Flow Matching [@lipman2023flowmatching] have achieved high-quality image generation, but they carry a fundamental limitation: inference requires tens to hundreds of iterative computation steps. This computational cost has made real-time applications and deployment on edge devices difficult.
+
+From 2025 to 2026, **methods that achieve high-quality generation in a single step (1-NFE, Number of Function Evaluations)** have been rapidly advancing. This series curates four papers [@geng2025meanflow; @shaul2025transition; @zhou2025tvm; @deng2026drifting] driving this field in chronological order, tracing the technical evolution from extensions of Flow Matching to entirely new paradigms.
+
+**Common themes**:
+
+- Eliminating dependence on distillation and pretrained models, enabling training from scratch
+- Formulations accompanied by theoretical guarantees (e.g., upper bounds on Wasserstein distance)
+- Quantitative evaluation via Fréchet Inception Distance (FID) scores on ImageNet 256x256
+
+## Overview of Methods
+
+![Differential conditions used by the three Flow-Matching-based methods covered in this book. Flow Matching learns the instantaneous velocity $u(x_t, t)$ at the start time; MeanFlow differentiates the displacement map with respect to the start time $t$; TVM differentiates with respect to the terminal time $s$ and matches it to the velocity at $x_s$. Drifting Models depart from this framework entirely. Source: [@zhou2025tvm]](images/tvm-teaser.png){#fig-overview-tvm-teaser}
+
+@fig-overview-tvm-teaser visualizes how MeanFlow and TVM both generalize Flow Matching's displacement map but apply differentiation in opposite time directions. The lineage of methods covered in this book proceeds as follows: Flow Matching is the baseline; MeanFlow (May 2025) and TVM (November 2025) build on it from opposite differentiation directions; Transition Matching (June 2025) develops a discrete-time Markov reformulation; and Drifting Models (February 2026) abandons the framework entirely by moving iteration from inference to training. @fig-overview-flow summarizes this lineage.
+
+```{mermaid}
+%%| label: fig-overview-flow
+%%| fig-cap: "Lineage of one-step generative models covered in this book. Starting from Flow Matching as the baseline, three methods develop in parallel, and Drifting Models establishes a new paradigm. See @tbl-fid-comparison for quantitative comparison."
+
+flowchart TB
+    FM["Flow Matching<br/>(Baseline)"]
+    MF["MeanFlow (2025)"]
+    TM["Transition Matching (2025)"]
+    TVM["Terminal Velocity Matching (2025)"]
+    DM["Drifting Models (2026)"]
+
+    FM --> MF
+    FM --> TM
+    FM --> TVM
+    MF --> DM
+    TVM --> DM
+```
+
+## Positioning of Each Paper
+
+### 1. MeanFlow (May 2025)
+
+While Flow Matching learns an "instantaneous velocity," MeanFlow [@geng2025meanflow] introduces a new quantity: the **"average velocity."** The average velocity is displacement divided by a time interval, enabling direct sample generation in a single step.
+
+**Core idea**: An identity called the MeanFlow Identity connects the relationship between the average velocity and the instantaneous velocity. This relationship enables training without explicitly computing integrals.
+
+**Results**: Achieved FID 3.43 (1-NFE) on ImageNet 256x256. This was the best performance at the time for training from scratch without distillation or pretraining.
+
+[→ Details:]{.detail-link} [MeanFlow](mean-flow.qmd)
+
+### 2. Transition Matching (June 2025)
+
+Transition Matching [@shaul2025transition] is a framework that unifies diffusion models, Flow Matching, and autoregressive models as **discrete-time Markov transitions**. It proposes three variants (DTM (Difference Transition Matching), ARTM (Autoregressive TM), FHTM (Full History TM)), each exploring a different design space.
+
+**Core idea**: The generative process is formulated as a sequence of stochastic transition kernels, with each transition matched independently. This enables flexible designs that differ from deterministic Flow Matching.
+
+**Results**: DTM achieves a 7x speedup over Flow Matching (128 to 16 forward passes) while surpassing it in image quality and prompt alignment. FHTM is the first fully causal model to outperform Flow Matching.
+
+[→ Details:]{.detail-link} [Transition Matching](transition-matching.qmd)
+
+### 3. Terminal Velocity Matching (November 2025)
+
+This method [@zhou2025tvm] generalizes Flow Matching by regularizing the velocity field at the **terminal time** of trajectories. While MeanFlow differentiates with respect to the start time, TVM differentiates with respect to the terminal time, obtaining stronger theoretical guarantees.
+
+**Core idea**: By imposing a differential condition at the terminal time of the displacement map, an explicit upper bound on the 2-Wasserstein distance is derived. In practice, architectural modifications to ensure Lipschitz continuity (RMSNorm, QK-normalization) are key.
+
+**Results**: Achieved FID 3.29 (1-NFE) and FID 1.99 (4-NFE) on ImageNet 256x256. At 4-NFE, it surpassed the performance of 500-NFE diffusion models.
+
+[→ Details:]{.detail-link} [Terminal Velocity Matching](terminal-velocity-matching.qmd)
+
+### 4. Generative Modeling via Drifting (February 2026)
+
+An entirely new paradigm by Kaiming He et al. [@deng2026drifting]. While conventional methods perform iterative "pushforward" at inference time, Drifting Models **evolve the pushforward distribution during training**. At inference time, only a single forward pass is required.
+
+**Core idea**: A vector field called the "Drifting Field" attracts generated samples toward the data distribution while repelling them from other generated samples. Through anti-symmetry, the distribution naturally reaches equilibrium when it matches the target.
+
+**Results**: Achieved FID 1.54 (latent space) / FID 1.61 (pixel space) on ImageNet 256x256. This established a new state of the art (SOTA) for 1-NFE generation.
+
+[→ Details:]{.detail-link} [Drifting Models](drifting-models.qmd)
+
+## Performance Comparison
+
+| Method | Date | 1-NFE FID | 4-NFE FID | No Distillation | Key Feature |
+|------|------|-----------|-----------|---------|------|
+| Diffusion Transformer (DiT) (FM) | 2023 | - | - | - | Baseline (250-NFE: 2.27) |
+| MeanFlow | 2025-05 | 3.43 | - | Yes | Average velocity, from-scratch training |
+| TVM | 2025-11 | 3.29 | 1.99 | Yes | Terminal regularization, W2 upper bound |
+| Drifting | 2026-02 | **1.54** | - | Yes | New paradigm, distribution evolution during training |
+
+: FID score comparison on ImageNet 256x256. Lower is better. Transition Matching is evaluated on a different dataset (Shutterstock 350M) and therefore not included in direct comparison. {#tbl-fid-comparison}
+
+## Technical Background
+
+### Flow Matching Basics
+
+Flow Matching learns a continuous transformation from a noise distribution $p_0$ to a data distribution $p_1$. A velocity field $v(z_t, t)$ at time $t \in [0, 1]$ is approximated by a neural network, and sampling is performed by solving an ordinary differential equation (ODE):
+
+$$
+\frac{dz_t}{dt} = v_\theta(z_t, t)
+$$
+
+At sampling time, starting from $z_1 \sim p_1$ (noise), the ODE is solved in the reverse direction to obtain $z_0$ (data). More steps yield higher accuracy, but at greater computational cost.
+
+### Challenges of One-Step Generation
+
+One-step generation is equivalent to approximating the entire ODE trajectory with a single neural network evaluation. This inherently involves the following challenges:
+
+- **Trajectory curvature**: Non-linear trajectories are difficult to approximate in one step
+- **Mode collapse**: Maintaining diversity while preserving high quality is challenging
+- **Consistency**: Consistency across different scales must be guaranteed
+
+Each paper in this series addresses these challenges with its own unique approach.
+
+## Future Prospects
+
+The rapid evolution of one-step generative models suggests the following directions:
+
+- **Real-time applications**: Extension to video generation and interactive image editing
+- **Robotics**: Drifting Models have already demonstrated effectiveness as an alternative to Diffusion Policy
+- **Multimodal integration**: Transition Matching's FHTM enables integration with LLM architectures
+- **Theoretical understanding**: A unified understanding of the theoretical relationships among these methods
+

@@ -1,0 +1,370 @@
+---
+pagetitle: "Recent Discrete DLMs"
+---
+
+# Recent Discrete DLMs
+
+D3PM（Discrete Denoising Diffusion Probabilistic Models）[@austin2021d3pm]・SEDD（Score Entropy Discrete Diffusion）[@lou2024sedd]・MDLM（Masked Diffusion Language Model）[@sahoo2024mdlm]・LLaDA（Large Language Diffusion with mAsking）[@nie2025llada] は、本書の中核として既に個別の章で扱った。これらは「離散拡散の foundational な数学」「concrete score を用いた代替定式化」「absorbing transition + masked cross-entropy（CE）による簡潔な目的関数」「最初の 8B スケールの本格的 Diffusion Language Model（DLM）」という、それぞれの役割を果たした論文群である。
+
+しかしそれ以降も、(i) MDLM の定式化を別の角度から再導出・簡略化する論文、(ii) absorbing 以外の代替定式化を再検討する論文、(iii) LLaDA を起点に長文・MoE（Mixture-of-Experts）・商用クラスの大規模展開を行う論文が立て続けに登場している。本章はこれらを Li らのサーベイ [@li2025dlmsurvey] §2.3 を中核に整理し、現代離散 DLM の「その後」を 1 枚の地図にまとめる。
+
+## 全体像
+
+主要な発展の流れは大きく 3 軸に分かれる。
+
+```{mermaid}
+%%| label: fig-recent-discrete-genealogy
+%%| fig-cap: "D3PM 以降の離散 DLM の系譜。本章は黄色枠の論文群を扱う"
+
+flowchart TD
+    D3PM["D3PM (2021)<br/>離散拡散の基礎"]
+    SEDD["SEDD (2024)<br/>concrete score"]
+    DBERT["DiffusionBERT (2023)<br/>BERT × diffusion"]
+    MDLM["MDLM (2024)<br/>absorbing + masked CE"]
+    MD4["MD4 (2024)<br/>continuous-time CE"]
+    RDM["RDM (2024)<br/>weighted CE / flexible decoding"]
+    RADD["RADD (2024)<br/>concrete score の分解"]
+    DFM["DFM (2024)<br/>discrete flow matching"]
+    DDPD["DDPD (2024)<br/>planner-denoiser 分離"]
+    MGDM["MGDM (2024)<br/>token reweighting"]
+    GIDD["GIDD (2025)<br/>mask + uniform interpolation"]
+    LLaDA["LLaDA (2025)<br/>8B from-scratch"]
+    DLLaMA["DiffuLLaMA (2025)<br/>AR-7B → DLM"]
+    Dream["Dream-7B (2025)<br/>Qwen2.5 → DLM"]
+    LongLLaDA["LongLLaDA (2025)<br/>NTK RoPE 外挿"]
+    Ultra["UltraLLaDA (2025)<br/>128K post-training"]
+    MoE["LLaDA-MoE (2025)<br/>sparse MoE, 20T tokens"]
+    Seed["Seed Diffusion (2025)<br/>商用クラス open-source"]
+
+    D3PM --> SEDD
+    D3PM --> MDLM
+    D3PM --> DBERT
+    MDLM --> MD4
+    MDLM --> RDM
+    MDLM --> RADD
+    D3PM --> DFM
+    MDLM --> DDPD
+    MDLM --> MGDM
+    MDLM --> GIDD
+    MDLM --> LLaDA
+    LLaDA --> DLLaMA
+    LLaDA --> Dream
+    LLaDA --> LongLLaDA
+    LongLLaDA --> Ultra
+    LLaDA --> MoE
+    LLaDA --> Seed
+```
+
+整理すると、本章で扱う発展は次の 3 つの軸に分類できる。
+
+- **MDLM 直系の改良軸**: 同じ「absorbing + masked CE」の枠組みの中で、目的関数の再導出や schedule の精緻化を行う系統（RDM・MD4・DiffusionBERT）
+- **代替定式化軸**: absorbing 以外の選択肢を再評価する系統（DFM・RADD・DDPD・MGDM・GIDD）
+- **Scale-up 軸**: LLaDA を起点に、大規模化・長文化・MoE 化・商用展開を行う系統（DiffuLLaMA・Dream・LongLLaDA・UltraLLaDA・LLaDA-MoE・Seed Diffusion）
+
+各軸が独立しているわけではなく、相互に影響を及ぼし合っている。例えば LLaDA の訓練目的は RDM・MD4・MDLM の三者が独立に到達した weighted masked CE であり、MoE 化の Backbone はその目的関数の上に乗っている。
+
+[→ 詳細:]{.detail-link} [MDLM: Masked Diffusion Language Models](mdlm.qmd)
+
+[→ 詳細:]{.detail-link} [D3PM and SEDD: 離散拡散の別の選択肢](d3pm-sedd.qmd)
+
+## MDLM 直系の改良
+
+絶対 masking（一度 `[MASK]` になったら戻らない absorbing transition）を採用する系統の中で、MDLM 同等あるいは前駆となる定式化が複数存在する。**実は MDLM・MD4・RDM は同じ「重み付き masked CE」に独立に到達した三者であり、現在は実質的に等価な定式化と見なされている**。
+
+### RDM: weighted CE への単純化
+
+RDM（Reparameterized Discrete diffusion Models）[@zheng2024rdm] は MDLM より早い 2023 年に、離散拡散の reverse 過程の再パラメータ化を通じて目的関数を **weighted cross-entropy** に縮約することを示した。reverse posterior を「masked token を $x_0$ で埋める確率」と「`[MASK]` のままにする確率」の混合として書き直したうえで、$x_0$ 予測の cross-entropy に時刻依存の重みを掛けるだけで ELBO（Evidence Lower Bound）が最適化できる、という構造である。
+
+RDM の貢献は次の 2 点にまとめられる。
+
+- 訓練 objective を「ELBO の KL（Kullback-Leibler）和」から「重み付き CE」に置き換え、実装をシンプルにした
+- decode 時に schedule（greedy / stochastic / 任意の順序）の選択を理論と分離して扱えるようにした
+
+特に後者は LLaDA の low-confidence remasking や semi-autoregressive sampling の理論的下地になっている。「ELBO の最小化」と「サンプリング戦略の選択」は別レイヤーの問題である、という分離は RDM 以降のスタンダードとなった。
+
+### MD4: continuous-time variational objective
+
+MD4（Simplified and Generalized Masked Diffusion）[@shi2024simplified] は MDLM と同年・独立に、masked diffusion を **連続時間の variational objective** として簡潔に再定式化した。各時刻 $t \in [0,1]$ で確率 $t$ の masking を考え、連続時間極限の ELBO が masked CE の加重積分
+
+$$
+\mathcal{L}_\text{MD4} = \mathbb{E}_{t \sim \mathcal{U}(0,1)} \, \mathbb{E}_{x_t} \left[ \frac{\alpha'_t}{1 - \alpha_t} \sum_i \mathbf{1}[x_t^i = \texttt{[MASK]}] \log p_\theta(x_0^i \mid x_t) \right]
+$$
+
+の形に書けることを示した。ここで $\alpha_t$ は任意の単調 schedule。linear schedule $\alpha_t = 1 - t$ では $\alpha'_t / (1 - \alpha_t) = 1/t$ となり、MDLM の $1/t$ 重みと一致する。
+
+MD4 は MDLM に対して次の 2 点で広い。
+
+- 任意の noise schedule（cosine, polynomial 等）を統一的に扱える
+- 一般化された masking（語彙の部分集合を mask する設計、状態依存の mask 等）への拡張が自然
+
+実用上は MDLM・MD4・RDM のいずれの実装でも同じモデルを訓練できるため、現在は **「MDLM-family」** と総称されることが多い。LLaDA・Dream・DiffuLLaMA はいずれもこのファミリの目的関数を採用している。
+
+### DiffusionBERT: BERT 事前学習との橋渡し
+
+DiffusionBERT [@he2023diffusionbert] は、BERT の事前学習済み重みを初期化に用いて masked diffusion 訓練を行うアプローチである。技術的中核は **spindle noise schedule** と呼ばれる、token informativeness を考慮した mask schedule にある。
+
+通常の masked diffusion は各位置を一様確率で mask するが、DiffusionBERT は token の情報量（unigram 頻度・TF-IDF 等で推定）に応じて mask 確率を変化させる。具体的には、
+
+- 情報量の少ない token（stop words 等）は早期に確定（mask されにくい）
+- 情報量の大きい token（固有名詞、低頻度語）は後期に確定
+
+という設計で、人間が文を読むときの注意配分に近づける。
+
+DiffusionBERT は規模としては 110M クラスだが、**BERT 既存重みの再利用**という観点で AR から DLM への adaptation 系（DiffuLLaMA・Dream）の先駆と位置付けられる。事前学習済み MLM（Masked Language Model）と masked diffusion の間に自然な接続があることを最初に明示した論文として参照価値が高い。
+
+## 代替定式化
+
+MDLM-family が「absorbing transition + masked CE」を標準として確立した一方、絶対 masking 以外の選択肢を再検討する論文も並行して発展してきた。以下では特に survey で取り上げられている 5 つを扱う。
+
+### DFM: Discrete Flow Matching
+
+DFM（Discrete Flow Matching）[@gat2024dfm] は、連続データ向けの Flow Matching を離散変数に拡張した枠組みである。連続 Flow Matching が「source 分布から target 分布へ probability path に沿って flow を学習する」のに対し、DFM は **probability velocity** という離散版の対応物を学習する。
+
+DFM の forward 過程は次の形を取る。
+
+$$
+p_t(x_t \mid x_0, x_1) = (1 - t) \delta_{x_0}(x_t) + t \delta_{x_1}(x_t)
+$$
+
+ここで $x_0$ は source（典型的には `[MASK]` 系列または一様分布）、$x_1$ は target データ。各時刻 $t$ で「$x_0$ か $x_1$ のどちらに留まるか」をベルヌーイで選ぶ構造である。学習対象は probability velocity と呼ばれる、$t$ における瞬時遷移強度であり、これが連続側の vector field の離散類似物となる。
+
+DFM の貢献は次の 2 点である。
+
+- 連続側で発展した Flow Matching の道具立て（rectified flow, OT-based path 等）を離散に持ち込める
+- absorbing と uniform を統一的に扱える一般枠組みを提供
+
+実装規模としては 1.7B パラメータ・2.5T tokens で訓練され、AR LLM とのギャップを大幅に縮めることを示した。MDLM-family と異なり source 分布を `[MASK]` に限定しないため、**「絶対 masking ではない」道を残したい場合の選択肢**となる。
+
+### RADD: concrete score の分解
+
+RADD（Reparameterized Absorbing Discrete Diffusion）[@ou2024radd] は、SEDD の concrete score 定式化を absorbing transition に適用した上で、score の構造を解析的に分解した論文である。中核となる結果は次の定理である。
+
+**absorbing diffusion における concrete score $s_\theta(x_t)_y = p(y) / p(x_t)$ は、時刻に依存しない conditional probability $p(y \mid x_t^{\text{unmasked}})$ と、解析的に書ける時刻依存スカラー $c(t)$ の積に分解できる。**
+
+$$
+s_\theta(x_t, t)_y = c(t) \cdot p(y \mid x_t^{\text{unmasked}})
+$$
+
+この分解の含意は大きい。時刻依存性が scalar に集約されるため、ニューラルネットは「unmasked 文脈から masked 位置の値を予測する」という時刻非依存の機能だけを学習すればよい。これは MDLM の $x_0$-prediction や AR の next-token prediction と同じ構造であり、**absorbing diffusion・任意順序 AR（any-order AR）・MDLM の三者を統一する** 枠組みとなる。
+
+RADD はさらに次を示している。
+
+- absorbing discrete diffusion の訓練目的と any-order AR の訓練目的が、適切な重み付けの下で等価
+- SEDD の score entropy 損失と MDLM の masked CE 損失が、absorbing 設定では同じ最適解を持つ
+
+この結果は実務的にも重要で、「MDLM-family の重み付き CE は SEDD のスコア類似物を裏で計算している」と解釈できる。**concrete score を学ぶか $x_0$ を予測するかの差は、表面的な記法の差に過ぎない**ことが RADD で明示された。
+
+### DDPD: planner と denoiser の分離
+
+DDPD（Discrete Diffusion with Planned Denoising）[@liu2024ddpd] は、生成過程を **planner** と **denoiser** の 2 つのモデルに分離するアプローチである。MDLM-family では「全 `[MASK]` 位置を見て信頼度上位 $k$ 個を確定する」という戦略を 1 つのモデルが担うが、DDPD はこれを役割分担する。
+
+- **Planner**: 現在の系列 $x_t$ を見て、**どの位置が最も corrupted か**（次に refine すべきか）を予測する
+- **Denoiser**: planner が選んだ位置について、具体的な token 値を予測する
+
+サンプリングループの 1 ステップは次の擬似コードで書ける。
+
+```python
+# x: 現在の系列（一部 [MASK]、一部確定済み）
+for t in range(T, 0, -1):
+    # 1. planner が「最も corrupted な位置」を選ぶ
+    corruption_scores = planner(x)
+    target_positions = topk(corruption_scores, k_t)
+
+    # 2. denoiser がそれらの位置に対する予測を出す
+    logits = denoiser(x)
+    x[target_positions] = sample(softmax(logits[target_positions]))
+```
+
+DDPD の利点は次のように整理される。
+
+- 「どこを直すか」と「何に直すか」を独立に最適化できる
+- 既に unmask した位置でも planner が high corruption と判定すれば再 mask 相当の操作が可能（low-confidence remasking の一般化）
+- 推論時に planner の温度を変えるだけで refinement 強度を調整できる
+
+LLaDA の low-confidence remasking が「同一モデルの confidence から位置を選ぶ」という暗黙の planner を内蔵していたのに対し、DDPD はそれを **明示的なモデル**として切り出した、と捉えると見通しが良い。
+
+### MGDM: subgoal imbalance への対処
+
+MGDM（Mask-Guided Discrete Diffusion、論文中では Multi-Granularity Diffusion Modeling とも呼ばれる）[@ye2024mgdm] は、複雑な推論タスクで顕在化する **subgoal imbalance** に対処するために提案された。
+
+問題意識は次の通り。数学・プログラミングなどの推論タスクでは、生成すべき token のうち「自明な接続詞」と「決定的な計算結果」が混在しており、両者を一様にマスクして学習すると、後者の学習信号が薄まる。AR LLM では teacher forcing で全位置の loss を取るのでこの問題は緩和されるが、DLM では各ステップで mask 位置のみで loss を計算するため、難しい subgoal の学習が不安定になりがちである。
+
+MGDM の解は **token-level reweighting** で、各 token の予測難度に応じて loss の重みを動的に調整する。難しい token（モデルが confident に予測できない位置）に大きな重みを与えることで、subgoal の不均衡を緩和する。
+
+MGDM の貢献は次のように整理できる。
+
+- 複雑な推論（数学・パズル等）における DLM の弱点を実証的に同定
+- token-level reweighting で標準 MDLM 訓練に対する明確な改善を示した
+- 後続の Diffusion-of-Thought [@ye2024dot] や d1 [@zhao2025d1] などの reasoning 系研究の基礎を提供
+
+### GIDD: mask と uniform の interpolation
+
+GIDD（Generalized Interpolating Discrete Diffusion）[@vonrutte2025gidd] は、**masked diffusion の根本的な弱点である「誤りを訂正できない」問題**を解決するために提案された。
+
+MDLM-family の生成過程は「`[MASK]` を非 `[MASK]` で埋める」という一方向操作であり、一度 unmask した位置を後から修正する正当な手段が定式化に存在しない。LLaDA の low-confidence remasking はこのギャップを実装側で埋める heuristic だが、訓練分布との整合性は理論的に保証されない。
+
+GIDD の forward 過程は **masking と uniform noise の interpolation** で定義される。
+
+$$
+q(x_t \mid x_0) = (1 - \beta_t - \gamma_t) \delta_{x_0} + \beta_t \delta_\texttt{[MASK]} + \gamma_t \, \text{Uniform}(V)
+$$
+
+ここで $\beta_t$ が mask への遷移率、$\gamma_t$ が uniform への遷移率である。GIDD のキーアイデアは、**訓練時に uniform noise（誤った token への遷移）も学習信号に含める**ことで、推論時のモデルが「現在 token $y$ にあるが、これは誤りで $y'$ に修正すべき」という判断を自然に行えるようにする点にある。
+
+GIDD の含意は次のとおりである。
+
+- self-correction 能力が定式化レベルで組み込まれる
+- D3PM の uniform transition と absorbing transition を schedule 上の連続的補間として統一
+- 推論時に「`[MASK]` を埋める」以外の操作（既存 token の書き換え）が正当な reverse step として定義される
+
+実験的には、特に長文生成や複雑な編集を伴うタスクで MDLM-family を上回る性能を示している。**「絶対 masking の弱点を補う」設計**の代表例として今後の参照基準となる。
+
+### 代替定式化のまとめ
+
+| 手法 | source 分布 | 学習対象 | 主な機能差 |
+|---|---|---|---|
+| MDLM-family | `[MASK]` のみ | $x_0$-prediction CE | absorbing が前提（標準） |
+| DFM | 任意（mask または uniform） | probability velocity | flow matching の道具立て |
+| RADD | `[MASK]` のみ | concrete score の time-independent 因子 | absorbing と any-order AR の統一 |
+| DDPD | `[MASK]` のみ | planner + denoiser を分離 | 「どこを直すか」を明示モデル化 |
+| MGDM | `[MASK]` のみ | $x_0$-prediction + token reweighting | 推論 task の subgoal imbalance 対処 |
+| GIDD | `[MASK]` + uniform | $x_0$-prediction CE（uniform 含む） | self-correction を定式化に組込 |
+
+: 代替定式化の比較 {#tbl-alternatives}
+
+@tbl-alternatives を眺めると、**代替定式化の価値は「性能で MDLM を逆転する」ことよりも、「MDLM が持たない機能を加える」ことにある**ことが見える。RADD は理論的統一を、DDPD は明示的なプランニングを、MGDM は reasoning 性能を、GIDD は self-correction を、それぞれ加えている。
+
+## LLaDA 起点の scale-up
+
+LLaDA-8B が「DLM を AR LLM 並みに scale できる」ことを示して以降、2025 年は規模・長文・MoE・商用展開のすべての軸で派生研究が出揃った。これらは MDLM-family の目的関数を共有しつつ、訓練の出発点や architecture の選択で差別化を図っている。
+
+### DiffuLLaMA・Dream-7B: AR からの adaptation
+
+DiffuLLaMA [@gong2025diffullama]（および同論文の DiffuGPT）は、**事前学習済み AR LLM である LLaMA-7B を masked diffusion の重みとして再利用する** adaptation 手法を提案した。AR モデルの causal mask を双方向 attention に置き換え、masked CE 損失で continual pretraining することで、from-scratch 訓練に必要な計算量を大幅に削減する。
+
+Dream-7B [@ye2025dream7b] は同じ adaptation 戦略を **Qwen2.5-7B** に適用したモデルで、580B token の追加訓練だけで LLaDA-8B（2.3T tokens, from-scratch）と同等以上の性能を達成した。これは「DLM を作るのに毎回兆 token の from-scratch 訓練は必要ない」という強いメッセージを持つ。
+
+両者の詳細は別章に譲るが、本章の文脈では次の点を押さえておけばよい。
+
+- adaptation 系は **MDLM の目的関数をそのまま使う**（新規の数学的貢献ではない）
+- AR の事前学習済み重みが masked diffusion 訓練の良い初期値となる
+- continual pretraining に必要なデータ量は from-scratch の 1/5 〜 1/10
+
+[→ 詳細:]{.detail-link} [AR-to-DLM Adaptation](ar-to-dllm-adaptation.qmd)
+
+### LongLLaDA: 長文 capability の解析と外挿
+
+LongLLaDA [@liu2025longllada] は、DLM の長文能力（long-context capability）に関する最初の体系的分析である。AR LLM では RoPE（Rotary Position Embedding）の外挿挙動が広範に研究されているが、DLM ではこれが手つかずだった。
+
+LongLLaDA の主な発見は次のとおり。
+
+- DLM は context を直接外挿しても **perplexity が安定**（AR では指数的に悪化する領域でも保持される）
+- 検索能力（needle-in-haystack 等）でも安定した挙動を示す
+- AR で確立された **NTK（Neural Tangent Kernel）-based RoPE 外挿**が DLM でも有効
+
+特に重要なのは、**training-free な RoPE 外挿が DLM でそのまま動く**ことを示した点である。これは AR の knowhow がそのまま DLM に転用可能であることを示唆し、後の UltraLLaDA の post-training scaling への足がかりとなった。
+
+### UltraLLaDA: 128K context への post-training scaling
+
+UltraLLaDA [@he2025ultrallada] は LongLLaDA の training-free 外挿を超え、**diffusion-aware NTK RoPE scaling** と軽量な long-context post-training を組み合わせて、128K context window を達成した。
+
+UltraLLaDA の技術的選択は次のとおり。
+
+- training-free 外挿の限界（数 K 〜数十 K で品質が低下）を計測
+- diffusion 訓練特有の mask 分布を考慮した NTK スケーリング係数の調整
+- 長文の post-training データで軽量 fine-tune（full training は不要）
+
+結果として、retrieval・perplexity の双方で training-free 外挿を大幅に上回る性能を達成し、**DLM が AR LLM と同等の長文能力を持ちうる**ことを示した。
+
+### LLaDA-MoE: sparse MoE による効率化
+
+LLaDA-MoE [@zhu2025lladamoe] は、**sparse Mixture-of-Experts（MoE）を DLM に統合した最初の論文**である。総パラメータ 7B、推論時 active パラメータ 1.4B という構成で、**20T token** という大規模データで from-scratch 訓練された。
+
+MoE 統合の意義は次のように整理できる。
+
+- DLM では各ステップで全位置の forward pass を回すため、active パラメータの削減が AR より重要
+- 7B 総パラメータで 1.4B active という構成は推論コストを大幅に下げる
+- benchmark 性能では Qwen2.5-3B-Instruct と同等のレンジ（knowledge・coding・reasoning）
+
+LLaDA-MoE は、**MDLM の目的関数が MoE backbone と素直に組み合わさる**ことを実証した。今後の大規模 DLM では MoE が標準構成になる可能性が高い。
+
+### Seed Diffusion: 商用クラスの open-source DLM
+
+Seed Diffusion [@song2025seeddiffusion] は、ByteDance Seed チームによる大規模 DLM で、商用クラスの推論速度と性能を持つ open-source モデルとして公開された。詳細スペックは論文に譲るが、本章の文脈での意義は次の通りである。
+
+- 商用級の推論速度（high-speed inference）と open-source の両立
+- 大規模データでの MDLM-family 訓練が研究室レベルを超えてスケールすることの実証
+- Mercury [@labs2025mercury] や Gemini Diffusion [@deepmind2024geminidiffusion] と並ぶ「商用 DLM」の系譜に位置付けられる
+
+これらの大規模 open-source 公開により、**DLM のエコシステムが AR LLM の Llama / Qwen 系に追随できる水準に達した**ことが 2025 年後半時点の状況である。
+
+## 主要モデルの比較
+
+ここまでの議論を一表にまとめる。survey の Table 1 [@li2025dlmsurvey] を基に、本章の文脈に絞って再構成した。
+
+| モデル | 年 | 出発点 | パラメータ | 訓練 token | 主貢献 |
+|---|---|---|---|---|---|
+| DiffusionBERT [@he2023diffusionbert] | 2023 | BERT-110M | 110M | 16B | BERT 重み再利用、spindle schedule |
+| RDM [@zheng2024rdm] | 2024 | from-scratch | 〜170M | 中規模 | weighted CE、flexible decoding |
+| MD4 [@shi2024simplified] | 2024 | from-scratch | 〜170M | 中規模 | continuous-time variational objective |
+| MDLM [@sahoo2024mdlm] | 2024 | from-scratch | 110M | 622B | Rao-Blackwellized weighted masked CE |
+| DFM [@gat2024dfm] | 2024 | from-scratch | 1.7B | 2.5T | discrete flow matching |
+| RADD [@ou2024radd] | 2024 | from-scratch | 〜170M | 中規模 | concrete score の time-independent 分解 |
+| DDPD [@liu2024ddpd] | 2024 | from-scratch | 〜200M | 中規模 | planner-denoiser 分離 |
+| MGDM [@ye2024mgdm] | 2024 | from-scratch | 〜200M | 中規模 | token-level reweighting for reasoning |
+| LLaDA [@nie2025llada] | 2025 | from-scratch | 1B / 8B | 2.3T | 最初の本格 8B DLM |
+| DiffuLLaMA [@gong2025diffullama] | 2025 | LLaMA-7B adapt | 7B | 65B | AR→DLM adaptation |
+| Dream-7B [@ye2025dream7b] | 2025 | Qwen2.5-7B adapt | 7B | 580B | Qwen2.5 からの adapt |
+| GIDD [@vonrutte2025gidd] | 2025 | from-scratch | 〜170M | 中規模 | mask + uniform interpolation, self-correction |
+| LongLLaDA [@liu2025longllada] | 2025 | LLaDA-8B | 8B | 2.3T | training-free NTK RoPE 外挿 |
+| UltraLLaDA [@he2025ultrallada] | 2025 | LLaDA-8B | 8B | 2.3T + α | 128K context post-training |
+| LLaDA-MoE [@zhu2025lladamoe] | 2025 | from-scratch | 7B (1.4B active) | 20T | sparse MoE 統合 |
+| Seed Diffusion [@song2025seeddiffusion] | 2025 | from-scratch | 大規模 | 大規模 | 商用クラス open-source、高速推論 |
+
+: D3PM / SEDD 以降の主要離散 DLM の一覧 {#tbl-recent-discrete}
+
+@tbl-recent-discrete を眺めて見える構造を、次節でまとめる。
+
+## 収束しつつある方向性
+
+ここまで見てきた発展は、表面的には多様だが、いくつかの収束点を持っている。
+
+### 1. Masked diffusion（absorbing）が事実上の標準
+
+代替定式化（DFM・GIDD）はそれぞれ独自の貢献を持つが、**訓練・スケール・implementation の容易さで MDLM-family が支配的**である。RADD はその一般性を理論的に裏付け、「absorbing と任意順序 AR と MDLM-family が同じ最適解を持つ」ことを示した。これは「絶対 masking が偶然の選択でなく、十分に普遍的である」ことの強い証拠となる。
+
+### 2. 規模を上げるための工夫が分業化
+
+8B 以上のスケールでは、from-scratch 訓練・AR からの adaptation・MoE 化・long-context post-training の 4 つの軸が並行して発展している。それぞれの典型例は次の通り。
+
+- **from-scratch**: LLaDA-8B（2.3T tokens）、LLaDA-MoE（20T tokens）
+- **AR adaptation**: DiffuLLaMA、Dream-7B
+- **MoE**: LLaDA-MoE
+- **long-context post-training**: UltraLLaDA（128K）
+
+これらは互いに排他的でなく、組み合わせ可能である（例: LLaDA-MoE + UltraLLaDA 的な long-context MoE は次の段階で出る可能性が高い）。
+
+### 3. 代替定式化は「性能逆転」より「機能追加」で価値を出す
+
+DFM・DDPD・MGDM・GIDD は MDLM-family を性能で逆転するというより、**MDLM が持たない機能を加える**ことで価値を出している。
+
+- DFM: source 分布の自由度
+- DDPD: 明示的な planner（refinement 制御）
+- MGDM: reasoning 性能
+- GIDD: self-correction
+
+これは AR LLM の周辺で「base model + chain-of-thought prompting + tool use」と機能が積み増されてきたのと類似の構造で、**DLM でも base formulation の選択肢が「機能の差別化」軸として残る**ことを示唆する。
+
+### 4. 商用クラス open-source の出現
+
+Mercury・Seed Diffusion・Gemini Diffusion といった大規模・高速推論の DLM が 2025 年に出揃ったことで、**DLM は研究室の試作段階を超えて、AR LLM の実用的なオルタナティブ**として位置付けられるようになった。これらの存在は、後続研究が「scale するか」ではなく「scale した上で何ができるか」に focus を移す転換点となっている。
+
+## 関連章へのリンク
+
+本章で前提とした既存章および、本章で言及した話題の詳細を扱う章へのリンクを置く。
+
+- 定式化の中核: [MDLM: Masked Diffusion Language Models](mdlm.qmd)
+- 最初の 8B スケール: [LLaDA: 大規模 Masked DLM とサンプリング](llada.qmd)
+- 別系統の離散拡散: [D3PM and SEDD: 離散拡散の別の選択肢](d3pm-sedd.qmd)
+- AR から DLM への adaptation: [AR-to-DLM Adaptation](ar-to-dllm-adaptation.qmd)
+

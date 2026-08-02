@@ -1,0 +1,136 @@
+---
+pagetitle: "Overview"
+---
+
+# Reliable Reasoning: Signals and Methods for Trustworthy LLM Reasoning
+
+## What Is Happening in 2025–2026
+
+In the eighteen months since DeepSeek-R1 and OpenAI o1 were released, research on Large Language Model (LLM) reasoning has entered a new phase: a transition from *adding methods that work* to *questioning what was thought to work*. This book traces that transition through more than 190 leading works from ICLR 2026, ACL 2026, ICML 2026, NeurIPS 2025, EMNLP 2025 and related venues, organized along three axes — **training-side signals**, **inference-side signals**, and **structural approaches**.
+
+The most frequently rediscovered findings of this period — rediscovered by independent groups — are the kind that shake the assumptions of reasoning research itself.
+
+- **Reinforcement Learning with Verifiable Rewards (RLVR) does not appear to acquire new reasoning capabilities.** After Yue et al. [@yue2025rlbeyond] reported that *the base model overtakes the RL model in pass@K*, Path Not Taken [@yang2025pathnot], Sparse but Critical [@gao2026sparse], Post-Training as Reweighting [@li2025consistency], Reshaping Reasoning [@chen2025reshaping], and GRPO Transcend [@ni2025grpotranscend] independently arrived at the same conclusion: RLVR is a re-weighting inside the base distribution.
+- **The confidence of reasoning models is structurally broken.** Decoupling Reasoning [@ma2026decoupling], Taming Overconfidence [@leng2024taming], Reasoning about Uncertainty [@mei2025reasoningknow], DINCO [@wang2026dinco], and Wired for Overconfidence [@zhao2026wired] each independently reported severe miscalibration after RLHF/RLVR.
+- **The traces that look "deeply considered" are in fact myopic.** Extracting Search Trees [@kim2026extract] extracted a search tree from an LLM's reasoning trace and showed quantitatively that even when deep nodes are expanded, the actual move selection is determined by shallow information. Reasoning Horizon [@ye2026horizon] showed that the last 70–85% of a CoT has virtually no causal influence on the answer.
+- **Process Reward Model (PRM) -guided search does not consistently beat naive Best-of-N.** Limits of PRM-Guided [@chen2025prmlimits] and Hard2Verify [@xie2025hard2verify] demonstrated that the generalization of existing PRMs collapses on frontier-level problems.
+
+Technical improvements continue. But the foundational research into *what is really working* is now proceeding with at least the same intensity as the visible efficiency gains.
+
+In parallel, there is one more observation that runs through this book. **Four research lines that rarely interact — training, inference, search, and faithfulness probing — have independently arrived at the same operation (cut the CoT at a prefix and measure something).** We treat this in detail in the cross-cutting observations later in the chapter.
+
+## Three Questions That Run Through This Book
+
+::: {.callout-note}
+## Central problems
+
+- **Q1. Training side**: Does RLVR genuinely expand what the base model can do, or is it merely a re-weighting of already-existing capabilities?
+- **Q2. Inference side**: How can we estimate the *correctness* of a reasoning trace produced by the model when no ground truth is available?
+- **Q3. Compute budget**: Where (length, number of samples, search) should the limited inference compute be spent?
+:::
+
+These three questions sit at the intersection where multiple independently developed research lines have begun to overlap rapidly during 2025–2026. The book is a map of that intersection.
+
+## Scope of the Nine Chapters
+
+### Theory and Limits of RLVR
+
+The basic question of *what RLVR is doing* developed into the field's largest debate in 2025–2026. While five-plus groups independently converged on the re-weighting view, alternative metrics like CoT-Pass@K [@wen2025cotpass] pushed back, arguing that *RLVR does genuinely exceed the base*. We follow the debate through to the reconciliation proposed by the Two-Stage Dynamic View [@yue2025twostage], in which the effect of RL switches dynamically as a function of training stage and problem difficulty.
+
+[→ Detail:]{.detail-link} [Theory and Limits of RLVR](rlvr-theory.qmd)
+
+### GRPO and Reward Design
+
+Group Relative Policy Optimization (GRPO) is now the baseline; the discussion assumes one of DAPO [@yu2025dapo], Dr. GRPO [@liu2025drgrpo], GSPO [@zheng2025gspo], or VAPO [@yue2025vapo]. A larger current is the family that turns the *policy's own confidence or consistency* into the reward (TTRL, Intuitor, PPPO, PRIME) — a family that connects directly to the prefix observation that runs through the book. Meanwhile, Spurious Rewards [@shao2025spurious] delivered the unsettling result that *random rewards* still raise Qwen's accuracy, effectively imposing a cross-model robustness obligation on any new reward proposal.
+
+[→ Detail:]{.detail-link} [GRPO and Reward Design](grpo-and-reward.qmd)
+
+### Process Reward Models
+
+The scarcity of step labels had been the biggest barrier to widespread PRM use. Now five independent signal sources — MC rollouts, log-likelihood ratios, pseudo-labels back-propagated from the outcome, next-token probability, and completer agreement — have produced a wave of label-free PRMs. In parallel, generative PRMs have shifted from scalar heads to CoT-verbalized verifiers, enabling test-time compute scaling on the verifier side as well. At the same time, difficulty-extended benchmarks like Hard2Verify [@xie2025hard2verify] cause existing PRMs to lose substantial accuracy, exposing the limits of PRM generalization.
+
+[→ Detail:]{.detail-link} [Process Reward Models](process-reward-model.qmd)
+
+### Self-Consistency and Weighted Majority Voting
+
+Starting from Wang et al.'s Self-Consistency [@wang2023selfconsistency], the years 2025–2026 extended this framework in four directions: (i) *weighting* — DeepConf [@fu2025deepconf], CISC [@taubenfeld2025cisc], CER [@razghandi2025cer], Self-Certainty [@kang2025selfcertainty], IEW [@sharma2025iew]; (ii) *prefix exploitation* — PoLR [@jindal2026polr], Path-Consistency [@zhu2025pathconsistency], Prefix-Confidence Scaling [@otth2025prefixconf], ST-BoN [@wang2025stbon], Beyond the Last Answer [@hammoud2025beyond], Prefix Consistency [@iwase2026pc]; (iii) *theoretical support* — MAP-optimality of weighted majority vote [@kuang2025aggregation]; (iv) *adaptive sampling* — BEACON [@wan2025beacon], ReASC [@kim2026reasc]. The prefix-exploitation family is the convergence case that most symbolizes this book: six-plus groups independently arrived at the same operation.
+
+[→ Detail:]{.detail-link} [Self-Consistency and Weighted Majority Voting](self-consistency.qmd)
+
+### Confidence and Uncertainty
+
+Of the three classical routes for measuring "does the model know it is right?" — logit-based, verbalized, and sampling-based — *both logit-based and verbalized signals are no longer trustworthy* for reasoning models, as established in 2026. Negative evidence converged from three angles: at the circuit level (Wired for Overconfidence [@zhao2026wired]), in decision-theoretic terms (Faithful? [@wang2026faithful]), and in direct comparison (DINCO [@wang2026dinco]). The shift to sampling-based signals is now effectively the default.
+
+[→ Detail:]{.detail-link} [Confidence and Uncertainty](confidence-and-uncertainty.qmd)
+
+### Test-Time Compute Scaling
+
+That "investing more compute at inference time raises accuracy" is now established fact. The question has shifted from *whether it rises* to *where and how to invest*. We cover Budget Forcing [@muennighoff2025s1] and adaptive allocation (CaTS [@zhang2026cats], T1 [@chen2026t1], Fractional Reasoning [@li2026fractional]), system-side optimization (ThinKV [@kim2026thinkv], SpecReason [@wang2025specreason], Sleep-time Compute [@li2025sleep]), latent reasoning (Coconut [@hao2024coconut]), and Markovian Thinker [@aghajohari2025markovian] for linear scaling. We also organize the non-monotone "CoT can be both too long and too short" finding and the domain-dependence [@huang2025m1] showing that math-optimized operating points do not automatically transfer to medical reasoning.
+
+[→ Detail:]{.detail-link} [Test-Time Compute Scaling](test-time-scaling.qmd)
+
+### Tree Search and MCTS
+
+The MCTS lineage of AlphaMath [@chen2024alphamath] and rStar-Math [@guan2025rstarmath], the dynamic *wider vs. deeper* selection of AB-MCTS [@inoue2025wider], the *verification-granularity* spectrum that VG-Search [@chen2025vgsearch] uses to unify beam search and Best-of-N, the uncertainty-aware line (UATS [@liu2026uats], UVM [@chen2025uvm]), and the verifier-free line (SELT [@wu2025selt], MoB [@rakhsha2025mob]) all run in parallel. The decisive observation of this chapter is the faithfulness warning of Extracting Search Trees [@kim2026extract]: the deep traces shown by LLMs can be explained by myopic decisions.
+
+[→ Detail:]{.detail-link} [Tree Search and MCTS](tree-search.qmd)
+
+### Reasoning-Structure Analysis
+
+A fourth signal axis — independent of aggregation, confidence, and search — emerged in 2025–2026: reading the *structure* of the CoT itself. Reasoning Horizon [@ye2026horizon] uses intervention experiments to show that the last 70–85% of a trace is causally empty. FSF [@feng2025fsf] converts the CoT into a reasoning graph and demonstrates that the failed-step fraction is a stronger predictor of correctness than length or review ratio. CRV [@zhao2025crv] predicts the correctness of each step with AUROC 92 from the internal attribution graph, and Four Habits of STaRs [@gandhi2025fourhabits] identifies four cognitive patterns shared by self-improving models.
+
+[→ Detail:]{.detail-link} [Reasoning-Structure Analysis](reasoning-structure.qmd)
+
+### Reasoning in Diffusion LLMs
+
+In masked diffusion LLMs such as LLaDA [@nie2025llada], Dream [@ye2025dream], and MMaDA [@chen2025mmada], the time axis is no longer the AR sequence but the *denoising trajectory*. Prophet [@kim2025prophet] exploits the phenomenon that the answer is determined early on the same trajectory; Time-is-a-Feature [@park2025timefeature] applies majority vote across denoising steps within a single trajectory; I-DLM [@wang2026idlm] proposes a self-verify mechanism within a single forward pass. Prefix-based aggregation developed for AR is being reinvented in DLLMs with the denoising step as the time axis.
+
+[→ Detail:]{.detail-link} [Reasoning in Diffusion LLMs](diffusion-llm.qmd)
+
+## Cross-Cutting Observations
+
+Each chapter can be read standalone, but several cross-chapter patterns form the core of this book's argument.
+
+### Observation 1: Four Research Lines Have Independently Converged on the Same "Prefix" Operation
+
+Four research lines that rarely interact — training, inference, search, and faithfulness probing — have all arrived at the same operation: *cut the CoT at a prefix and measure something*.
+
+- **Training side**: GRPO-VPS [@wang2025grpovps], which probes per-segment correctness probability and feeds it into the reward; PACR [@yoon2025pacr], which encodes the monotonicity of correctness probability during reasoning into the reward; PPPO [@sun2025pppo], which estimates the value of a prefix as an MDP state.
+- **Inference side**: PoLR [@jindal2026polr], Prefix-Confidence Scaling [@otth2025prefixconf], Path-Consistency [@zhu2025pathconsistency], ST-BoN [@wang2025stbon], Beyond the Last Answer [@hammoud2025beyond], Prefix Consistency [@iwase2026pc] — all sample many continuations from a short prefix and aggregate them.
+- **Search side**: MCTS-style methods that expand prefixes as nodes (AlphaMath [@chen2024alphamath], rStar-Math [@guan2025rstarmath]).
+- **Faithfulness side**: Early Answering [@lanham2023faithfulness], which truncates the CoT and asks the model to answer in order to measure faithfulness — physically the same operation as resampling, but with the opposite purpose.
+
+That this simultaneous convergence happens without mutual reference strongly suggests that **the prefix is a load-bearing unit of reasoning**. This is the single most important observation that runs through the book.
+
+### Observation 2: Systematic Suspicion of Signals That Were "Thought to Work"
+
+Four negative findings accumulated independently during 2025–2026 are shaking the assumptions of reasoning research.
+
+- **Suspicion of RLVR's capability-expansion claim**: five independent groups from Yue et al. [@yue2025rlbeyond] onward confirmed the re-weighting view ([Theory and Limits of RLVR](rlvr-theory.qmd)).
+- **Suspicion of verbalized confidence**: five independent groups confirmed severe miscalibration ([Confidence and Uncertainty](confidence-and-uncertainty.qmd)).
+- **Suspicion of faithfulness**: the gap between deep traces and the actual decision ([Tree Search and MCTS](tree-search.qmd), [Reasoning-Structure Analysis](reasoning-structure.qmd)).
+- **Suspicion of PRM-guided search**: it does not consistently outperform naive Best-of-N ([Process Reward Models](process-reward-model.qmd)).
+
+These doubts are the driving force behind an explosion in the search for *new signal sources* — verifier-free, uncertainty-aware, sampling-based confidence, and reasoning-structure analysis. The convergence in Observation 1 is the flip side: that exploration is independently landing in the same place.
+
+### Observation 3: At ICLR 2026, Adaptive Allocation Became the Default
+
+Fixed-*K* self-consistency and fixed-token-budget CoT have receded into legacy-baseline territory. The fact that the methods that allocate compute dynamically based on problem difficulty or confidence — CaTS [@zhang2026cats], T1 [@chen2026t1], Fractional Reasoning [@li2026fractional], ThinKV [@kim2026thinkv], DiffAdapt [@kim2026diffadapt], BEACON [@wan2025beacon], ReASC [@kim2026reasc] — were simultaneously accepted at ICLR 2026 symbolizes the community's shift to *decide adaptively* as the default.
+
+### Observation 4: A New Signal Axis That Reads Trace Structure
+
+Alongside aggregation (consensus across multiple traces), confidence (token distribution of a single trace), and test-time compute (budget allocation over number and length of traces), a fourth signal axis emerged independently: reading the *structure* of the CoT itself. Reasoning Horizon's causal vacuum, FSF's failed-step fraction, CRV's internal attribution graph, and Four Habits' cognitive patterns all rest on the same intuition: a predictive signal lives in structural features that a single length or confidence value cannot capture. The integration of external aggregation and internal observation is an open question for 2026.
+
+### Observation 5: Post-RLVR Miscalibration Connects Q1 and Q2
+
+The phenomenon that RLHF / RLVR-trained reasoning models lose confidence calibration directly links Q1 (what is RLVR learning?) with Q2 (what signals work at inference?). The RLVR picture in which re-weighting *sharpens an already-high-probability distribution* (the front half of Observation 2) and the observation that confidence, broadly distributed in the 0.7–0.9 band after SFT, collapses to near 1.0 after RLHF [@leng2024taming] may be two sides of the same "sharpening" phenomenon. A mechanistic link between the two is still rare in the literature and remains an open question.
+
+### Observation 6: The Nature of Reasoning Depends on the Domain
+
+Many of the inference-time methods this book covers are implicitly optimized for mathematics. In knowledge-intensive domains such as medicine, the KI (Knowledge Index)–accuracy correlation dominates the InfoGain–accuracy correlation (Knowledge or Reasoning? [@wu2025knowledge]), and the optimal thinking budget saturates around 4K tokens (m1 [@huang2025m1]); budget forcing may overturn an initially correct answer. The transferability of math-derived findings is an open question that cuts across chapters.
+
+## How to Read This Book
+
+- **If you want to know one area**: jump straight to the relevant chapter — every chapter is written to stand alone.
+- **If you want a panoramic view**: start with [Self-Consistency and Weighted Majority Voting](self-consistency.qmd) (the inference-side signal space) and [Theory and Limits of RLVR](rlvr-theory.qmd) (the training-side signal space).
+- **If you are starting new research**: use any one of the six observations above as an entry point — each cuts across multiple areas. In particular, Observation 1 (prefix convergence) and Observation 2 (systematic suspicion) are the book's strongest claims; keeping them in mind while reading each chapter makes the cross-chapter patterns easier to see.

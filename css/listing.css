@@ -1,0 +1,43 @@
+/* Paired with js/listing.js. */
+
+.listing-actions-group {
+  align-items: center;
+  gap: 1rem;
+}
+
+/* Hidden until JS moves it into .listing-actions-group (avoids FOUC). */
+.rss-link {
+  display: none;
+}
+
+.listing-actions-group .rss-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: 0.9em;
+  text-decoration: none;
+  opacity: 0.75;
+  margin-left: auto;
+}
+
+.listing-actions-group .rss-link:hover {
+  opacity: 1;
+}
+
+/* Override Quarto's filter auto-margin only when .rss-link is in place. */
+.listing-actions-group:has(.rss-link) .quarto-listing-filter {
+  margin-left: 0;
+}
+
+/* Hidden until js/listing.js rebuilds with per-tab data. */
+.quarto-listing-category {
+  visibility: hidden;
+}
+
+.quarto-listing-category.ready {
+  visibility: visible;
+}
+
+.quarto-listing-category .category {
+  cursor: pointer;
+}

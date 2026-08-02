@@ -1,0 +1,103 @@
+---
+pagetitle: "概要"
+---
+
+# Small Recursive Reasoning Models: HRM・TRM・GRAM の系譜と現在地
+
+大規模言語モデル（Large Language Model, LLM）の chain-of-thought（思考連鎖, CoT）が reasoning の主流である一方、2025 年から 2026 年にかけて、まったく別系統の reasoning model 群が脚光を浴びている。Hierarchical Reasoning Model（HRM）、Tiny Recursive Model（TRM）、Probabilistic Tiny Recursive Model（PTRM）、Generative Recursive reAsoning Models（GRAM）、Lattice Deduction Transformers（LDT）の 5 論文はいずれも、**数百万から数千万パラメータの小規模ニューラルネットを test-time に深く再帰展開して reasoning を実行する**。千例規模の学習データで Sudoku や Abstraction and Reasoning Corpus for Artificial General Intelligence（ARC-AGI）を解き、特定タスクでは 671B parameters の Frontier LLM を上回ったと主張する。本書はこの **recursive reasoning model** という研究プログラムを、技術的中身・前史・評価・批判のすべての面から立体的に把握することを目的とする。
+
+## 本書の中心問い
+
+本書を貫く 4 つの問いを最初に置く。
+
+**Q1**: CoT による sequential token scaling 以外に、test-time compute を投資する道はあるか。あるとして、その道は CoT の代替なのか補完なのか。
+
+**Q2**: 「reasoning architecture」と呼ばれる構造の何が本質的に効くのか。脳の階層性、fixed-point 近似、adaptive halting、deep supervision、recursion のどれが load-bearing で、どれが装飾的説明にすぎないか。
+
+**Q3**: 27M parameters の HRM や 7M parameters の TRM が、671B parameters の DeepSeek-R1 を ARC-AGI で上回る現象が報告されているが、これは何を意味するのか。アーキテクチャの勝利か、ベンチマークの偏りか、test-time の工夫の積み重ねか。
+
+**Q4**: latent state 上で完結する reasoning は、自然言語 trace を生成する CoT 型の reasoning と何が違うのか。表現力・効率・解釈性・汎用性のどこにトレードオフがあるか。
+
+## 主要モデル
+
+本書は次の 5 論文を主要モデルとして扱う。それぞれ独立した章で数式・実験結果・批判を網羅する。HRM が 2025 年 6 月にこの研究プログラムを始動させ、TRM が 2025 年 10 月にその物語を ablation で剥がし、PTRM・GRAM・LDT の 3 論文が 2026 年 5 月に TRM の最小核から異なる方向に分岐した、というのが時系列上の位置関係である。本書では TRM への介入の規模が小さい順に PTRM・GRAM・LDT を並べる。
+
+**[HRM (Hierarchical Reasoning Model)](hrm.qmd)** [@wang2025hrm]: Sapient Intelligence と Tsinghua University が 2025 年 6 月に発表。脳の slow/fast 階層に着想を得た高レベル module $f_H$ と低レベル module $f_L$ の二重再帰、Deep Equilibrium Model（DEQ）由来の 1-step gradient、Q-learning ベースの adaptive halting を統合し、27M parameters・1000 サンプル訓練で ARC-AGI-1 公開評価セット 40.3 % を達成したと主張。
+
+[→ 詳細:]{.detail-link} [HRM](hrm.qmd)
+
+**[TRM (Tiny Recursive Model)](trm.qmd)** [@jolicoeur2025trm]: Samsung SAIL Montréal の Alexia Jolicoeur-Martineau が 2025 年 10 月に単著で発表。HRM の階層構造・fixed-point 近似・脳の物語を ablation で順次否定し、2 層・7M parameters・full backpropagation through time（BPTT）の単一ニューラルネットで HRM を上回る性能（ARC-AGI-1 で 44.6 %, ARC-AGI-2 で 7.8 %）を示した。ARC Prize 2025 Paper Award 1 位。
+
+[→ 詳細:]{.detail-link} [TRM](trm.qmd)
+
+**[PTRM (Probabilistic Tiny Recursive Model)](ptrm.qmd)** [@sghaier2026ptrm]: Mila Québec AI Institute・ETS Montreal の Sghaier、Parviz と独立研究者の Jolicoeur-Martineau（TRM の原著者）による 2026 年 5 月の論文。**学習済 TRM checkpoint をそのまま使い、各 deep recursion step で latent に Gaussian noise を加える test-time の procedure** で並列軌道を探索する。TRM が既に持つ Q head を verifier として再利用するため再学習も task-specific augmentation も要らず、Sudoku-Extreme で 87.4 % → **98.75 %**、Pencil Puzzle Bench で 62.6 % → **91.2 %** に押し上げる。同時期に独立に attractor landscape 仮説に到達した Efstathiou & Balwani [@efstathiou2026attractor] と並読すると、機構解釈と工学解の両側から TRM の決定論的限界が解体される構造が見える。
+
+[→ 詳細:]{.detail-link} [PTRM](ptrm.qmd)
+
+**[GRAM (Generative Recursive Reasoning)](gram.qmd)** [@baek2026gram]: KAIST、New York University、Mila の Baek、Jo、Kim、Ren、Bengio、Ahn による 2026 年 5 月の論文（ICLR 2026 Workshop on AI with Recursive Self-Improvement）。HRM/TRM の決定論的 latent transition に Gaussian な確率項を加え、amortized variational inference で訓練する。**depth × parallel trajectory の 2 軸 test-time scaling** と unconditional generation を同一モデルで獲得。Sudoku-Extreme で 97.0 %、ARC-AGI-1 で 52.0 % を達成。PTRM が test-time 介入だけで対処したのに対し、GRAM は学習段階の確率化により unconditional generation という追加能力も得ている。
+
+[→ 詳細:]{.detail-link} [GRAM](gram.qmd)
+
+**[LDT (Lattice Deduction Transformers)](ldt.qmd)** [@davis2026ldt]: Amherst College の Davis、Axiom（商業数学 AI 企業）の Haller・Alfarano、Barnard/Columbia の Santolucito による 2026 年 5 月の論文。再帰型 Transformer の latent state を forward pass の間に **abstract interpretation の lattice（Cousot & Cousot 1977）** に投影し、解を出すか abstain するかの empirical soundness を獲得する。系譜は HRM → TRM → Sotaku（個人実装、800K で Sudoku-Extreme 98.9 %）→ LDT で、HRM/TRM/PTRM/GRAM の「approximate refinement」系統に対して独立な「sound deduction」系統に位置する。800K parameters で Sudoku-Extreme と Snowflake Sudoku を **100 % / 100 %**、1.8M で Maze-Hard を **99.9 %** 解き、全 Frontier LLM（Claude Opus 4.6、DeepSeek V4-Pro 1.6T、GPT-5.4）は 0 %。
+
+[→ 詳細:]{.detail-link} [LDT](ldt.qmd)
+
+## 補助章 4 つと取り掛かりの 2 章
+
+これら 5 論文だけでは「なぜ突然このアプローチが台頭したのか」「他の latent reasoning とは何が違うのか」「CoT と比べてどう優劣を見るべきか」「ベンチマーク上の本当の現在地はどこか」が見えない。次の 4 章でその空白を埋める。さらに最後に、論文を読んだ次に研究を起こす視点から、[実装ガイド](implementation.qmd) と [未解決問題](open-problems.qmd) の 2 章を置く。
+
+**[Depth recurrence の系譜](depth-recurrence.qmd)**: HRM の技術部品は 2016 年から 2021 年にかけて出揃っていた。Adaptive Computation Time（ACT, 2016）、Universal Transformer（2018）、Deep Equilibrium Models（DEQ, 2019）、PonderNet（2021）、Looped Transformers（2023–2024）、Geiping らによる Recurrent Depth in LLMs（2025）という系列で、HRM が本当に novel だったのは何かを位置付ける。
+
+[→ 詳細:]{.detail-link} [Depth recurrence の系譜](depth-recurrence.qmd)
+
+**[Latent reasoning の分類](latent-reasoning.qmd)**: Coconut [@hao2024coconut]、Pause Tokens [@goyal2024pause]、Quiet-STaR [@zelikman2024quietstar]、Diffusion-of-Thought [@ye2024dot]、Soft Thinking [@zhang2025softthinking] など、「離散トークン列を介さない reasoning」は近年急速に体系化が進んだ。サーベイ [@zhu2025latentsurvey] の分類軸を用いて、HRM/TRM/GRAM がこの広大な研究領域のどこに位置するかを示す。
+
+[→ 詳細:]{.detail-link} [Latent reasoning の分類](latent-reasoning.qmd)
+
+**[Depth vs Token Scaling](scaling.qmd)**: OpenAI o1 や DeepSeek-R1 [@deepseek2025r1] が確立した「thinking token を長く吐く」CoT scaling と、HRM/TRM/GRAM が示す「同じ層を深く再帰する」recurrent depth scaling は、test-time compute の異なる使い方を提案する。Snell ら [@snell2024computeoptimal] の compute-optimal、Brown ら [@brown2024monkeys] の log-linear coverage と並べて、両者の使い分けを論じる。
+
+[→ 詳細:]{.detail-link} [Depth vs Token Scaling](scaling.qmd)
+
+**[ARC-AGI と小規模モデル](arc-agi.qmd)**: HRM/TRM が主戦場とする ARC-AGI は 2025 年から 2026 年にかけて大きく動いた。ARC Prize 2024 [@chollet2024arcprize] と 2025 [@chollet2026arcprize] の優勝手法、Test-Time Training（TTT）の有効性 [@akyurek2024ttt]、ARC-AGI-2/3 の登場、Frontier LLM の追い上げを整理し、HRM/TRM 系の現在地と限界を見極める。
+
+[→ 詳細:]{.detail-link} [ARC-AGI と小規模モデル](arc-agi.qmd)
+
+**[実装ガイド](implementation.qmd)**: 主要 5 論文と前駆実装 Sotaku について、公式リポジトリ・ライセンス・必要な GPU・データ取得・落とし穴を 1 か所にまとめる。`pip install` で 30 分の最短経路から、論文値再現の 1 日経路、PTRM 自前実装の 1 週間経路まで、研究者が実際に手を動かすための取り掛かりを提供する。
+
+[→ 詳細:]{.detail-link} [実装ガイド](implementation.qmd)
+
+**[未解決問題](open-problems.qmd)**: 本書の各章末に散在する「限界」「future work」を 9 つの open problem に整理する。CoT との adaptive allocation、verifier の天井問題、latent state の解釈性、open-domain への汎化、abstract domain の自動設計、train→test compute substitution、scaling law、ベンチマーク選定バイアス、AGI への道といった問題について、現状の到達点と取り掛かりの第一歩を示す。
+
+[→ 詳細:]{.detail-link} [未解決問題](open-problems.qmd)
+
+## 本書を貫く 6 つの観察
+
+章ごとに細部を見るだけでは読み落とす横断的なパターンを、最初に提示しておく。
+
+**観察 1: 系譜の長さ**。 HRM の技術部品（depth-wise recurrence、weight-tied transformer、implicit differentiation、adaptive halting）は 2016 年から 2021 年にかけてほぼ出揃っていた。HRM/TRM/GRAM は突然の発明ではなく、長い depth recurrence 系統の合流点に立つ。「アーキテクチャ的に novel」と論じるときは、その novel が部品なのか組み合わせなのかレジームなのかを区別する必要がある。
+
+**観察 2: 物語の剥がれ**。 HRM は「脳の階層構造」「fixed-point 近似」「adaptive halting」という 3 つの主張を装飾として持っていた。TRM の ablation はこの 3 つを順次外しても性能が改善することを示し、ARC Prize Foundation の独立検証は階層が 5 pp 程度しか効かないと指摘した。**実証的検証は装飾的説明と本質的機構を分離する**。本書はこの作業を主要 5 論文すべてに対して行う。
+
+**観察 3: depth と width の双対性**。 PTRM が PPBench で「$K=100$ 並列 rollout が depth 倍化を 4 倍上回る」と定量化した観察と、GRAM が示した「Sudoku-Extreme で $N=20, K=16$ の並列軌道集約が $K=320$ の深い decoder を超える」という結果は、test-time compute 配分論として重要な実例である。CoT 側の Best-of-N と recursion 深さの関係を考える上で、両者は独立な scaling 軸として扱える可能性がある。
+
+**観察 4: 解釈性と soundness のトレードオフ**。 CoT の自然言語 trace は人間が読めて verifier も挟みやすい。一方、HRM/TRM/PTRM/GRAM の latent state は人間には可視ではない。これは「reasoning の構造を trace から読む」系列の研究手法（attribution graph、prefix consensus、faithfulness 分析）が直接適用できないことを意味する。PTRM は学習済 TRM の Q head が「事実上の verifier」として機能することを発見し、latent のままで verifier 統合を実現した。LDT はさらに踏み込み「latent を lattice に投影することで解釈可能にする」方向で攻め、解か abstain かの empirical soundness を獲得している。recursive reasoning の解釈性は単一の答えがある問題ではなく、設計判断ごとに別の軸が立ち上がる新カテゴリである。
+
+**観察 5: 評価ベンチマークへの依存性**。 HRM/TRM/PTRM/GRAM が圧倒する Sudoku、Maze、ARC-AGI はいずれも格子状の構造化出力を持つタスクで、訓練時に puzzle 識別子による条件付けが許される。それ以外の reasoning タスク（HLE、FrontierMath、open-domain QA など）への汎化は未検証である。「小規模モデルが Frontier LLM を上回る」というナラティブを評価するには、ベンチマークの選定バイアスを明示的に意識する必要がある。本書執筆時点で PTRM は Pencil Puzzle Bench という別の verifier 装備の benchmark でも 91.2 % を出すことを示しているが、これも依然「閉じた constraint satisfaction」のスコープであり、open-domain reasoning との橋渡しは未解決のまま残されている。
+
+**観察 6: 確率化と sound deduction の直交分岐**。 TRM の決定論的最小核から派生する 3 系統が 2026 年に出揃った。PTRM は test-time にだけ noise を流し学習済 TRM をそのまま使う最小介入である。GRAM は train-time に確率項を学習し variational に訓練することで unconditional generation も同一モデルで獲得する。LDT は確率性ではなく abstract interpretation の lattice projection を加え sound deduction を獲得する。三者は同じ問題（TRM の単一決定論的軌道の限界）に対する独立した工学解として並走しており、いずれが優位かは task の性質（複数解 CSP、verifier 装備、logical structure の明確さ等）で大きく変わる。
+
+::: {.callout-tip}
+## 前提知識
+
+Transformer と attention の基本、CoT と test-time scaling の概念、変分推論（Variational Inference, VI; GRAM の章で必要）、fixed-point iteration（HRM の章で深掘り）を仮定する。Adaptive Computation Time（ACT）と Deep Equilibrium Models（DEQ）の概要は本書の系譜章で扱うため事前知識は不要。
+:::
+
+::: {.callout-note collapse="true"}
+## 本書が扱わないこと
+
+- **LLM の Reinforcement Learning from Verifiable Rewards（RLVR）や Process Reward Model（PRM）の詳細**: 本書はこれらを LLM 側の話題として外し、recursive reasoning model 内の対応物（HRM の Q-head、GRAM の Latent PRM）に焦点を絞る。
+- **Diffusion Language Model（DLLM）の基本定式**: GRAM の variational latent trajectory は diffusion と数学的に類縁だが、本書では recursive reasoning 文脈での挙動のみを扱う。
+- **ARC-AGI の競技史の網羅**: 関連する範囲（HRM/TRM が比較対象とする手法）に絞る。
+- **脳科学的妥当性の評価**: HRM が引用する hierarchical processing や theta-gamma coupling の神経科学的根拠は、本書では「論文が引用しているもの」として記述するに留め、その妥当性自体を評価しない。
+- **推論最適化の深掘り**: 各モデルの公式リポジトリ・必要な計算資源・落とし穴は [実装ガイド](implementation.qmd) で扱う。一方、kernel-level 最適化や量子化のような低レイヤの実装最適化は対象外。
+:::

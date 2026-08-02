@@ -1,0 +1,204 @@
+---
+pagetitle: "概要"
+---
+
+# Diffusion Language Models 全体像
+
+Diffusion Language Models（DLLM）は、画像生成で成功した拡散モデルの考え方を言語モデリングに持ち込む試みである。Autoregressive（AR）な大規模言語モデル（Large Language Model, LLM）が左から右への逐次生成を行うのに対し、DLLM は系列全体を並列に扱い、`[MASK]` トークンを段階的に埋めていく iterative refinement で生成する。本書は、現代的な DLLM を理解するための主要文献を整理し、定式化・サンプリング戦略・連続拡散モデルとの対応関係に加え、AR からの適応・派生 discrete モデル・ハイブリッド・推論加速・guidance・事後学習（RL）・マルチモーダル化・応用領域までを体系的にまとめる。サーベイ論文 Li et al. 2025 [@li2025dlmsurvey] の taxonomy と整合させた構成になっている。
+
+## DLLM とは何か
+
+### AR LLM との違い
+
+AR LLM はトークン列を $p_\theta(x) = \prod_i p_\theta(x_i \mid x_{<i})$ と因子化し、左から右へ 1 トークンずつ生成する。一方 DLLM は、系列全体に対する分布 $p_\theta(x)$ を「ノイズを段階的に除去する過程」として学習する。具体的には、
+
+- **Forward 過程**: クリーンな系列 $x_0$ にノイズを徐々に加え、最終的にすべて `[MASK]` の系列にする
+- **Reverse 過程**: 全 `[MASK]` から始め、各ステップで `[MASK]` を予測して埋めていく
+
+という構造である。AR と違い、生成順序は逐次でなく並列でよく、左右両方向の文脈を見ながら埋められる。
+
+### なぜ DLLM が注目されるか
+
+- **並列生成**: 1 ステップで複数トークンを同時に確定できるため、推論時のステップ数を削減可能
+- **双方向の文脈利用**: 各トークンの予測時に左右両方の context を見られる
+- **編集・穴埋めの自然な定式化**: 任意の位置の `[MASK]` を埋める設定は、infilling・編集タスクに自然
+- **推論時介入の余地**: ステップごとに介入できるため、guidance や制御が AR より柔軟に乗る
+
+## 定式化の系譜
+
+DLLM の主要な定式化は、**masked / absorbing discrete diffusion** の流れに沿って発展してきた。
+
+```{mermaid}
+%%| label: fig-genealogy
+%%| fig-cap: "離散拡散言語モデルの定式化の系譜"
+flowchart LR
+    MaskGIT["MaskGIT (2022)<br/>画像版・confidence unmask"]
+    D3PM["D3PM (2021)<br/>離散拡散の基礎数学"]
+    SEDD["SEDD (2024)<br/>concrete score / ratio matching"]
+    MDLM["MDLM (2024)<br/>BERT 訓練に帰着"]
+    LLaDA["LLaDA (2025)<br/>8B スケール・実用サンプラ"]
+    Dream["Dream (2025)<br/>対抗モデル"]
+
+    D3PM --> MDLM
+    D3PM --> SEDD
+    MDLM --> LLaDA
+    MDLM --> Dream
+    MaskGIT -.-> LLaDA
+    MaskGIT -.-> Dream
+```
+
+**D3PM**（Austin+ 2021）が discrete diffusion の foundational な数学を提供し、**MDLM**（Sahoo+ 2024）がそれを「重み付き BERT 訓練」という極めて簡潔な目的関数に集約した。**LLaDA**（Nie+ 2025）はこの定式化を 8B パラメータにスケールし、実用的なサンプリング戦略を提示している。
+
+
+[→ 詳細:]{.detail-link} [MDLM: Masked Diffusion Language Models](mdlm.qmd)
+
+[→ 詳細:]{.detail-link} [LLaDA: 大規模 Masked DLM とサンプリング](llada.qmd)
+
+## MDLM の中核アイデア
+
+MDLM の核心は、連続時間 $t \in [0,1]$ で各トークンを独立に確率 $t$ で `[MASK]` に置換する forward 過程を考えると、ELBO が **重み $1/t$ の masked cross-entropy** に簡略化されることである。
+
+$$\mathcal{L} = \mathbb{E}_{t, x_t} \left[ \frac{1}{t} \sum_i \mathbf{1}[x_t^i = \texttt{[MASK]}] \log p_\theta(x^i \mid x_t) \right]$$
+
+これは BERT のランダムマスク予測の連続時間一般化であり、「DLLM の訓練とは何か」を 1 本の式で表現する。
+
+
+[→ 詳細:]{.detail-link} [MDLM: Masked Diffusion Language Models](mdlm.qmd)
+
+## サンプリング戦略
+
+LLaDA に代表される現代的な DLLM のサンプラは、おおむね次のループを回す。
+
+1. 全位置を `[MASK]` で初期化
+2. 各ステップで全位置に予測を出す
+3. **信頼度上位 $k$ 個を unmask**、残りはそのまま、または再マスク
+4. 全位置が確定するまで繰り返す
+
+この confidence-based unmasking の原型は、画像生成の MaskGIT（Chang+ 2022）に遡る。低信頼度位置の再マスク（low-confidence remasking）や、ブロック単位で半自己回帰的に生成する semi-autoregressive sampling など、実用的な工夫が多数提案されている。
+
+
+[→ 詳細:]{.detail-link} [LLaDA: 大規模 Masked DLM とサンプリング](llada.qmd)
+
+[→ 詳細:]{.detail-link} [MaskGIT: Confidence-based Iterative Unmasking の源流](maskgit.qmd)
+
+## 連続拡散モデルとの対応関係
+
+画像系で発展した連続拡散モデル（DDPM, SBM, VP-SDE 等）と MDLM は、**構造的には強く対応するが数学的対象が異なる**。
+
+- **対応する部分**: forward でノイズを加えて reverse で除く構造、ELBO から損失を導出する流れ、SNR 重み付け、guidance の枠組み
+- **対応しない部分**: スコア関数 $\nabla_x \log p(x)$、SDE / probability flow ODE、VE/VP の区別
+
+連続拡散の知識を「型」として持っておくと MDLM の式が一発で読めるが、離散側ではスコアではなく $x_0$-prediction の cross-entropy で同じ目的を達成している、と理解すると良い。
+
+
+[→ 詳細:]{.detail-link} [連続拡散と離散拡散の橋渡し](continuous-discrete-bridge.qmd)
+
+## 関連する離散拡散の系譜
+
+MDLM 以外にも離散拡散の定式化はいくつかあり、それぞれ異なる選択をしている。
+
+- **D3PM**: uniform / absorbing / discretized Gaussian など多様な遷移行列を統一的に扱う foundational な定式
+- **SEDD**: 確率比 $p(y)/p(x)$（concrete score）を学習する ratio matching ベースの定式
+
+これらを知っておくと、MDLM の選択（absorbing transition + $x_0$-prediction CE）がなぜ「スコア関数を回避した」結果として簡潔になるのかが見える。
+
+
+[→ 詳細:]{.detail-link} [D3PM と SEDD: 離散拡散の別の選択肢](d3pm-sedd.qmd)
+
+## 派生と発展
+
+MDLM 定式化と LLaDA スケール化が確立して以降、領域は大きく 4 方向に広がっている。
+
+- **派生 discrete DLM**: MDLM の改良 (RDM, MD4, DiffusionBERT)、代替定式化 (DFM, RADD, DDPD, MGDM, GIDD)、LLaDA 系の scale-up (LongLLaDA, UltraLLaDA, LLaDA-MoE, Seed Diffusion)
+- **AR からの適応と画像拡散からの拡張**: DiffuLLaMA / Dream-7B が示した AR 事前学習を起点にする経路、D-DiT / Muddit の画像拡散モデル起点の経路
+- **ハイブリッド AR-Diffusion**: SSD-LM, AR-Diffusion, BD3-LM, CtrlDiff, SpecDiff, SDAR, TiDAR, SDLM。AR と DLM の連続体を訓練段階・推論段階の両方で実装する
+- **マルチモーダル化**: LLaDA-V, MMaDA, LaViDa, Dimple, UniDisc, Lumina-DiMOO 等。VQ-VAE による統一トークン化と masked diffusion による cross-modal 生成
+
+
+[→ 詳細:]{.detail-link} [AR-to-DLM Adaptation: 自己回帰モデルからの拡散言語モデル適応](ar-to-dllm-adaptation.qmd)
+
+[→ 詳細:]{.detail-link} [Recent Discrete DLMs: 離散 DLM の最近の発展](discrete-recent-models.qmd)
+
+[→ 詳細:]{.detail-link} [Hybrid AR-Diffusion: AR と DLM のハイブリッド系譜](hybrid-ar-diffusion.qmd)
+
+[→ 詳細:]{.detail-link} [Multimodal DLM: マルチモーダル拡散言語モデル](multimodal-dllm.qmd)
+
+## 推論加速・guidance・事後学習
+
+訓練済み DLM から性能を引き出す側でも研究が急速に進んでいる。
+
+- **推論加速**: parallel decoding (Fast-dLLM, APD, SlowFast, Dimple, dParallel)、KV/feature cache (dLLM-cache, dKV-Cache, Elastic-Cache, BD3-LM, FreeCache)、step distillation (Di4C, DLM-One)。AR とのレイテンシ差は商用クラス実装 (Mercury, Gemini Diffusion) で逆転しつつある
+- **Guidance**: classifier guidance / CFG の離散版 (Nisonoff CTMC, Schiff simple guidance)、LLaDA の CFG、A-CFG, DINGO, FreeCache
+- **Post-training (RL)**: DoT / DCoLT による CoT 翻案、GRPO 一族 (d1, DiffuCoder の coupled-GRPO, UniGRPO, SPG, wd1, IGPO, SAPO, BGPO)、VRPO による DPO 化
+
+
+[→ 詳細:]{.detail-link} [Inference Acceleration: DLM の推論高速化](inference-acceleration.qmd)
+
+[→ 詳細:]{.detail-link} [Guidance: 拡散言語モデルにおける条件付き生成と推論時介入](guidance.qmd)
+
+[→ 詳細:]{.detail-link} [Post-Training (RL): DLM の事後学習と推論能力強化](post-training-rl.qmd)
+
+## 応用領域
+
+DLM の構造的利点 (並列性・双方向性・iterative refinement・編集の自然さ) は応用領域で具体化されている。
+
+- **Code 生成**: DiffuCoder, Mercury Coder, DCoLT, DUS。global planning と iterative refinement に強い
+- **Biology / Scientific**: DPLM, DPLM-2, MeMDLM, CFP-Gen, DRAKES, ForceGen, DSM, TransDLM, TGM-DLM。protein / 分子は本質的に非系列的で DLM 親和性高
+- **Robotics (VLA)**: LLaDA-VLA, dVLA, UD-VLA。視覚観測 → CoT → action token を同時生成
+- **Conventional NLP**: 編集 (EditText), 構造制約 (PoetryDiffusion), planning (PLANNER) など
+
+
+[→ 詳細:]{.detail-link} [Applications: DLM の応用領域](applications.qmd)
+
+## 分野の成熟度と俯瞰
+
+DLLM は AR LLM に比べてまだ多くの領域が未確立だが、上記のとおり各領域に具体的手法が出揃いつつある。サーベイ Li et al. 2025 [@li2025dlmsurvey] は本書執筆時点で利用可能な最も包括的な俯瞰であり、本書はその taxonomy に整合させて章を配置している。
+
+- **訓練レシピ**: mask schedule・ノイズ設計、AR からの適応の最適性などまだ研究中
+- **サンプリング**: confidence-based unmask, remasking, semi-AR, parallel decoding が出揃ったが評価軸の標準化は未確立
+- **推論時介入**: guidance, constrained decoding, 編集系の介入は各論として確立、レシピの統合は未完
+- **評価**: DLM 固有の評価軸 (NFE あたり性能, editability, bidirectional 知識利用) は未開拓
+- **理論**: 表現力・収束性・AR との対応・data-hungry な scaling law など初期段階
+
+
+[→ 詳細:]{.detail-link} [Survey: Li et al. 2025 サーベイの俯瞰](survey-li2025.qmd)
+
+[→ 詳細:]{.detail-link} [DLLM 分野の現状と未解決問題](open-problems.qmd)
+
+## 本書の読み方
+
+サイドバーは「定式化と基盤」「スケールと派生」「推論と介入」「事後学習と応用」「俯瞰と展望」の 5 区分にまとめている。最短経路として推奨するのは以下である。
+
+1. **定式化 (3-4 章)**: 本書の中核。[MDLM](mdlm.qmd) → [LLaDA](llada.qmd) → [連続 vs 離散](continuous-discrete-bridge.qmd) を読めば現代 DLM の骨格が立体的に把握できる
+2. **派生 (関心領域に応じて)**: AR からの適応に興味があれば [AR-to-DLM Adaptation](ar-to-dllm-adaptation.qmd)、最新の discrete 系を眺めるなら [Recent Discrete DLMs](discrete-recent-models.qmd)、ハイブリッドなら [Block Diffusion](block-diffusion.qmd) → [Hybrid AR-Diffusion](hybrid-ar-diffusion.qmd)
+3. **推論・運用 (実装者向け)**: [Inference Acceleration](inference-acceleration.qmd) と [Guidance](guidance.qmd) はサンプラ設計や条件付き生成を実装する読者向け
+4. **発展 (研究者向け)**: [Post-Training (RL)](post-training-rl.qmd) は DLM の RL 微調整、[Multimodal DLM](multimodal-dllm.qmd) は cross-modal な拡張、[Applications](applications.qmd) は領域別の応用事例
+5. **俯瞰**: 全体像を最後にもう一度押さえたい場合は [Survey: Li et al. 2025](survey-li2025.qmd) と [Open Problems](open-problems.qmd) で締める
+
+ジャンルごとに章は独立で読めるが、推論加速・guidance・post-training は LLaDA 章のサンプラ記述、multimodal は LLaDA / Block Diffusion 章、applications は Multimodal / Post-training 章の知識を前提にすると理解が深い。
+
+::: {.callout-tip}
+## 連続拡散の知識を既に持つ読者へ
+
+連続拡散モデル（DDPM, SBM, VP-SDE 等）を知っているなら、MDLM を読みながら適宜 [連続拡散と離散拡散の橋渡し](continuous-discrete-bridge.qmd) を先回りして参照すると、「ああ、あの $x_0$-prediction の離散版ね」と即座に見える。ただし離散側ではスコアではなく cross-entropy で同じ目的を達成する点に注意。
+:::
+
+::: {.callout-note collapse="true"}
+## 本書が扱わないこと
+
+本書は主要文献の理解を目的としており、以下は扱わない:
+
+- 個別実装の詳細なコードレベルの解説（公式リポジトリと論文の Appendix を参照）
+- DLLM を使った具体的アプリケーション開発の手順
+- 最新の preprint 全般のフォロー（執筆時点で公開済みの主要論文に限定）
+
+また、本書は「分野の地図」を提供することを目的としており、各論文の網羅的なベンチマーク再現や厳密な定理証明には踏み込まない。
+:::
+
+## まず読む 3 本
+
+主要論文・記事へのリンクは各章で個別に示すが、最初に押さえるべき 3 本を挙げておく。
+
+- **MDLM**: Sahoo et al. "Simple and Effective Masked Diffusion Language Models" [arXiv:2406.07524](https://arxiv.org/abs/2406.07524)
+- **LLaDA**: Nie et al. "Large Language Diffusion Models" [arXiv:2502.09992](https://arxiv.org/abs/2502.09992)
+- **Sander Dieleman's blog** ([sander.ai](https://sander.ai/)): "Diffusion language models" など、連続/離散の橋渡しに有用な俯瞰記事群

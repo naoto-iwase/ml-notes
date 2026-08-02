@@ -1,0 +1,287 @@
+---
+pagetitle: "Embedding-Space Diffusion"
+---
+
+# Embedding-Space Diffusion
+
+本章はテキスト拡散のもう一つの系譜、**連続埋め込み空間でのガウシアン拡散**を扱う。離散トークンを連続ベクトルへ埋め込み、そこへ通常の連続拡散（Denoising Diffusion Probabilistic Models（DDPM）系）をそのまま適用する路線である。2022〜2023 年に Diffusion-LM [@li2022diffusionlm]、DiffuSeq [@gong2023diffuseq]、SED [@strudel2022sed]、CDCD [@dieleman2022cdcd]、Plaid [@gulrajani2023plaid] と続いた一連の研究がこの系譜を形成しており、masked 離散拡散（Masked Diffusion Language Model（MDLM）[@sahoo2024mdlm]、LLaDA [@nie2025llada]）が主流となる前のテキスト拡散の中心であった。
+
+本書の他章で扱う離散側の系譜とは設計選択が大きく異なる。スケーリングの観点では離散側が現時点で優位だが、連続側にも guidance や常微分方程式（Ordinary Differential Equation, ODE）系の蓄積など、捨てがたい道具立てがある。本章は両系譜を並置するための見取り図を提供することを目的とする。
+
+## 二つの系譜
+
+テキストに拡散モデルを当てる際、forward 過程の置き方には大きく二つの自然な選択肢がある。
+
+(a) **離散のまま離散の forward を設計する**: D3PM、SEDD、MDLM、LLaDA 系。[D3PM と SEDD](d3pm-sedd.qmd) と [MDLM](mdlm.qmd) で扱う。
+(b) **トークンを連続ベクトルへ埋め込み、その上でガウシアン拡散を回す**: Diffusion-LM、DiffuSeq、SED、CDCD、Plaid。本章で扱う。
+
+両者は 2022〜2023 年に並行して進んでいたが、その後のスケールアップ競争では (a) が優勢になった。とはいえ (b) の系譜で蓄積されたアイデア —— 埋め込み丸め、classifier guidance、self-conditioning、likelihood ベースの定式化 —— は離散側にも影響を残しており、また将来再評価されうる要素もある。
+
+連続側と離散側の対応関係そのものは [連続拡散と離散拡散の橋渡し](continuous-discrete-bridge.qmd) で論じた通りである。本章では (b) 系譜の論文群を時系列で並べ、何が共有されており、何がモデル固有のアイデアかを整理する。
+
+::: {.callout-tip}
+## 一言で言うと
+
+埋め込み空間拡散は「連続拡散をテキストにそのまま当てる」自然な路線で、2022〜2023 年に主流だった。離散拡散が後にスケールで勝ったが、guidance や ODE などの連続側の道具は今でも魅力がある。
+:::
+
+## 基本レシピ: 埋め込み拡散
+
+埋め込み空間拡散の基本構造はおおむね全論文で共有されている。@fig-embedding-pipeline に流れを示す。
+
+```{mermaid}
+%%| label: fig-embedding-pipeline
+%%| fig-cap: "埋め込み空間テキスト拡散の基本パイプライン"
+
+flowchart LR
+    T0["トークン列<br/>x ∈ V^L"] -->|"embed e(·)"| E0["e_0 ∈ R^(L×d)"]
+    E0 -->|"forward<br/>ガウシアンノイズ"| Et["e_t = √α̅_t e_0 + √(1-α̅_t) ε"]
+    Et -->|"denoiser<br/>(Transformer)"| Ehat["ê_0"]
+    Ehat -->|"rounding<br/>nearest neighbor"| T1["復元トークン列"]
+```
+
+各ステップは次のように対応する。
+
+- **埋め込み**: トークン $x^i \in \mathcal{V}$ を埋め込みベクトル $e(x^i) \in \mathbb{R}^d$ に写す。系列全体は $e_0 \in \mathbb{R}^{L \times d}$
+- **Forward**: 連続拡散と同じガウシアン拡散
+
+$$
+e_t = \sqrt{\bar\alpha_t}\, e_0 + \sqrt{1-\bar\alpha_t}\, \boldsymbol\epsilon, \qquad \boldsymbol\epsilon \sim \mathcal{N}(0, I)
+$$
+
+- **Reverse**: denoiser $\hat e_\theta(e_t, t)$ が $e_0$（あるいは等価に $\epsilon$ やスコア）を予測。連続拡散の標準的なパラメタ化がそのまま使える
+- **Rounding**: 復元された $\hat e_0$ を最近傍の埋め込みに丸めて離散トークンへ戻す
+
+最後の rounding ステップが連続側に存在しない要素で、後述する通りこの系譜の弱点の中心でもある。逆に、ここを除けば「テキストに対する連続拡散」はほぼ DDPM そのままで動かせる、というのが 2022 年時点での驚きであった。
+
+::: {.callout-note}
+## 埋め込みは学習可能か固定か
+
+論文によって埋め込み $e(\cdot)$ を学習対象に含めるか、事前学習済みの固定埋め込みを使うかが異なる。Diffusion-LM は埋め込みも学習し、Plaid なども含めて学習可能とする系統が多い。学習可能にすると次節で触れる「埋め込み崩壊」のリスクが生じる代わりに、拡散とより整合的な空間を獲得できる利点がある。
+:::
+
+連続拡散側の理論はそのまま流用できる。変分下限（Evidence Lower Bound, ELBO）の信号雑音比（Signal-to-Noise Ratio, SNR）-based 重み付け、$\epsilon$-prediction / $x_0$-prediction の等価性、classifier-free guidance、ODE サンプラ。全部そのまま動く。離散側のように forward を新規に設計する必要がない、というのが埋め込み路線の最大の長所であった。
+
+## Diffusion-LM: 制御可能生成の原型
+
+Diffusion-LM [@li2022diffusionlm] は「テキストに連続拡散を本格的に当てる」最初の代表的な実証である。NeurIPS 2022 で発表され、後続の埋め込み拡散研究の基準点となった。
+
+主な構成要素は次の通りである。
+
+- **学習可能な埋め込み**: 固定の word2vec などではなく、埋め込み自体を拡散モデルと同時に学習する。「拡散にとって扱いやすい埋め込み空間」を獲得することを意図している
+- **rounding 損失**: 連続側で $\hat e_0$ を予測する損失に加えて、$\hat e_0$ から元のトークンを正しく丸められるよう cross-entropy 項を補助損失として加える
+- **classifier guidance**: 属性分類器の勾配を埋め込み空間で取って denoiser に足す。連続拡散の標準テクニックがテキストでも同様に使える
+
+最後の点が Diffusion-LM の最大の魅力である。Diffusion-LM 論文は構文木の制約、意味属性、長さ、品詞列など 6 つの細粒度制御タスクで自己回帰（Autoregressive, AR）ベースラインを上回ることを示した。連続側で確立されている classifier guidance を埋め込み空間で計算するだけで、制御性が AR より高くなる、という結果は当時のコミュニティへの強い動機付けになった。
+
+スケールは GPT-2 級と控えめである。Diffusion-LM の主張は「大規模で AR に勝つ」ではなく「**この路線が成立すること、特に制御性で連続拡散の利点が活きること**」を示した点にある。
+
+::: {.callout-note}
+## Classifier guidance が効く理由
+
+埋め込み空間では分類器に対する勾配 $\nabla_e \log p(c \mid e_t)$ がそのまま定義できる。離散側でこれに相当する操作は logit に足し込む形に翻訳する必要があり、より制限的になる。連続埋め込み路線の guidance はこの「勾配がそのまま使える」点で離散側より素直である。
+:::
+
+## DiffuSeq: 条件付き seq2seq への拡張
+
+DiffuSeq [@gong2023diffuseq] は埋め込み拡散を **条件付き seq2seq** へ拡張した。ICLR 2023 で発表された。
+
+中心的なアイデアは **partial noising** である。入力系列 $w^x$ と目標系列 $w^y$ を連結した上で、目標側の埋め込みにのみガウシアンノイズを加え、入力側はクリーンなまま denoiser に渡す。
+
+$$
+e_t = [\, e(w^x);\, \sqrt{\bar\alpha_t}\, e(w^y) + \sqrt{1-\bar\alpha_t}\, \boldsymbol\epsilon \,]
+$$
+
+これは encoder-decoder 構造をエンコーダーを別途持たずに実現する工夫で、forward 過程の側で条件付けを表現している。ノンオートレグレッシブ翻訳の系譜（CMLM など）が「マスクを使って同じことをしていた」のを、連続埋め込みでの partial noising に書き換えた、と読むのが自然である。
+
+DiffuSeq は paraphrase、対話応答、question generation、text simplification の 4 タスクで AR / NAT ベースラインと比較し、多様性指標を含めて競争力を示した。AR が決定論的に最尤系列を返しがちなのに対し、拡散モデルは温度に相当する確率的な分岐を持つので、**多様性が要求されるタスクで分が良い** という主張が支配的である。
+
+::: {.callout-note collapse="true"}
+## NAT との関係
+
+非自己回帰翻訳（NAT）の系譜では、CMLM (Ghazvininejad+ 2019) などが既に「マスクされた目標を繰り返し埋める」アプローチを取っていた。DiffuSeq はそれを連続埋め込み上のガウシアン拡散として書き直したもので、形式的には NAT の自然な拡張に当たる。masked 拡散の DLLM が後に取る semi-AR sampling の発想とも近縁である。
+:::
+
+## SED: Self-conditioned Embedding Diffusion
+
+SED [@strudel2022sed] は埋め込み拡散の品質を底上げする工夫として **self-conditioning** を取り入れた。元々は画像側の連続拡散で Chen+ 2022 が提案した手法で、SED はそれをテキスト埋め込み拡散に持ち込んだ。
+
+通常の denoiser は $\hat e_\theta(e_t, t)$ という形で、現在の状態 $e_t$ と時刻 $t$ から予測を出す。self-conditioning ではこれを
+
+$$
+\hat e_\theta\bigl(e_t,\, t,\, \tilde e_0\bigr)
+$$
+
+の形に拡張する。$\tilde e_0$ は **前ステップで denoiser 自身が出力した $\hat e_0$** である。訓練時には確率 $p$ で $\tilde e_0$ を実際の予測値（gradient なし）にし、確率 $1-p$ で $\tilde e_0 = 0$ にする。推論時は前ステップの予測を素直に渡せばよい。
+
+実装上は入力チャネルが 1 つ増えるだけのほぼタダの変更だが、サンプル品質が目に見えて改善する。これは画像側でも知られていた現象で、テキスト埋め込み拡散でも同様に効くことを SED が確認した形である。後続の埋め込み拡散研究（Plaid を含む）はこの工夫を標準採用している。
+
+## CDCD: カテゴリカルデータのための連続拡散
+
+CDCD [@dieleman2022cdcd] は連続拡散を **カテゴリカルデータ向けに丁寧に設計し直した** 研究である。DeepMind の Dieleman らによる仕事で、埋め込み拡散の理論面での到達点の一つに位置づけられる。
+
+主要な貢献は次の二点である。
+
+- **Score interpolation**: 離散カテゴリ分布 $p(x)$ に対し、埋め込みのスコア関数を「カテゴリ確率の補間」として再解釈する。これにより、埋め込みで動かしながらも、カテゴリカルな構造を陽に活かせる
+- **Time warping**: 学習中に SNR の分布が均一になるよう、時刻 $t$ のサンプリング分布を適応的に変形する。連続拡散の loss-aware time sampling の離散カテゴリ版に相当する
+
+CDCD は単なる「テキストに DDPM を当てる」を超えて、**カテゴリカル確率分布として正しく連続拡散を書き下す** ことを目指している。後で見る Plaid の likelihood 評価も、この種の丁寧な定式化の上にこそ成り立つ。
+
+::: {.callout-note collapse="true"}
+## 連続化の正当性
+
+カテゴリカル変数を連続埋め込みで扱う際の理論的気持ち悪さ —— 真の確率分布は離散なのに連続空間で近似してしまう —— は CDCD が最も真剣に扱った問題である。Sander Dieleman 自身のブログ [@dieleman2025diffusionlm] は、この観点で離散側と連続側を対比的に振り返っている。
+:::
+
+## Plaid: 尤度ベースでの競争力
+
+Plaid [@gulrajani2023plaid] は埋め込み拡散の **尤度** に焦点を絞った仕事である。NeurIPS 2023 で発表され、埋め込み拡散がスケールでも一定の競争力を持ちうることを示した。
+
+Plaid の主張は明快で、サンプル品質や下流タスク性能ではなく、**生コーパス上の負対数尤度 (NLL)** を最小化することを最優先にする。これは AR 言語モデルの伝統的な評価軸であり、拡散モデルでこの土俵に乗ること自体が論争的だった。
+
+工夫として、
+
+- **学習可能な埋め込みと正則化**: 埋め込みの規模を制御し、後述する崩壊を回避
+- **noise schedule の最適化**: SNR ベースの schedule をデータに合わせて調整
+- **self-conditioning**: SED 由来の工夫を取り込み
+- **time warping**: CDCD 流の時刻分布変形
+
+を組み合わせる。Plaid 1B は **GPT-2 124M を尤度ベンチで上回る** ことを示した。「同じスケールでは AR を超えるか同等」という主張で、当時の埋め込み拡散としては最も AR に近づいた結果である。
+
+ただし、AR 側もこの数年で 1B 級は通過点となっており、現代の AR LLM スケール（数十 B〜）との比較では Plaid の数値が決定的とは言えない。Plaid の意義は「**埋め込み拡散でも尤度を真面目に最適化すれば AR の土俵で戦える**」を示した点にある。
+
+## 系譜の対比
+
+ここまでに挙げた 5 本の関係を @tbl-embedding-lineage にまとめる。
+
+| 論文 | 年 | 中心アイデア | 主な評価軸 |
+|---|---|---|---|
+| Diffusion-LM [@li2022diffusionlm] | 2022 | 学習可能埋め込み + classifier guidance | 制御性（6 タスク） |
+| DiffuSeq [@gong2023diffuseq] | 2023 | partial noising で seq2seq 化 | seq2seq の多様性 |
+| SED [@strudel2022sed] | 2022 | self-conditioning | 品質改善（汎用） |
+| CDCD [@dieleman2022cdcd] | 2022 | score interpolation, time warping | カテゴリカル定式化 |
+| Plaid [@gulrajani2023plaid] | 2023 | 尤度最小化を主眼 | NLL（vs GPT-2） |
+
+: 埋め込み拡散の代表論文 {#tbl-embedding-lineage}
+
+@tbl-embedding-lineage の通り、各論文は「埋め込み拡散」という同じ土俵で異なる側面を磨いている。Diffusion-LM が制御性で旗を立て、DiffuSeq が条件付き生成へ拡張し、SED が品質工夫を提供し、CDCD が理論を整備し、Plaid が尤度で勝負する、という分業的な構図である。
+
+```{mermaid}
+%%| label: fig-embedding-timeline
+%%| fig-cap: "テキスト拡散の二系譜のタイムライン（概観）"
+
+flowchart TB
+    subgraph EMB["埋め込み空間拡散 (連続)"]
+        DiffLM["Diffusion-LM<br/>NeurIPS 2022"]
+        SED2["SED 2022"]
+        DiffuSeq2["DiffuSeq<br/>ICLR 2023"]
+        CDCD2["CDCD 2022"]
+        Plaid2["Plaid<br/>NeurIPS 2023"]
+    end
+    subgraph DISC["離散 (masked / absorbing) 拡散"]
+        D3PM["D3PM 2021"]
+        SEDD["SEDD 2024"]
+        MDLM["MDLM 2024"]
+        LLaDA["LLaDA 2025"]
+    end
+    DiffLM --> SED2 --> DiffuSeq2 --> CDCD2 --> Plaid2
+    D3PM --> SEDD --> MDLM --> LLaDA
+    Plaid2 -.スケールで離散側へ流れる.-> MDLM
+```
+
+@fig-embedding-timeline では二系譜を縦に並べた。2022〜2023 年は埋め込み側が活発で、2024 年以降に masked 離散側がスケール競争で前に出る、というのが大まかな流れである。
+
+## なぜ埋め込み拡散はスケールで後退したか
+
+masked 離散拡散（MDLM、LLaDA）がスケールで埋め込み拡散を追い越した経緯には、いくつかの構造的な理由がある。
+
+### 1. Rounding 誤差
+
+埋め込み拡散の出力は連続ベクトル $\hat e_0$ であり、最終的にはトークンに丸める必要がある。この最近傍探索は
+
+- 埋め込み空間の幾何に強く依存し、近傍が混雑している語では揺らぐ
+- 訓練ロスは連続側で測られるため、丸めた後の精度と完全には一致しない
+
+という二重の不整合を生む。MDLM は丸め操作自体が存在せず、$x_0$-prediction が直接 softmax 上の確率を返すため、この種の誤差を構造的に避けられる。
+
+### 2. 埋め込み崩壊
+
+埋め込み $e(\cdot)$ を学習可能にすると、モデルは「埋め込みのノルムを小さく保つ」ことで denoising を簡単にできる。ノルムが小さければ加えるノイズも相対的に小さく、復元が容易になる。これは表現を学ぶ動機を弱める方向に作用する。
+
+CDCD や Plaid は正則化や schedule 調整でこのリスクを抑えているが、masked 離散側にはそもそもこの問題が存在しない。固定の語彙インデックスを学習する形で `[MASK]` が定義されているため、「ノルムを小さくして楽をする」自由度がない。
+
+### 3. 目的関数の素直さ
+
+MDLM の損失は「重み付き masked cross-entropy」という、BERT そのものと言える形式に帰着する。これは
+
+- 既存の BERT 系コードベースをほぼそのまま流用できる
+- 安定した訓練と素直なスケーリング挙動を持つ
+- デバッグが容易
+
+という実装側の利点に直結する。埋め込み拡散の損失は「embedding L2 + rounding CE + 補助項」という多項式的な構造になりやすく、各項のバランスを取るためのチューニングが要る。
+
+[D3PM と SEDD の章](d3pm-sedd.qmd) で議論した通り、離散側の中でも MDLM が他を抜いた最大の理由は実装の単純さである。埋め込み拡散はその意味で「単純さの軸で MDLM に二重に負けた」と言える。
+
+### 4. ベンチマーク上のスケーリング
+
+LLaDA-8B [@nie2025llada] のような masked 離散拡散の大規模実装は、同等パラメータ規模の AR LLM ベースラインに対し標準ベンチで競争的な性能を示している。一方、埋め込み拡散側は Plaid 1B 以降の本格的なスケールアップが公にはあまり進んでおらず、結果として「実用品質を出している大規模 DLLM は離散側」という構図が固定化した。
+
+::: {.callout-note}
+## 「スケールで負けた」と「アイデアが負けた」は別
+
+埋め込み拡散がスケールで後退したことと、その中で生まれたアイデア（classifier guidance の連続側ナチュラルさ、self-conditioning、time warping、likelihood 最小化）が負けたことは別問題である。後者は離散側にも一部移植されているし、未だ離散側で十分に活かしきれていないものもある。
+:::
+
+## 復権の可能性
+
+連続埋め込み路線が再評価されうる方向もいくつか指摘されている。
+
+- **Guidance の自然さ**: classifier guidance の勾配 $\nabla_e \log p(c \mid e_t)$ は埋め込み空間でそのまま定義できる。離散側で同じことをやろうとすると logit-space の代替手段に翻訳する必要があり、表現力に制限が出やすい
+- **ODE サンプラの蓄積**: 連続拡散には DDIM、DPM-Solver、Heun 系など、ステップ数削減と数値安定性のための豊富な道具がある。離散側はこれを直接は使えず、対応物（confidence-based unmask、semi-AR スケジューラ）を別途整備する必要がある
+- **Consistency model / distillation**: 連続側で発展した consistency model 系の蒸留手法も、埋め込み空間ではほぼそのまま流用できる
+- **編集タスクの自然さ**: 連続空間での補間や向きベクトル操作は、ある種の編集・スタイル変換タスクで離散側より素直に書ける
+
+[@dieleman2025diffusionlm] のブログ記事は、離散側と連続側の長所を組み合わせた **ハイブリッド** の方向性 —— たとえば離散 forward と連続的な reverse の混合、あるいは埋め込みベースの guidance を masked 拡散へ移植する試み —— について示唆している。決定的な構造はまだ無いが、両系譜の道具立てを完全に分離して語れる時期は終わりつつある。
+
+## 二系譜の比較表
+
+最後に、埋め込み拡散と masked 離散拡散を主要軸で比較しておく。@tbl-emb-vs-masked にまとめる。
+
+| 軸 | 埋め込み空間拡散 | masked 離散拡散 |
+|---|---|---|
+| 状態空間 | $\mathbb{R}^{L \times d}$（連続） | $\mathcal{V}^L$（離散、`[MASK]` を含む） |
+| Forward | ガウシアン拡散 | absorbing transition |
+| 学習目的 | embedding L2 + rounding CE 等 | 重み $1/t$ の masked CE |
+| パラメタ化 | $\epsilon$-pred / $e_0$-pred / score-pred | $x_0$-prediction |
+| 出力 | 連続ベクトル → 最近傍丸め | トークン確率（softmax） |
+| Guidance | classifier guidance が素直に効く | CFG が主、classifier は翻訳要 |
+| ODE サンプラ | DDIM 等そのまま | 離散版に翻訳が必要 |
+| Self-conditioning | 自然に組み込める | 移植は研究中 |
+| スケール実績 | Plaid 1B 程度 | LLaDA 8B 程度 |
+| 主な弱点 | rounding 誤差、埋め込み崩壊 | guidance 表現力、編集の柔軟性 |
+
+: 埋め込み空間拡散と masked 離散拡散の比較 {#tbl-emb-vs-masked}
+
+@tbl-emb-vs-masked から見えるのは、両系譜が **異なる軸で得意分野を持つ** ことである。スケールと素直な最尤訓練では離散側、guidance と連続側道具立ての流用では埋め込み側、というすみ分けは現時点でほぼ安定している。
+
+## まとめ
+
+埋め込み空間でのテキスト拡散は、**画像で発展した連続拡散をテキストにそのまま当てる** 最も自然な路線として 2022〜2023 年に活発に研究された。
+
+- Diffusion-LM [@li2022diffusionlm] が classifier guidance による細粒度制御で旗を立て
+- DiffuSeq [@gong2023diffuseq] が partial noising で seq2seq へ拡張し
+- SED [@strudel2022sed] が self-conditioning で品質を底上げし
+- CDCD [@dieleman2022cdcd] がカテゴリカル拡散の理論を整備し
+- Plaid [@gulrajani2023plaid] が尤度で GPT-2 124M を上回るところまで到達した
+
+しかし 2024 年以降、MDLM [@sahoo2024mdlm] や LLaDA [@nie2025llada] に代表される masked 離散拡散が、目的関数の素直さ、rounding 誤差の不在、埋め込み崩壊の不在を武器にスケールで先行している。
+
+それでも埋め込み路線は **guidance、ODE サンプラ、consistency 蒸留、編集の自然さ** といった連続側道具を引き継ぐ強みを保っており、ハイブリッド方向 [@dieleman2025diffusionlm] を含めて完全に過去のものとは言いがたい。本書の他章で扱う離散側を中心に学んだ読者にとっても、もう一つの系譜の存在と、そこから生まれたアイデアの所在は押さえておく価値がある。
+
+## 関連章へのリンク
+
+- 連続側と離散側の対応関係: [連続拡散と離散拡散の橋渡し](continuous-discrete-bridge.qmd)
+- 離散側の foundational な定式: [D3PM と SEDD](d3pm-sedd.qmd)
+- スケール時代の masked 離散: [MDLM](mdlm.qmd), [LLaDA](llada.qmd)
+- 残された open problem: [DLLM の open problems](open-problems.qmd)
+

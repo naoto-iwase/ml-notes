@@ -1,0 +1,244 @@
+---
+pagetitle: "Applications"
+---
+
+# Applications: Domain-Specific DLM Use Cases
+
+Diffusion Language Models (DLM) bring the framework established in image generation over to discrete sequences. Their structural properties — parallelism, bidirectionality, iterative refinement, and the naturalness of editing — show real value precisely in domains where Autoregressive (AR) Large Language Models (LLM) struggle. In this chapter, taking §7 of the survey [@li2025dlmsurvey] as a backbone, we organize DLM applications into four areas: **(1) code generation, (2) biology and science, (3) robotics (Vision-Language-Action, VLA), and (4) conventional Natural Language Processing (NLP)**.
+
+The lineage of applications largely divides into two strands. The first takes general-purpose DLMs such as LLaDA [@nie2025llada] or Dream [@ye2025dream] as a base and applies fine-tuning or Reinforcement Learning (RL) on top; recent work in VLA and code generation follows this mainline. The second trains domain-specific DLMs from scratch, which is where the protein and small-molecule work sits. Both share the property of structurally exploiting at least one of the following: **generation under partial constraints (infilling, motif scaffolding)**, **throughput from parallel inference**, or **error correction via iterative refinement** — each of which is hard to achieve in AR.
+
+## Code Generation
+
+Code carries strong syntactic constraints and long-range dependencies, and rewrites and completions occur frequently. Unlike the left-to-right causality of natural language, **non-sequential editing** — writing a reference before its function definition, fixing a function body to match a later return type — is intrinsically necessary. The global planning and iterative refinement of DLMs are well aligned with this property, and several DLMs that match or exceed AR scores have appeared recently.
+
+### DiffuCoder: A Dedicated 7B Masked DLM
+
+DiffuCoder [@gong2025diffucoder] is a 7B masked DLM trained specifically for code generation. The paper systematically analyzes DLM behavior on code generation and offers the following observations.
+
+- **Flexibility of generation order**: As temperature rises, the order of fixing drifts away from left-to-right and a more **lateral** generation trajectory emerges. In AR, raising temperature still leaves positional order fixed left-to-right, whereas in DLMs temperature alters the order of fixing itself
+- **Coupled-GRPO**: A novel sampling scheme that constructs masked-noise candidates complementarily during training. By running two forward passes over the same sequence with different mask patterns, the variance of Group Relative Policy Optimization (GRPO) is suppressed, yielding clear improvements on HumanEval and MBPP
+
+DiffuCoder is the first full-scale demonstration that DLM-specific post-training recipes should be optimized as something distinct from AR-style RL recipes. For RL details, see [Post-Training (RL)](post-training-rl.qmd).
+
+### DCoLT: Outcome-Based RL for Stronger Reasoning
+
+DCoLT [@huang2025dcolt] views the entire reverse diffusion process as **non-linear lateral thinking** and combines outcome-based RL (using only the final reward) with an unmasking policy module. With LLaDA as a base, it improves HumanEval by **+19.5** on a code task, reaching territory hard to attain with AR.
+
+The important implication of DCoLT is that, in DLM RL, the trajectory of "**which positions were unmasked at which steps**" can itself be treated as a policy. While AR RL struggles with credit assignment for a single generation trajectory, DLMs pass through multiple intermediate states, giving rise to a new design dimension — **at which stage of iterative refinement to attribute the reward**.
+
+### DUS: Inference-Only Dilated Unmasking
+
+The Dilated Unmasking Scheduler (DUS) [@luxembourg2025dus] is an inference-only method that requires no additional training. At each denoising step, it unmasks non-adjacent positions chosen so as to minimize an **upper bound on the joint entropy gain**.
+
+- Planner-free (no external planner network required)
+- Improves the speed-quality trade-off in code generation
+- Drops in on top of existing DLMs such as DiffuCoder
+
+The motivation behind DUS is simple: simultaneously unmasking adjacent positions creates inter-dependencies strong enough to propagate errors, so it is entropy-wise safer to **simultaneously fix distant positions** with weaker correlation.
+
+### Mercury Coder: A Commercial-Class DLM
+
+Mercury Coder [@labs2025mercury] is a commercial DLM by Inception Labs that demonstrates the throughput advantage of DLMs in code generation.
+
+- On major code benchmarks (HumanEval, MBPP, etc.), up to **10×** the throughput of speed-optimized AR models
+- Quality stays in a comparable range
+- Provided commercially as an API
+
+Mercury — alongside Gemini Diffusion [@deepmind2024geminidiffusion] and Seed Diffusion [@song2025seeddiffusion] — marks the transition of DLMs from research stage to commercial product. Code generation in particular is a domain where low latency and the generation of many completion candidates translate directly into value, so DLM parallelism feeds straight into product differentiation.
+
+## Biological and Scientific Applications
+
+Biopolymers such as proteins, DNA, and small molecules behave according to **global structure rather than local sequential order**. The major tasks — motif scaffolding (designing the remainder given a functional motif), conditional folding (generating the rest conditioned on a partial sequence), and inverse folding (recovering a sequence from a structure) — are all forms of **generating the remainder under partial observation**, and align naturally with the infilling formulation of masked DLMs. The artificial choice of sequence order that AR requires can be structurally avoided in DLMs.
+
+### Protein Language Diffusion: The DPLM Family
+
+DPLM [@wang2024dplm] is a masked diffusion language model for protein sequences that achieves both **generation and representation learning**. The traditional dichotomy in which masked language model (MLM)-based protein models like ESM-2 are strong at representation while AR-style protein models are strong at generation is unified in a single stage by a DLM.
+
+DPLM-2 [@wang2024dplm2] is a multimodal extension of DPLM that discretely tokenizes 3D structural coordinates and enables **joint generation** of sequence and structure.
+
+- Sequence → structure (folding)
+- Structure → sequence (inverse folding)
+- Sequence + structure co-design
+
+These are unified as a single model's **conditional infilling**. This contrasts with AR, where the generation order between sequence and structure must be set artificially, making co-design intrinsically difficult.
+
+MeMDLM [@goel2024memdlm] is a masked DLM built on top of ESM-2 and specialized for de novo design of transmembrane proteins. It is designed so that hydrophobic-pattern constraints characteristic of membrane proteins can be injected as sequence-level conditions into intermediate states of masked diffusion.
+
+CFP-Gen [@yin2025cfpgen] is a diffusion language model for **Combinatorial Functional Protein generation** that integrates multi-modal constraints over function, sequence, and structure. It achieves high success rates in multi-functional protein design and generates de novo sequences with activity comparable to natural proteins.
+
+DSM [@hallee2025dsm] applies LLaDA's masked diffusion formulation to protein sequences, aiming — like DPLM — to combine generation and representation. The paper explicitly leaves LLaDA-inspired RL post-training as a direction for future extension.
+
+### Small-Molecule Generation: TransDLM and TGM-DLM
+
+TransDLM [@xiong2025transdlm] addresses **text-guided molecular optimization**. The target property is described in natural language and used as a condition to edit existing molecules so as to satisfy the target. Doing the same in AR turns into a two-stage procedure — identify the edit site, then regenerate — which is prone to **error propagation**, whereas DLMs avoid this through simultaneous updates of masked regions.
+
+TGM-DLM [@gong2024tgmdlm] is a text-guided molecule generation method that **collectively and iteratively updates** the token embeddings of SMILES strings, achieving generation performance that exceeds MolT5-Base without any additional data. Because SMILES grammar constraints (bracket matching, atom valence, etc.) act as long-range dependencies, bidirectional refinement is more advantageous than AR.
+
+### RL Integration and Special-Purpose Objectives: DRAKES, ForceGen
+
+DRAKES [@wang2025drakes] is an RL fine-tuning method for discrete diffusion models that backpropagates reward through discrete samples via the **Gumbel-Softmax** trick. The gap between continuous reward (binding affinity, functional activity, etc.) for DNA/protein design and discrete generated tokens is smoothly bridged by Gumbel-Softmax.
+
+ForceGen [@ni2024forcegen] generates de novo proteins that satisfy non-linear targets in **mechanical unfolding** (maximum load, extension, etc.). It is a rare example that conditions protein language diffusion on a mechanical objective and directly optimizes mechanical properties in sequence space.
+
+::: {.callout-note}
+## Why DLMs Are Structurally Advantageous in Biology
+
+Motif scaffolding (fixing a known active site and designing the rest of the sequence) can be naturally written in a masked DLM as an initialization where **specific positions are observed and the rest are `[MASK]`**. Doing the same in AR requires either artificially designing a generation order that crosses the fixed region or implementing constrained decoding separately. Likewise, inverse folding (structure observation → sequence prediction) maps cleanly onto a formulation in which the full sequence is recovered by masked diffusion conditioned on structure.
+:::
+
+## Robotics (Vision-Language-Action)
+
+Vision-Language-Action (VLA) models are a framework in which visual observation → linguistic reasoning → generation of an action token sequence is performed by a single model. Actions, once discretely tokenized (binarizing gripper open/close, bucketing joint angles, etc.), can be treated like language, and stacking these on top of an LLM or Vision-Language Model (VLM) has become the standard approach. The reasons DLMs are well-suited to VLA are as follows.
+
+- **Long-horizon future prediction is parallelizable**: Tens of steps of future actions can be iteratively refined in a single batch
+- **Visual subgoals, chain-of-thought (CoT), and actions can be generated jointly**: They are all solvable in parallel as a single `[MASK]` sequence
+- **Efficient handling of observations via prefix attention**: Placing visual observations on the prompt side makes the KV-cache effective
+- **Opportunity for error correction**: While AR cannot recover from a mistaken action, a DLM can look back at earlier actions in later stages and re-mask them
+
+### LLaDA-VLA: Repurposing a General-Purpose DLM for VLA
+
+LLaDA-VLA [@wen2025lladavla] is one of the earliest cases of fine-tuning LLaDA into a VLA task as a base. The two key tricks are:
+
+- **Localized special-token classification**: Since the action-token vocabulary is far smaller than the language vocabulary, classification over a limited vocabulary is performed only at action positions
+- **Hierarchical action decoding**: A hierarchy of high-level actions (move to / grasp, etc.) and low-level actions (concrete joint angles) is mapped onto the stages of iterative refinement
+
+It surpasses AR VLA baselines (such as OpenVLA) on both simulation and real robots, demonstrating that general-purpose DLMs are a strong base for VLA.
+
+### dVLA: Multimodal Joint Generation with MMaDA as Backbone
+
+dVLA [@wen2025dvla] takes MMaDA [@yang2025mmada], a multimodal diffusion foundation model, as its backbone and jointly generates three modalities — **visual subgoal image, textual CoT, and discretized action** — by joint diffusion.
+
+- Visual subgoal: predicted image a few steps ahead
+- Textual CoT: rationale for the action ("reach for cup because...")
+- Action: concrete joint command
+
+These are arranged in a single token sequence and the whole is generated by masked diffusion. With prefix-attention masking and KV caching, it achieves inference for long-horizon manipulation tasks that is more efficient than AR.
+
+### UD-VLA: Joint Discrete Diffusion of Images and Actions
+
+UD-VLA (Unified Diffusion VLA) [@chen2025udvla] proposes a Joint Discrete Denoising Diffusion Process that **synchronously denoises future image tokens and action tokens in the same token space**.
+
+- Image tokens and action tokens are treated identically under the same masked diffusion
+- Mutual constraints ("if I move like this, this is what I will see") are expressed in a single denoising process
+- SOTA on benchmarks, with inference that is clearly faster than AR
+
+The significance of UD-VLA is that it **unifies the world model (next-state prediction) and the policy (next-action prediction)**. While AR designs typically place the world model and the policy in separate heads, DLMs can couple them through joint denoising.
+
+## Conventional NLP
+
+Even before the rise of large-scale DLMs, diffusion-based natural language processing was explored broadly — classification, extraction, summarization, dialogue, machine translation, and more. While most of this work is on the legacy side, we pick out several representative cases where DLM structural advantages stand out.
+
+### Editing: EditText
+
+EditText [@lee2025editext] is an SDEdit-based **controllable coarse-to-fine text editing** framework. It brings the SDEdit idea of "resume denoising from a mid-noise state to edit an image" into the text domain, combining it with self-conditioning to improve edit precision. Infilling and editing are an essential strong point of masked DLMs, and can be expressed more naturally than AR's constrained editing (rewriting only a specific portion while preserving the rest).
+
+### Planning: PLANNER
+
+PLANNER [@zhang2023planner] combines a **latent diffusion planning module** with an autoregressive decoder for paragraph generation. Paragraph semantic embeddings are generated by diffusion in latent space, and the final text is produced by an AR decoder conditioned on them.
+
+- Latent diffusion captures global structure ("the theme and arc of the entire paragraph")
+- AR ensures local fluency
+- Repetition and redundancy are suppressed
+
+The hierarchical division "global plan via diffusion, local realization via AR" serves as one design pattern that leverages the structural advantages of DLMs.
+
+### Constrained Generation: PoetryDiffusion
+
+PoetryDiffusion [@hu2024poetrydiffusion] tackles poetry generation, handling **simultaneous constraints over semantics and metrical structure**.
+
+- Semantics are generated by a diffusion model
+- Meter is enforced by an independently trained metrical controller
+- The two are combined at inference time
+
+Because metrical constraints (syllable count, rhyme patterns) depend on the global structure of the sequence, they are hard to satisfy with AR-style local decoding. The design of inserting an external controller into DLM iterative refinement can be applied as a general template for constrained generation.
+
+### Dialogue: DiffusionDialog
+
+DiffusionDialog [@xiang2024diffusiondialog] addresses the **one-to-many problem** in dialogue generation (multiple valid responses for the same context) via diffusion over a continuous latent. While AR's temperature sampling trades off diversity against quality, latent diffusion controls diversity at the **sampling stage in the latent** and quality at the **decoding stage** independently.
+
+### Machine Translation: XDLM
+
+XDLM [@chen2023xdlm] introduces a cross-lingual pre-training objective tailored to diffusion models, learning the inter-language mapping at the pretraining stage. The advantages of diffusion in machine translation lie in capturing long-range dependencies and in being able to refine the whole target while looking at the whole source.
+
+### Classification and Extraction: ROIC-DM, DiffusionNER, IPAD
+
+These are unconventional uses of DLMs in which the **label space itself is diffused**.
+
+- **ROIC-DM** [@yuan2024roicdm]: In text classification, **the class label is diffused**. Improves adversarial robustness
+- **DiffusionNER** [@shen2023diffusionner]: Formulates Named Entity Recognition (NER) as **boundary denoising**. The start/end positions of entities are iteratively refined from random noise
+- **IPAD** [@xiang2025ipad]: Frames scene text recognition as conditional text generation, balancing recognition accuracy and inference speed via **easy-first decoding**
+
+These move beyond the naive view of "DLM = text generation" and provide the broader perspective that **arbitrary structured outputs can be generated by denoising**. Outputs with discrete structure such as boundaries, labels, or selection sets all fall within the reach of DLMs.
+
+### Other Representatives
+
+In summarization, DiffuSum [@zhang2023diffusum] treats extractive summarization as diffusion over sentence representations. This is also an example of structured-output generation in the sense of "diffusing **the set of selected sentences**."
+
+## Cross-Domain Comparison
+
+@tbl-applications summarizes representative methods in each domain and how the structural advantages of DLMs are concretely brought to bear.
+
+| Domain | Representative method | Base / type | Main DLM advantage | Main result / notes |
+|------|---------|-------------|----------------|----------------|
+| Code | DiffuCoder [@gong2025diffucoder] | dedicated 7B masked DLM | iterative refinement, non-sequential editing | HumanEval/MBPP improved via coupled-GRPO |
+| Code | DCoLT [@huang2025dcolt] | LLaDA base + outcome RL | whole trajectory as policy | HumanEval +19.5 |
+| Code | DUS [@luxembourg2025dus] | inference-only | joint entropy control | speed-quality improved, planner-free |
+| Code | Mercury Coder [@labs2025mercury] | commercial DLM | parallelism | 10× throughput vs. AR |
+| Bio | DPLM [@wang2024dplm] | masked protein DLM | infilling, representation + generation | unifies sequence generation and representation |
+| Bio | DPLM-2 [@wang2024dplm2] | multimodal extension of DPLM | joint sequence + structure | unifies folding / inverse folding |
+| Bio | MeMDLM [@goel2024memdlm] | ESM-2 fine-tune | domain specialization | de novo design of transmembrane proteins |
+| Bio | CFP-Gen [@yin2025cfpgen] | multimodal protein DLM | composite constraints | high success rate in multi-functional protein design |
+| Bio | DSM [@hallee2025dsm] | LLaDA-inspired | generation + representation | room for LLaDA-style RL |
+| Bio | TGM-DLM [@gong2024tgmdlm] | text-guided SMILES | collective token updates | surpasses MolT5-Base |
+| Bio | TransDLM [@xiong2025transdlm] | text-guided molecule | naturalness of editing | avoids error propagation |
+| Bio | DRAKES [@wang2025drakes] | RL fine-tune | reward backprop via Gumbel-Softmax | DNA/protein design |
+| Bio | ForceGen [@ni2024forcegen] | protein language diffusion | non-linear mechanical objectives | de novo protein |
+| Robotics | LLaDA-VLA [@wen2025lladavla] | LLaDA base | hierarchical action, parallel inference | surpasses AR VLA baselines |
+| Robotics | dVLA [@wen2025dvla] | MMaDA backbone | joint vision + CoT + action | prefix attn + KV cache |
+| Robotics | UD-VLA [@chen2025udvla] | joint discrete diffusion | unifies world model + policy | SOTA, fast inference |
+| NLP | EditText [@lee2025editext] | SDEdit + text | infilling, editing | coarse-to-fine control |
+| NLP | PLANNER [@zhang2023planner] | latent diffusion + AR | global plan | paragraph generation |
+| NLP | PoetryDiffusion [@hu2024poetrydiffusion] | diffusion + metrical controller | constrained generation | semantics + meter |
+| NLP | DiffusionDialog [@xiang2024diffusiondialog] | latent diffusion | handles one-to-many | dialogue diversity |
+| NLP | XDLM [@chen2023xdlm] | cross-lingual diffusion | bidirectional context | machine translation |
+| NLP | ROIC-DM [@yuan2024roicdm] | diffuse the label | adversarial robustness | text classification |
+| NLP | DiffusionNER [@shen2023diffusionner] | boundary denoising | structured output | NER |
+| NLP | IPAD [@xiang2025ipad] | iterative parallel decoding | easy-first | scene text recognition |
+| NLP | DiffuSum [@zhang2023diffusum] | diffuse sentence selection | generation over a selection set | extractive summarization |
+
+: Representative DLM methods in each application domain and their structural advantages {#tbl-applications}
+
+## State of Commercialization
+
+Commercial deployment of DLMs has rapidly accelerated through 2024-2025.
+
+- **Mercury Coder** [@labs2025mercury]: Inception Labs, commercial DLM specialized for code, 10× throughput vs. AR
+- **Gemini Diffusion** [@deepmind2024geminidiffusion]: Google DeepMind, commercial offering of a general-purpose text DLM
+- **Seed Diffusion** [@song2025seeddiffusion]: ByteDance, DLM for code generation
+
+All of these place **throughput from DLM parallelism** at the core of their product differentiation. In use cases where the inference cost of AR LLMs becomes a problem (coding assistants, real-time dialogue, batch processing), DLMs have emerged as a realistic option.
+
+::: {.callout-tip}
+## Why Commercialization Started with Code
+
+Code generation satisfies three conditions — (1) strong low-latency requirements, (2) direct value from generating many completion candidates, (3) a good match between DLMs and the combination of syntactic constraints and non-sequentiality — and was therefore chosen as the first commercialization area for DLMs. For text generation in general, the balance between AR's fluency and cost sensitivity is already commercially optimized, making the barrier higher for DLMs to break in.
+:::
+
+## Future Directions
+
+The unresolved issues and research directions common across application domains are as follows.
+
+- **Test-time scaling and reasoning**: DLMs can improve quality by increasing the number of steps $T$, but whether **prolonging iterative refinement** in reasoning tasks scales as a counterpart to AR's chain-of-thought is not yet established. RL-based methods such as DCoLT are one answer
+- **Absence of standard editing benchmarks**: Infilling, fill-in-the-middle (FIM), and controllable editing are the largest structural advantages of DLMs, but **DLM-specific benchmarks** corresponding to HumanEval established on the AR side are scarce. Standardization of evaluation metrics such as those of EditText is desirable
+- **Dedicated DLMs vs. general-purpose DLMs**: In proteins and molecules, domain-specific DLMs (DPLM, TGM-DLM) deliver results, while in code and VLA, fine-tuning from general-purpose DLMs (LLaDA, MMaDA) does. Which direction grows further in the long term will be decided by competition between domain-specific data volume and the representational power of general-purpose bases
+- **Multimodal extension**: Multi-modality joint diffusion as in DPLM-2 or UD-VLA has only just begun, and there is much room to extend toward a diffusion foundation model that unifies image, audio, 3D, and action
+- **RL standardization**: Coupled-GRPO (DiffuCoder), outcome-based RL (DCoLT), Gumbel-Softmax reward backprop (DRAKES), and so on — RL for DLMs differs paper by paper. Establishment of a **standard DLM RL recipe** corresponding to AR's RLHF / GRPO is awaited
+
+## Related Chapters
+
+- [Multimodal DLM](multimodal-dllm.qmd): The lineage of diffusion-based multimodal LLMs (MLLM) that underlies VLA — MMaDA, LLaDA-V, LaViDa, etc.
+- [Post-Training (RL)](post-training-rl.qmd): Details of the RL methods touched on in this chapter, including DiffuCoder's coupled-GRPO, DCoLT's outcome-based RL, and DRAKES's Gumbel-Softmax
+- [LLaDA](llada.qmd): The general-purpose 8B DLM that serves as the base for LLaDA-VLA, DSM, and DCoLT
+- [MDLM](mdlm.qmd): The core of the formulation for almost every masked DLM in this chapter
+

@@ -1,0 +1,287 @@
+---
+pagetitle: "Embedding-Space Diffusion"
+---
+
+# Embedding-Space Diffusion: Gaussian Diffusion on Continuous Embeddings
+
+This chapter covers the other lineage of text diffusion: **Gaussian diffusion on continuous embedding space**. The line embeds discrete tokens into continuous vectors and then applies standard continuous diffusion (the Denoising Diffusion Probabilistic Models (DDPM) family) directly. A series of works from 2022 to 2023 — Diffusion-LM [@li2022diffusionlm], DiffuSeq [@gong2023diffuseq], SED [@strudel2022sed], CDCD [@dieleman2022cdcd], and Plaid [@gulrajani2023plaid] — forms this lineage, and it was the mainstream of text diffusion before masked discrete diffusion (Masked Diffusion Language Model (MDLM) [@sahoo2024mdlm], LLaDA [@nie2025llada]) took over.
+
+The design choices differ substantially from the discrete-side lineage covered in the other chapters of this book. From the scaling perspective, the discrete side currently has the advantage, but the continuous side carries non-trivial assets such as guidance and ordinary differential equation (ODE)-family tooling. The goal of this chapter is to provide a map for placing the two lineages side by side.
+
+## Two Lineages
+
+When applying a diffusion model to text, there are two natural ways to set up the forward process.
+
+(a) **Stay discrete and design a discrete forward process**: the D3PM, SEDD, MDLM, LLaDA family. Covered in [D3PM and SEDD](d3pm-sedd.qmd) and [MDLM](mdlm.qmd).
+(b) **Embed tokens into continuous vectors and run Gaussian diffusion on top**: Diffusion-LM, DiffuSeq, SED, CDCD, Plaid. Covered in this chapter.
+
+The two proceeded in parallel during 2022 to 2023, but in the subsequent scaling race, (a) became dominant. Even so, the ideas accumulated in the (b) lineage — embedding rounding, classifier guidance, self-conditioning, likelihood-based formulation — still leave imprints on the discrete side, and some elements may be reassessed in the future.
+
+The correspondence between the continuous and discrete sides as such is discussed in [Continuous vs Discrete Diffusion: Bridging the Two](continuous-discrete-bridge.qmd). This chapter lists the papers of the (b) lineage chronologically and organizes what is shared and what is model-specific.
+
+::: {.callout-tip}
+## In One Line
+
+Embedding-space diffusion is the natural line of "applying continuous diffusion to text as-is," and it was mainstream in 2022 to 2023. Discrete diffusion later won at scale, but the continuous-side tools such as guidance and ODE samplers remain attractive.
+:::
+
+## Basic Recipe: Embedding Diffusion
+
+The basic structure of embedding-space diffusion is largely shared across the papers. @fig-embedding-pipeline shows the flow.
+
+```{mermaid}
+%%| label: fig-embedding-pipeline
+%%| fig-cap: "Basic pipeline of embedding-space text diffusion"
+
+flowchart LR
+    T0["Token sequence<br/>x ∈ V^L"] -->|"embed e(·)"| E0["e_0 ∈ R^(L×d)"]
+    E0 -->|"forward<br/>Gaussian noise"| Et["e_t = √α̅_t e_0 + √(1-α̅_t) ε"]
+    Et -->|"denoiser<br/>(Transformer)"| Ehat["ê_0"]
+    Ehat -->|"rounding<br/>nearest neighbor"| T1["Recovered tokens"]
+```
+
+Each step corresponds as follows.
+
+- **Embedding**: map a token $x^i \in \mathcal{V}$ to an embedding vector $e(x^i) \in \mathbb{R}^d$. The full sequence is $e_0 \in \mathbb{R}^{L \times d}$
+- **Forward**: the same Gaussian diffusion as continuous diffusion
+
+$$
+e_t = \sqrt{\bar\alpha_t}\, e_0 + \sqrt{1-\bar\alpha_t}\, \boldsymbol\epsilon, \qquad \boldsymbol\epsilon \sim \mathcal{N}(0, I)
+$$
+
+- **Reverse**: a denoiser $\hat e_\theta(e_t, t)$ predicts $e_0$ (or equivalently $\epsilon$ or the score). The standard parametrizations of continuous diffusion are usable as is
+- **Rounding**: the recovered $\hat e_0$ is rounded to the nearest embedding to return to discrete tokens
+
+The final rounding step is the element not present on the continuous side, and as discussed below, it is also the center of this lineage's weakness. Conversely, if one removes that step, "continuous diffusion for text" runs almost exactly like DDPM — and this was the surprising insight as of 2022.
+
+::: {.callout-note}
+## Are the Embeddings Learnable or Fixed?
+
+Whether $e(\cdot)$ is included in training or is taken as a frozen pretrained embedding differs between papers. Diffusion-LM trains the embedding jointly, and many works including Plaid take the learnable-embedding route. Making them learnable introduces the "embedding collapse" risk discussed below, but in exchange the model can acquire a space more compatible with diffusion.
+:::
+
+The continuous-diffusion theory carries over directly. The signal-to-noise ratio (SNR)-based weighting of the evidence lower bound (ELBO), the equivalence of $\epsilon$-prediction and $x_0$-prediction, classifier-free guidance, ODE samplers — all work. There is no need to design a new forward as in the discrete side, and this was the greatest advantage of the embedding route.
+
+## Diffusion-LM: The Prototype of Controllable Generation
+
+Diffusion-LM [@li2022diffusionlm] is the first representative demonstration of "seriously applying continuous diffusion to text." Presented at NeurIPS 2022, it became a reference point for subsequent embedding-diffusion research.
+
+The main ingredients are as follows.
+
+- **Learnable embeddings**: rather than a frozen word2vec or similar, the embedding itself is trained jointly with the diffusion model. The intent is to acquire an "embedding space friendly for diffusion"
+- **Rounding loss**: in addition to the loss predicting $\hat e_0$ on the continuous side, a cross-entropy term is added as an auxiliary loss so that $\hat e_0$ can be rounded back to the correct token
+- **Classifier guidance**: the gradient of an attribute classifier is taken in embedding space and added to the denoiser's output. The standard continuous-diffusion technique works for text in the same way
+
+The last point is the greatest appeal of Diffusion-LM. The paper showed that the method outperforms Autoregressive (AR) baselines on six fine-grained controllable-generation tasks — syntactic constraints, semantic attributes, length, part-of-speech sequences, and so on. The result that controllability is higher than AR simply by computing classifier guidance in the embedding space, with the established continuous-diffusion machinery, served as strong motivation for the community at the time.
+
+The scale was modest, at the GPT-2 level. The claim of Diffusion-LM is not "beating AR at large scale" but rather demonstrating that **this route is viable, especially that continuous diffusion's advantages in controllability transfer to text**.
+
+::: {.callout-note}
+## Why Classifier Guidance Works
+
+In embedding space, the gradient $\nabla_e \log p(c \mid e_t)$ with respect to a classifier is naturally defined. The corresponding operation on the discrete side must be translated into adding to the logits, which is more restrictive. Guidance on the continuous embedding route is more straightforward than on the discrete side precisely because the gradient is directly usable.
+:::
+
+## DiffuSeq: Extension to Conditional Seq2Seq
+
+DiffuSeq [@gong2023diffuseq] extended embedding diffusion to **conditional seq2seq**. It was presented at ICLR 2023.
+
+The central idea is **partial noising**. The input sequence $w^x$ and target sequence $w^y$ are concatenated, Gaussian noise is added only to the target-side embeddings, and the input side is passed to the denoiser unperturbed.
+
+$$
+e_t = [\, e(w^x);\, \sqrt{\bar\alpha_t}\, e(w^y) + \sqrt{1-\bar\alpha_t}\, \boldsymbol\epsilon \,]
+$$
+
+This is a device for realizing an encoder–decoder structure without a separate encoder; conditioning is expressed on the forward side. It is natural to read this as rewriting "what non-autoregressive translation (CMLM, etc.) had been doing with masks" into partial noising on continuous embeddings.
+
+DiffuSeq compared against AR / NAT baselines on four tasks (paraphrase, dialogue response, question generation, text simplification) and demonstrated competitive performance including diversity metrics. While AR tends to deterministically return the maximum-likelihood sequence, diffusion models retain temperature-like stochastic branching, and so the dominant claim is that **diffusion has an edge on tasks where diversity matters**.
+
+::: {.callout-note collapse="true"}
+## Relationship to NAT
+
+In the lineage of non-autoregressive translation (NAT), CMLM (Ghazvininejad+ 2019) and others had already taken the approach of "iteratively filling masked targets." DiffuSeq rewrites that as Gaussian diffusion on continuous embeddings, and is formally a natural extension of NAT. It is also a close cousin to the semi-AR sampling ideas later adopted by masked-diffusion DLLMs.
+:::
+
+## SED: Self-Conditioned Embedding Diffusion
+
+SED [@strudel2022sed] adopted **self-conditioning** as a device to lift the quality of embedding diffusion. Originally proposed by Chen+ 2022 in continuous diffusion for images, SED brought it into text embedding diffusion.
+
+A typical denoiser takes the form $\hat e_\theta(e_t, t)$, producing a prediction from the current state $e_t$ and time $t$. Self-conditioning extends this to
+
+$$
+\hat e_\theta\bigl(e_t,\, t,\, \tilde e_0\bigr)
+$$
+
+where $\tilde e_0$ is **the denoiser's own previous output $\hat e_0$**. At training time, with probability $p$, $\tilde e_0$ is set to the actual prediction (gradient stopped), and with probability $1-p$, $\tilde e_0 = 0$. At inference time, the previous-step prediction is simply passed in.
+
+Implementation-wise this is an almost free change adding one input channel, but it visibly improves sample quality. The phenomenon was known on the image side as well, and SED confirmed that it works similarly for text embedding diffusion. Subsequent embedding-diffusion works (including Plaid) treat this as standard.
+
+## CDCD: Continuous Diffusion for Categorical Data
+
+CDCD [@dieleman2022cdcd] is the work that **carefully redesigned continuous diffusion for categorical data**. From Dieleman and colleagues at DeepMind, it is one of the theoretical high-water marks of the embedding-diffusion lineage.
+
+The two main contributions are:
+
+- **Score interpolation**: for a discrete categorical distribution $p(x)$, the score function in embedding space is reinterpreted as an "interpolation of categorical probabilities." This lets the model move in embedding space while explicitly making use of the categorical structure
+- **Time warping**: during training, the sampling distribution over time $t$ is adapted so that the SNR distribution becomes uniform. This corresponds to a categorical-data version of loss-aware time sampling in continuous diffusion
+
+CDCD aims, beyond merely "applying DDPM to text," at **writing down continuous diffusion correctly as a categorical probability distribution**. The likelihood evaluation of Plaid, discussed below, presupposes this kind of careful formulation.
+
+::: {.callout-note collapse="true"}
+## Legitimacy of Going Continuous
+
+The theoretical discomfort of handling categorical variables in continuous embeddings — the true distribution is discrete, yet it is approximated in a continuous space — is the problem CDCD addresses most seriously. Sander Dieleman's own blog [@dieleman2025diffusionlm] revisits this contrast between the discrete and continuous sides.
+:::
+
+## Plaid: Competitiveness on Likelihood
+
+Plaid [@gulrajani2023plaid] is a work focused on the **likelihood** of embedding diffusion. Presented at NeurIPS 2023, it showed that embedding diffusion can have a degree of competitiveness even at scale.
+
+The claim of Plaid is clear-cut: prioritize minimizing the **negative log-likelihood (NLL)** on raw corpora, not sample quality or downstream task performance. This is the traditional evaluation axis of AR language models, and merely placing a diffusion model on this stage was itself contentious.
+
+The contributions include:
+
+- **Learnable embeddings and regularization**: control the scale of the embeddings to avoid the collapse discussed below
+- **Optimization of the noise schedule**: an SNR-based schedule adapted to the data
+- **Self-conditioning**: borrowed from SED
+- **Time warping**: in the spirit of CDCD
+
+are combined together. Plaid 1B shows that **it outperforms GPT-2 124M on likelihood benchmarks**. The claim of "matching or beating AR at the same scale" is the closest that embedding diffusion came to AR at the time.
+
+That said, the AR side has long since moved past the 1B mark, and compared to modern AR LLMs (tens of billions and beyond), Plaid's numbers are not decisive. The significance of Plaid lies in showing that **embedding diffusion, with serious likelihood optimization, can compete on AR's home turf**.
+
+## Comparison of the Lineage
+
+The relationship among the five papers above is summarized in @tbl-embedding-lineage.
+
+| Paper | Year | Central idea | Main evaluation axis |
+|---|---|---|---|
+| Diffusion-LM [@li2022diffusionlm] | 2022 | learnable embeddings + classifier guidance | controllability (6 tasks) |
+| DiffuSeq [@gong2023diffuseq] | 2023 | partial noising for seq2seq | seq2seq diversity |
+| SED [@strudel2022sed] | 2022 | self-conditioning | quality (general) |
+| CDCD [@dieleman2022cdcd] | 2022 | score interpolation, time warping | categorical formulation |
+| Plaid [@gulrajani2023plaid] | 2023 | likelihood minimization | NLL (vs GPT-2) |
+
+: Representative papers of embedding diffusion {#tbl-embedding-lineage}
+
+As shown in @tbl-embedding-lineage, each paper polishes a different facet on the same playing field of "embedding diffusion." Diffusion-LM plants the flag on controllability, DiffuSeq extends to conditional generation, SED supplies quality tweaks, CDCD organizes the theory, and Plaid competes on likelihood — a division of labor.
+
+```{mermaid}
+%%| label: fig-embedding-timeline
+%%| fig-cap: "Timeline of the two lineages of text diffusion (overview)"
+
+flowchart TB
+    subgraph EMB["Embedding-space diffusion (continuous)"]
+        DiffLM["Diffusion-LM<br/>NeurIPS 2022"]
+        SED2["SED 2022"]
+        DiffuSeq2["DiffuSeq<br/>ICLR 2023"]
+        CDCD2["CDCD 2022"]
+        Plaid2["Plaid<br/>NeurIPS 2023"]
+    end
+    subgraph DISC["Discrete (masked / absorbing) diffusion"]
+        D3PM["D3PM 2021"]
+        SEDD["SEDD 2024"]
+        MDLM["MDLM 2024"]
+        LLaDA["LLaDA 2025"]
+    end
+    DiffLM --> SED2 --> DiffuSeq2 --> CDCD2 --> Plaid2
+    D3PM --> SEDD --> MDLM --> LLaDA
+    Plaid2 -.scale momentum shifts to discrete.-> MDLM
+```
+
+@fig-embedding-timeline arranges the two lineages vertically. The rough flow is: the embedding side was active from 2022 to 2023, and the masked-discrete side stepped forward in the scaling race from 2024 onward.
+
+## Why Embedding Diffusion Receded at Scale
+
+Several structural reasons explain why masked discrete diffusion (MDLM, LLaDA) overtook embedding diffusion at scale.
+
+### 1. Rounding Error
+
+The output of embedding diffusion is a continuous vector $\hat e_0$, which must eventually be rounded to a token. This nearest-neighbor search
+
+- depends strongly on the geometry of the embedding space and wavers for words with crowded neighbors
+- is only loosely aligned with downstream accuracy because the training loss is measured on the continuous side
+
+— a double misalignment. MDLM has no rounding operation at all; the $x_0$-prediction directly returns a softmax distribution over the vocabulary, structurally avoiding this class of errors.
+
+### 2. Embedding Collapse
+
+When $e(\cdot)$ is made learnable, the model can make denoising easy by **keeping the embedding norms small**. Smaller norms mean the added noise is relatively smaller and recovery becomes easier — which works against the motivation to actually learn meaningful representations.
+
+CDCD and Plaid suppress this risk with regularization and schedule tuning, but the masked discrete side does not face this issue at all. Because `[MASK]` is defined by training a fixed vocabulary index, there is no degree of freedom for "shrinking the norm to take a shortcut."
+
+### 3. Straightforwardness of the Objective
+
+The MDLM loss reduces to a "weighted masked cross-entropy," a form essentially identical to BERT's. This directly yields implementation-side advantages such as
+
+- existing BERT-style codebases can be reused almost as-is
+- stable training and clean scaling behavior
+- ease of debugging
+
+The loss of embedding diffusion tends toward a polynomial structure of "embedding L2 + rounding CE + auxiliary terms," requiring tuning to balance each term.
+
+As discussed in the [chapter on D3PM and SEDD](d3pm-sedd.qmd), the chief reason MDLM pulled ahead even within the discrete side is the simplicity of implementation. In that sense, embedding diffusion was **doubly out-simplified** by MDLM.
+
+### 4. Scaling on Benchmarks
+
+Large-scale implementations of masked discrete diffusion such as LLaDA-8B [@nie2025llada] have shown competitive performance against same-scale AR LLM baselines on standard benchmarks. Meanwhile, on the embedding-diffusion side, public scaling-up beyond Plaid 1B has not progressed much, and as a result the configuration "the large-scale DLLMs producing usable quality are on the discrete side" has been entrenched.
+
+::: {.callout-note}
+## "Losing at Scale" and "The Ideas Losing" Are Different
+
+That embedding diffusion has receded at scale is distinct from whether the ideas born within it — the naturalness of classifier guidance on the continuous side, self-conditioning, time warping, likelihood minimization — have lost. The latter have been partially ported to the discrete side, and some have not yet been fully exploited there.
+:::
+
+## Possibilities for a Comeback
+
+Several directions point to a possible reassessment of the continuous embedding route.
+
+- **Naturalness of guidance**: the classifier-guidance gradient $\nabla_e \log p(c \mid e_t)$ is directly defined in embedding space. Doing the same on the discrete side requires translation to a logit-space alternative, which tends to limit expressiveness
+- **Accumulated ODE samplers**: continuous diffusion has a rich toolkit for reducing step count and improving numerical stability, including DDIM, DPM-Solver, and Heun-family solvers. The discrete side cannot use these directly and must develop counterparts (confidence-based unmask, semi-AR schedulers) separately
+- **Consistency models / distillation**: distillation methods such as consistency models, developed on the continuous side, can be reused on embedding spaces almost as-is
+- **Naturalness of editing tasks**: interpolation and directional-vector manipulation in continuous space are arguably more direct than on the discrete side for some editing and style-transfer tasks
+
+The blog post [@dieleman2025diffusionlm] suggests **hybrid** directions combining the strengths of both sides — for example, mixtures of discrete forward and continuous reverse, or porting embedding-based guidance into masked diffusion. No decisive design has yet emerged, but the era of treating the two lineages' tooling as fully disjoint is drawing to a close.
+
+## Comparison Table of the Two Lineages
+
+Finally, embedding diffusion and masked discrete diffusion are compared on the main axes. @tbl-emb-vs-masked summarizes.
+
+| Axis | Embedding-space diffusion | Masked discrete diffusion |
+|---|---|---|
+| State space | $\mathbb{R}^{L \times d}$ (continuous) | $\mathcal{V}^L$ (discrete, with `[MASK]`) |
+| Forward | Gaussian diffusion | absorbing transition |
+| Training objective | embedding L2 + rounding CE, etc. | masked CE with weight $1/t$ |
+| Parametrization | $\epsilon$-pred / $e_0$-pred / score-pred | $x_0$-prediction |
+| Output | continuous vector → nearest neighbor | token probabilities (softmax) |
+| Guidance | classifier guidance works straightforwardly | CFG primarily; classifier requires translation |
+| ODE sampler | DDIM, etc., directly usable | discrete-version translation needed |
+| Self-conditioning | naturally integrated | porting is under research |
+| Scaling track record | up to roughly Plaid 1B | up to roughly LLaDA 8B |
+| Main weakness | rounding error, embedding collapse | guidance expressiveness, editing flexibility |
+
+: Comparison of embedding-space diffusion and masked discrete diffusion {#tbl-emb-vs-masked}
+
+What @tbl-emb-vs-masked makes visible is that the two lineages **have strengths on different axes**. Scale and straightforward maximum-likelihood training favor the discrete side; guidance and reuse of continuous-side tooling favor the embedding side. This division has been roughly stable so far.
+
+## Summary
+
+Text diffusion in embedding space was actively studied during 2022 to 2023 as the most natural line of **applying the continuous diffusion developed for images directly to text**.
+
+- Diffusion-LM [@li2022diffusionlm] planted the flag with fine-grained controllability via classifier guidance
+- DiffuSeq [@gong2023diffuseq] extended to seq2seq via partial noising
+- SED [@strudel2022sed] lifted quality via self-conditioning
+- CDCD [@dieleman2022cdcd] organized the theory of categorical diffusion
+- Plaid [@gulrajani2023plaid] reached the point of outperforming GPT-2 124M on likelihood
+
+From 2024 onward, however, masked discrete diffusion exemplified by MDLM [@sahoo2024mdlm] and LLaDA [@nie2025llada] has led at scale, armed with the straightforwardness of its objective, the absence of rounding error, and the absence of embedding collapse.
+
+Even so, the embedding route retains the strengths of inheriting continuous-side tools — **guidance, ODE samplers, consistency distillation, naturalness of editing** — and, including hybrid directions [@dieleman2025diffusionlm], cannot fairly be called purely a relic. For readers who have learned primarily about the discrete side covered elsewhere in this book, the existence of the other lineage and the locus of ideas born within it are worth keeping in view.
+
+## Links to Related Chapters
+
+- Correspondence between continuous and discrete sides: [Continuous vs Discrete Diffusion: Bridging the Two](continuous-discrete-bridge.qmd)
+- Foundational formulations on the discrete side: [D3PM and SEDD](d3pm-sedd.qmd)
+- Masked discrete diffusion at scale: [MDLM](mdlm.qmd), [LLaDA](llada.qmd)
+- Open problems that remain: [Open problems in DLLM](open-problems.qmd)
+

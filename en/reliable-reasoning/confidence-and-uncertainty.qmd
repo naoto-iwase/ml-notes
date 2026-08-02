@@ -1,0 +1,146 @@
+---
+pagetitle: "Confidence and Uncertainty"
+---
+
+# Confidence and Uncertainty
+
+Given a reasoning trace produced by a Large Language Model (LLM), we want to estimate "does the model itself believe its answer is correct" without access to ground truth. This question sits at the entry point of every downstream application: selective prediction, abstention, Best-of-N weighting, and conformal prediction. This chapter first organizes the three main routes for estimators, then turns to the systematic miscalibration after Reinforcement Learning (RL) that was reported by multiple independent groups in 2026, and finally surveys the latest developments in sampling-based signals and their connection to downstream tasks.
+
+## Three Estimation Routes {#sec-three-routes}
+
+Confidence estimators split into three families depending on what input they consume. **logit-based** methods use token log-likelihoods or entropy, **verbalized** methods directly ask the model to report its confidence, and **sampling-based** methods measure agreement or variance across multiple samples. Representative methods are summarized in @tbl-three-routes.
+
+| Route | Input | white/black box | Representative methods | Strengths | Weaknesses |
+|------|------|------------------|----------|------|------|
+| logit-based | token logprob, predictive entropy | white-box | EAS [@zhu2026eas], Think Just Enough [@sharma2025thinkenough] | Obtained from a single generation; lightweight | Unusable for APIs without logit access |
+| verbalized | self-reported question to the model | black-box | "Are you sure?" family, DINCO [@wang2026dinco] | Works through APIs | Strong over-confidence after RL/RLHF |
+| sampling-based | agreement / variance across many samples | black-box | semantic entropy, CISC [@taubenfeld2025cisc], DiverseAgentEntropy [@feng2025diverseagent] | No logits needed; directly tied to the answer | Cost of N samples |
+
+: The three routes of confidence estimators {#tbl-three-routes}
+
+TokUR [@zhang2026tokur], accepted at ICLR 2026, is a white-box method that injects low-rank random weight perturbations at decoding time to separate aleatoric and epistemic uncertainty, sitting as an irregular case between the three routes. By aggregating token-level perturbations, it provides a framework where "the LLM self-evaluates the reliability of its own reasoning output".
+
+## Miscalibration After RL {#sec-rlvr-miscalib}
+
+The largest empirical finding of 2026 is that "post-training to turn a model into a reasoning model severely degrades confidence calibration". The same claim has been made independently by multiple groups.
+
+::: {.callout-important}
+## An Empirical Rule Independently Confirmed in 2026
+
+Reasoning models trained with Reinforcement Learning with Verifiable Rewards (RLVR) or Reinforcement Learning from Human Feedback (RLHF) exhibit severe miscalibration, assigning extremely high probabilities to both correct and incorrect answers. Expected Calibration Error (ECE) becomes substantially worse than the base model, and verbalized confidence saturates above 85%.
+:::
+
+**Decoupling Reasoning and Confidence** [@ma2026decoupling] shows that reasoning models trained via Group Relative Policy Optimization (GRPO) and similar algorithms suffer severe calibration degeneration, attributing the cause to "a gradient conflict between accuracy maximization and calibration error minimization". The authors propose a DCPO (Decoupled Calibration Policy Optimization) loss that separates reasoning and calibration objectives, improving ECE while preserving accuracy.
+
+**Reasoning about Uncertainty** [@mei2025reasoningknow] reports that when o1, o3-mini, DeepSeek-R1, Claude 3.7 Sonnet, and others are asked for verbalized confidence, extreme over-confidence is observed in which they assign 85% or higher confidence even to incorrect answers. The paper also shows a counterintuitive **depth paradox**: increasing the thinking budget worsens calibration. The effect of introspection prompts is model-dependent, improving things for o3-mini while degrading them for Claude 3.7.
+
+**Taming Overconfidence in LLMs** [@leng2024taming] identifies the root cause of verbalized over-confidence after RLHF as the reward model being biased toward high-confidence expressions and returning higher rewards for them. The authors propose PPO-M (integrating confidence scores into reward model training) and PPO-C (re-adjusting the reward during PPO using a historical average), and improve calibration on Llama3-8B / Mistral-7B across six datasets. The shift in confidence distribution before and after RLHF appears clearly in @fig-conf-rlhf-shift. Confidence that was broadly distributed across the 0.7-0.9 range at the SFT stage becomes concentrated near 1.0 after RLHF.
+
+![CommonsenseQA confidence distributions for the SFT-mixture (red) and RLHF-100k (blue) versions of Llama-3-8B. After RLHF, the vast majority of samples are pushed up to confidence ≈ 1.0, leaving almost no room for calibration. Source: [@leng2024taming]](images/conf-leng2024-rlhf-confshift.png){#fig-conf-rlhf-shift width="80%"}
+
+These findings provide fresh justification for why "sampling-based black-box signals" are necessary in modern reasoning models. They motivate investment in post-hoc external measurement under the assumption that logit-based and verbalized signals are broken.
+
+## The Collapse of Verbalized Confidence {#sec-verbalized-collapse}
+
+For verbalized confidence, negative evidence accumulated in 2026 on three fronts: internal-circuit level, decision-theoretic perspective, and direct calibration comparison.
+
+**Wired for Overconfidence** [@zhao2026wired] identifies the internal circuits that generate overconfidence using mechanistic interpretability. A compact set of mid-to-late layer MLP blocks and attention heads inflate confidence at the final token position, and targeted interventions there improve calibration. This is internal-circuit-level evidence that verbalized signals are "structurally inflated".
+
+**DINCO** [@wang2026dinco] diagnoses that "verbalized confidence is over-confident because it exhibits suggestibility toward the claim presented", and proposes a method in which the model itself generates multiple alternative claims as distractors, emits an independent verbalized confidence for each claim, and normalizes by the sum. DINCO with 10 generations operates efficiently enough to outperform self-consistency with 100 generations. The structure of the method is shown in @fig-conf-dinco-method: the verbalized confidence of the main claim is normalized by the sum of verbalized confidences over the main claim and its distractors, with additional weighting by entailment and contradiction to suppress the "boost from suggestibility".
+
+![Structure of DINCO. For the main claim, the LLM generates its own distractors and emits independent verbalized confidences for each, normalizing the main claim's confidence by the sum. Entailment (P(entail)) further down-weights redundant distractors, and contradiction (P(contradict)) down-weights non-contradictory distractors. Source: [@wang2026dinco]](images/conf-dinco-method.png){#fig-conf-dinco-method width="80%"}
+
+<strong>Are LLM Decisions Faithful to Verbal Confidence?</strong> [@wang2026faithful] introduces a benchmark called RiskEval and discovers a "utility collapse": even under a setting that imposes high penalties on wrong answers, the model does not abstain even when it reports low verbalized confidence. Verbalized confidence comes out as a number, but it is not faithful to decision-making. This is a strong claim that calibration metrics alone are insufficient for trustworthiness.
+
+::: {.callout-note}
+## The Division of Labor Among the Three Negative Results
+
+- internal circuit: @zhao2026wired explains the "why" mechanistically
+- decision-theoretic: @wang2026faithful measures "whether it is acted on"
+- direct calibration comparison: @wang2026dinco shows "what improves when replaced with sampling-based"
+
+Independently, they all support a shift to sampling-based signals.
+:::
+
+## Latest Developments in Sampling-Based Estimators {#sec-sampling-based}
+
+Sampling-based signals draw N reasoning traces and look at their agreement or entropy. Classically, self-consistency is the basic tool, and 2025–2026 has continued to extend it along the axes of "efficiency" and "diversity". See [Self-Consistency and Weighted Majority Voting](self-consistency.qmd) for details.
+
+**CISC** [@taubenfeld2025cisc] has the model itself emit a self-assessment score for each reasoning path and performs a weighted majority vote, reducing the required number of paths by over 40 percent on 9 models and 4 datasets. @fig-conf-cisc shows the contrast with self-consistency. Three reasoning paths are drawn for the same problem; self-consistency picks the wrong answer C by simple majority, while CISC weights paths by their self-assessment confidence and picks the answer A from the most confident path. An important finding is the report that "the most calibrated confidence method is the least effective in CISC". This is the point that ECE-based calibration metrics can diverge from practical discrimination in some settings.
+
+![Contrast between self-consistency and CISC. Both draw multiple reasoning paths from the same problem and aggregate answers, but self-consistency uses a plain count-based majority while CISC weights each path by its self-reported confidence. Source: [@taubenfeld2025cisc]](images/conf-cisc-overview.png){#fig-conf-cisc width="80%"}
+
+**VecCISC** [@petullo2026veccisc] addresses the high cost of CISC's multi-call to a critic LLM by clustering reasoning traces by semantic similarity and filtering out redundant / degenerate / hallucinated traces in advance. It matches or exceeds CISC accuracy while reducing token usage by 47 percent.
+
+**DiverseAgentEntropy** [@feng2025diverseagent] computes entropy in a multi-agent setup that "asks the same knowledge with different query expressions". Ordinary self-consistency only checks consistency across the same question and is therefore weak against cases where context bias drives the same incorrect answer repeatedly. The method captures genuine epistemic uncertainty rather than surface-level agreement, and achieves state-of-the-art for hallucination detection.
+
+**Unsupervised Confidence Calibration from a Single Generation** [@zollo2026singlegen] proposes a pipeline that, as a replacement for N-time sampling, builds self-consistency-based signals offline on unlabeled data, distills them into a lightweight predictor, and emits confidence from a single generation at deployment time. It substantially outperforms baselines on 5 math and QA tasks and 9 reasoning models, and is robust to distribution shift.
+
+::: {.callout-tip}
+## The Trend of Collapsing "N-Time Sampling" into One via Distillation
+
+@zollo2026singlegen represents an important direction that became clear in 2026: use a high-quality sampling-based signal as a training-data generator, then distill it into a lightweight predictor that reproduces it in a single generation. Inference-time cost can be reduced by a factor of N, which fits low-latency applications such as selective generation.
+:::
+
+## Entropy Trajectory and Step-Wise Informativeness {#sec-entropy-trajectory}
+
+Among logit-based signals, the family that treats token-level entropy as a "trajectory" has been rapidly consolidated since late 2025.
+
+**Entropy Trajectory Shape** [@zhao2026entropytraj] measures per-step answer-distribution entropy across reasoning steps and finds that its shape predicts the final accuracy. Chains with monotonically decreasing trajectories have significantly higher accuracy than non-monotone chains. Trajectory shape, rather than a scalar entropy, functions as a cheap and nearly black-box indicator of correctness.
+
+**Stepwise Informativeness Assumption** [@gonzalez2026sia] theorizes the empirical rule that "the lower the entropy in CoT, the more likely the answer is correct". The Stepwise Informativeness Assumption (SIA) is the assumption that "autoregressive models accumulate information through answer-informative prefixes", which is further reinforced by maximum likelihood training and RL. It is demonstrated across a wide range of models including Gemma-2, LLaMA-3.2, Qwen-2.5, DeepSeek, and Olmo on GSM8K, ARC, SVAMP, and others.
+
+<strong>Entropy Area Score (EAS)</strong> [@zhu2026eas] integrates token-level predictive entropy during generation into a scalar. Requiring neither an external model nor re-sampling, it shows high correlation with answer entropy across benchmarks. It is also effective for training data selection, outperforming pass-rate-based filtering. @fig-conf-eas-trajectory is a typical example of the signal that EAS captures. The answer probabilities in the upper row oscillate violently in the first half of reasoning and converge to a single choice toward the latter half. The token-level entropy in the lower row correspondingly shows successive peaks above 1.5 bits in the first half, while consistently staying below 0.5 bits in the latter half where reasoning solidifies. EAS extracts the area under this curve as a single scalar.
+
+![Example of generation-time uncertainty captured by EAS. The upper row shows per-token predicted probabilities for answer candidates A/B/C/D, and the lower row shows the corresponding token entropy. Entropy drops substantially as reasoning progresses. Source: [@zhu2026eas]](images/conf-zhu2026eas-entropy-trajectory.png){#fig-conf-eas-trajectory width="60%"}
+
+**Think Just Enough** [@sharma2025thinkenough] uses Shannon entropy computed from token-level logprobs as an early-stopping signal, achieving 25–50 percent token reduction on reasoning models. An important observation is the report that this entropy-based emergent confidence appears in post-trained reasoning models (the DeepSeek-R1 family) but does not appear in standard instruction-tuned or pre-trained models (Llama 3.3 70B). @fig-conf-entropy-cor-incor shows how sequence-level entropy distributions separate between correct and incorrect answers on GPT-OSS 20B / GPQA Diamond. Incorrect answers consistently have higher entropy (mean 0.97 bits vs 0.85 bits, Cohen's d = 0.6), and placing an early-stopping threshold at 0.845 bits practically discriminates correctness.
+
+![Sequence-level entropy distributions when GPT-OSS 20B solves GPQA Diamond problems. The entropy distributions separate between correct (blue) and incorrect (red) answers, with incorrect answers exhibiting higher entropy. This is the basis for entropy-based early stopping. Source: [@sharma2025thinkenough]](images/conf-sharma2025-entropy-correct-incorrect.png){#fig-conf-entropy-cor-incor width="80%"}
+
+::: {.callout-note}
+## A Common Implication Across the Trajectory Family
+
+@zhao2026entropytraj, @gonzalez2026sia, @zhu2026eas, and @sharma2025thinkenough together show that "how entropy moves over time" carries more information than a single scalar entropy. This supports a design for downstream selective generation that decides when to stop based on "when entropy has settled".
+:::
+
+## Downstream Applications {#sec-downstream}
+
+How the confidence signal is used is the final issue of this chapter. The representative downstream tasks can be organized into three: abstention, selective generation, and conformal prediction.
+
+### Abstention and Selective Generation
+
+**Knowing When to Quit** [@davidov2026quit] proposes a principled framework that incorporates abstention as an "explicit action" inside RL during generation, halting when the value function drops below the abstention reward. It improves selective accuracy on both mathematical reasoning and toxicity avoidance, and provides a theoretical guarantee that "if value < reward then abstaining is strictly better than any other baseline" under general conditions. It is a natural foundation for plugging in confidence signals as input to abstention.
+
+### Conformal Prediction
+
+Conformal prediction is a framework that returns a prediction set with the coverage guarantee that "the probability of containing the true answer is at least 1−α". For LLMs, two ICLR 2026 papers have decisively established the setting.
+
+**Paraphrase-Robust Conformal Prediction** [@xin2026paraconformal] is a framework robust to surface variation in the prompt while preserving the conformal coverage guarantee. It expands the input via paraphrases, reinforces the predictive distribution with an auxiliary model, and aggregates the results across paraphrases. On Qwen2.5-7B, Llama-3.1-8B, and Phi-3-small, it produces compact prediction sets while preserving nominal coverage.
+
+<strong>Online Reasoning Calibration (ORCA)</strong> [@zhou2026orca] is a meta-learning framework that performs conformal prediction dynamically at test time via test-time training. By performing dynamic calibration per input, it preserves the theoretical guarantee of conformal risk under distribution shift while achieving 47.5 percent efficiency improvement in-distribution and 67 percent on out-of-distribution MATH-500.
+
+::: {.callout-tip}
+## The Affinity Between Sampling-Based Signals and Conformal
+
+The paraphrase axis of @xin2026paraconformal and the diverse-agent axis of @feng2025diverseagent are siblings in the sense that both "ask the same knowledge with different expressions". If a sampling-based signal is read as a nonconformity score, a confidence estimate with a coverage guarantee follows naturally.
+:::
+
+### The Opposite Pole: Learning Confidence at Training Time
+
+As the opposite pole of post-hoc external measurement, there is an approach that internalizes confidence expression during training. **Rewarding Doubt** [@baniharouni2025doubt] proposes an RL training scheme that seamlessly weaves confidence expression into the generation process. The reward is the logarithmic version of a proper scoring rule, penalizing both over-confidence and under-confidence. The trained model generalizes to unseen tasks. Like @leng2024taming's PPO-M / PPO-C, it represents the axis of "embedding calibration at training time" rather than "shaping inference-time signals".
+
+::: {.callout-note}
+## Inference-Time and Training-Time Sides Are Complementary
+
+The route that measures externally at inference time (most of this chapter) and the route that builds it in at training time (@baniharouni2025doubt, @leng2024taming, @ma2026decoupling) are complementary rather than opposing. Training-time fixes raise the base level, and inference-time signals handle the residual uncertainty.
+:::
+
+## Chapter Summary {#sec-summary}
+
+- Confidence estimators split broadly into three routes — logit-based, verbalized, and sampling-based — and in modern reasoning models the reliability of the logit and verbalized routes is systematically in doubt
+- In 2026, multiple independent groups (@ma2026decoupling, @mei2025reasoningknow, @leng2024taming) confirmed that "RL post-training breaks calibration". This justifies the shift to sampling-based black-box signals
+- For verbalized confidence, negative evidence has converged from three directions: internal circuits (@zhao2026wired), decision-theoretic (@wang2026faithful), and direct comparison (@wang2026dinco)
+- The sampling-based family is evolving along both efficiency and diversity axes; in particular @zollo2026singlegen's "distill N-time signals into one" trend and @feng2025diverseagent's paraphrase axis are central
+- Entropy trajectories (@zhao2026entropytraj, @gonzalez2026sia, @zhu2026eas, @sharma2025thinkenough) extend the logit-based family from "scalars" to "trajectories", and SIA gives this a theoretical foundation
+- For downstream applications, abstention (@davidov2026quit), selective generation, and conformal prediction (@xin2026paraconformal, @zhou2026orca) are the main axes, and they are complementary to training-time calibration (@baniharouni2025doubt)

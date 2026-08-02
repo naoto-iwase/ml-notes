@@ -1,0 +1,83 @@
+---
+pagetitle: "Packing & Message Trees"
+---
+
+# Packing & Message Trees
+
+## Packing とは
+
+**Packing** は、複数の短い訓練例を1つの長いシーケンスにマージして、バッチ作成時の無駄な padding を避ける技術である。訓練例のトークン数は様々で、数百トークン（純粋なテキストや小さい画像）から16,000トークン以上（字幕付き動画や長コンテキスト訓練中の長い動画）まで幅広く分布している。
+
+### Vision-Language モデルでの課題
+
+Vision-Language Model（VLM）における Packing は、以下の理由により非自明な課題となる:
+
+- **二重のパッキング要求**: Vision Transformer（ViT）のクロップと大規模言語モデル（Large Language Model, LLM）のトークンの両方を効率的にパックする必要がある
+- **モデル多様性**: 画像・動画をトークンに変換する異なるアプローチを持つモデルをサポートする必要がある
+
+### Molmo2 のオンザフライパッキングアルゴリズム
+
+Molmo2 では、小規模なメモリ内の例のプールから最大効率のパックシーケンスを構築する **オンザフライパッキングアルゴリズム** を開発した。このアルゴリズムは標準的な PyTorch データローダーに統合可能である。
+
+::: {.callout-note icon=false}
+## 効率改善
+
+Supervised Fine-Tuning（SFT）時には、平均 **3.8 個の例** を **16,348 トークンのシーケンス** に詰め込むことができ、**15倍の訓練効率** を達成している。
+:::
+
+## Message Trees とは
+
+**Message Trees** は、複数のアノテーションを持つ動画や画像をエンコードする手法である。1つの視覚入力に対して複数の異なるアノテーション（質問応答ペア、キャプション、ポインティングなど）を効率的に処理できる。
+
+### Message Trees の構造
+
+Message Trees では、以下のような木構造でデータを表現する:
+
+```{mermaid}
+%%| label: fig-message-tree-structure
+%%| fig-cap: "Message Trees の木構造"
+
+graph TD
+    V["Visual Input<br/>(Root)"]
+    V --> A1["Annotation 1<br/>(Branch 1)"]
+    V --> A2["Annotation 2<br/>(Branch 2)"]
+    V --> A3["Annotation 3<br/>(Branch 3)"]
+    V --> A4["Annotation 4<br/>(Branch 4)"]
+
+    style V fill:#e1f5ff,stroke:#2196F3,stroke-width:2px
+    style A1 fill:#fff4e1,stroke:#FF9800
+    style A2 fill:#fff4e1,stroke:#FF9800
+    style A3 fill:#fff4e1,stroke:#FF9800
+    style A4 fill:#fff4e1,stroke:#FF9800
+```
+
+具体的には:
+
+1. 視覚入力が最初のメッセージとしてエンコードされる
+2. 各アノテーションが異なるブランチとなる
+3. 木構造が単一のシーケンスとして線形化される
+4. カスタムアテンションマスクを使用してブランチ間のクロスアテンションを防止
+
+::: {.callout-tip icon=false}
+## データ統計
+
+訓練データ内の例は、平均して **4つのアノテーション** を持っている。
+:::
+
+### アテンションマスクの実装
+
+Message Trees では、ブランチ間の独立性を保つために **カスタムアテンションマスク** を使用する。これにより、異なるアノテーション（ブランチ）が互いにアテンションすることを防ぐ。
+
+![Message Trees のアテンションマスク（論文 Figure 3）。視覚入力（ルート）には全ブランチがアテンションできる一方で、ブランチ間のクロスアテンションは禁止されており、1 シーケンスに線形化された木構造を表現している。出典: [@clark2026molmo2]](images/molmo2-attention-mask.png){#fig-attention-mask width=70%}
+
+各ブランチは視覚入力にはアテンションできるが、他のブランチには **クロスアテンションできない**。
+
+## Packing と Message Trees の相乗効果
+
+Packing と Message Trees を組み合わせることで、Molmo2 は以下を実現している:
+
+1. **高密度の訓練データ利用**: 1つの視覚入力に対する複数のアノテーションを効率的に活用
+2. **最小限のパディング**: 異なる長さの例を効率的に詰め込み、GPU メモリを有効活用
+3. **高速な訓練**: 15倍の効率化により、大規模データでの訓練を加速
+
+この2つの技術は、Molmo2 の効率的な訓練における重要な基盤となっている。

@@ -1,0 +1,244 @@
+---
+pagetitle: "Applications"
+---
+
+# Applications
+
+Diffusion Language Model（DLM）は、画像生成で確立した拡散モデルの枠組みを離散系列に持ち込んだものであり、その特性 — 並列性、双方向性、iterative refinement、編集の自然さ — は、自己回帰（Autoregressive, AR）的な大規模言語モデル（Large Language Model, LLM）が苦手な領域にこそ価値を発揮する。本章では survey [@li2025dlmsurvey] の §7 を中核に、DLM の応用を **(1) コード生成、(2) 生物学・科学、(3) ロボティクス（視覚言語行動モデル, Vision-Language-Action, VLA）、(4) 従来型の自然言語処理（Natural Language Processing, NLP）** の 4 領域に大別して整理する。
+
+応用の系譜は大きく 2 系統に分かれる。第 1 は LLaDA [@nie2025llada] や Dream [@ye2025dream] のような汎用 DLM を base にして fine-tuning や RL を当てる路線で、近年の VLA や code 系の主流である。第 2 は特定領域に特化した DLM を最初から訓練する路線で、protein・molecule 系がここに属する。いずれも、AR では困難な「**部分制約下の生成（infilling・motif scaffolding）**」「**並列推論によるスループット**」「**iterative refinement による誤り訂正**」のどれかを構造的に活用している点が共通する。
+
+## Code Generation
+
+コードは強い構文制約と長距離依存を持ち、書き換え・補完が頻繁に発生する。自然言語の左から右への因果性とは異なり、関数定義の前に参照を書く、後続の戻り値型に合わせて関数本体を訂正する、といった**非系列的な編集**が本質的に必要となる。DLM の global planning と iterative refinement はこの性質に親和的で、近年は AR と互角以上のスコアを示す DLM が複数登場している。
+
+### DiffuCoder: 専用の 7B masked DLM
+
+DiffuCoder [@gong2025diffucoder] は、code 生成専用に訓練された 7B の masked DLM である。論文は code 生成における DLM の挙動を体系的に分析し、次の観察を提示する。
+
+- **生成順の柔軟性**: 温度を上げると確定順序が左→右から外れ、より「**lateral**」な生成軌道が現れる。AR では温度を上げても依然として位置順は左→右で固定だが、DLM では温度が確定順序そのものを変える
+- **coupled-GRPO**: training 時に応答候補の masked noise を補完的に構成する新規サンプリング方式。同じ系列を異なる mask パターンで 2 回 forward することで、GRPO（Group Relative Policy Optimization）の variance を抑え、HumanEval や MBPP で明確な性能向上をもたらす
+
+DiffuCoder は、DLM 専用の post-training レシピが AR の RL レシピと別物として最適化されるべきであることを示した最初の本格的な事例である。Reinforcement Learning（RL）詳細は [Post-Training (RL)](post-training-rl.qmd) を参照。
+
+### DCoLT: outcome-based RL による reasoning 強化
+
+DCoLT [@huang2025dcolt] は、reverse diffusion 過程全体を **非線形な lateral thinking** とみなし、outcome-based RL（最終 reward のみを使う設定）と unmasking policy module を組み合わせる手法である。LLaDA を base に code task で HumanEval を **+19.5** 改善し、AR では達成困難な領域に到達している。
+
+DCoLT の重要な含意は、DLM の RL では「**どのステップで何を unmask したか**」という trajectory 全体を policy として扱える点にある。AR の RL が単一の生成軌道に対する reward 帰属に苦しむのに対し、DLM では複数の中間状態を経るため、reward を **iterative refinement のどの段に帰属させるか**という新しい設計余地が生まれる。
+
+### DUS: inference-only の dilated unmasking
+
+Dilated Unmasking Scheduler（DUS）[@luxembourg2025dus] は、追加学習を要しない inference-only の手法である。各 denoising step における **joint entropy gain の上界**を最小化するように、互いに非隣接な位置を選んで unmask する。
+
+- planner-free（外部 planner ネットワークを必要としない）
+- code 生成で speed-quality のトレードオフを改善
+- DiffuCoder などの既存 DLM にそのまま乗せられる
+
+DUS の動機は単純で、隣接する位置を同時に unmask すると相互依存が強すぎて誤りが伝播するため、相関の弱い**離れた位置を同時確定**するほうが entropy 的に安全という観察に基づく。
+
+### Mercury Coder: 商用クラスの DLM
+
+Mercury Coder [@labs2025mercury] は Inception Labs による商用 DLM で、code 生成における DLM のスループット優位性を実証した事例である。
+
+- 主要 code ベンチマーク（HumanEval, MBPP 等）で速度最適化 AR モデルを **最大 10×** 上回るスループット
+- 品質は同等レンジを維持
+- API として商用提供されている
+
+Mercury は、Gemini Diffusion [@deepmind2024geminidiffusion] や Seed Diffusion [@song2025seeddiffusion] と並び、DLM が研究段階から商用プロダクトへ移行した転換点を示している。特に code 系は、低レイテンシと多数の補完候補生成が直接価値になる領域であり、DLM の並列性がそのまま製品差別化に直結する。
+
+## Biological and Scientific Applications
+
+タンパク質、DNA、低分子（small molecule）といった生体高分子は、その振る舞いが**配列の局所的順序ではなく大域的な構造**で決まる。motif scaffolding（特定の機能部位を埋め込んで残りを設計）、conditional folding（部分配列条件付きで残りを生成）、inverse folding（構造から配列を逆引き）といった主要タスクは、いずれも **部分観測下での残り部分の生成**であり、masked DLM の infilling 定式と自然に一致する。AR がこれらを扱うときに必要となる人工的な系列順序の選択を、DLM では構造的に回避できる。
+
+### Protein language diffusion: DPLM ファミリー
+
+DPLM [@wang2024dplm] は、protein 配列に対する masked diffusion language model で、**生成と表現学習を両立**する。ESM-2 などの masked language model（MLM）ベース protein モデルが表現学習に強く、AR 型 protein モデルが生成に強いという従来の二分を、DLM が一段で統一する。
+
+DPLM-2 [@wang2024dplm2] は DPLM の multimodal 拡張で、3D 構造座標を離散 token 化し、配列と構造の **同時生成**を可能にする。
+
+- 配列 → 構造（folding）
+- 構造 → 配列（inverse folding）
+- 配列 + 構造の co-design
+
+これらが単一モデルの **条件付き infilling** として統一される。AR では配列と構造の生成順序を人為的に決める必要があり、co-design が原理的に難しいことと対照的である。
+
+MeMDLM [@goel2024memdlm] は、ESM-2 を base に膜タンパク質（transmembrane protein）の de novo 設計に特化した masked DLM である。膜タンパク質特有の疎水性パターン制約を、masked diffusion の途中状態に sequence-level の条件として注入する設計になっている。
+
+CFP-Gen [@yin2025cfpgen] は **Combinatorial Functional Protein generation** を扱う diffusion 言語モデルで、機能、配列、構造の複数 modality 制約を統合する。多機能タンパク質設計で高い成功率を達成し、natural protein に匹敵する活性を持つ de novo 配列を生成する。
+
+DSM [@hallee2025dsm] は LLaDA の masked diffusion 定式を protein 配列に適用したもので、DPLM と同様に generation と representation の両立を狙う。LLaDA inspired の RL 後段が将来の拡張余地として明示されている。
+
+### 低分子生成: TransDLM と TGM-DLM
+
+TransDLM [@xiong2025transdlm] は **text-guided molecular optimization** に取り組む。目標物性を自然言語で記述し、それを条件として既存分子を編集して目標物性を満たすよう最適化する。AR で同じことをする場合、編集箇所を特定して再生成する 2 段階手順になり**誤りの伝播**が起こりやすいが、DLM では masked region の同時更新でこれを回避できる。
+
+TGM-DLM [@gong2024tgmdlm] は SMILES 文字列の token embedding を**集合的・反復的に更新**する text-guided molecule generation 手法で、追加データなしで MolT5-Base を上回る生成性能を達成する。SMILES の文法制約（括弧の対応、原子の valence 等）が長距離依存として効くため、双方向的な refinement が AR より有利に働く。
+
+### RL 統合と特殊目的: DRAKES, ForceGen
+
+DRAKES [@wang2025drakes] は離散拡散モデル向けの RL fine-tuning 手法で、**Gumbel-Softmax** trick で離散サンプルを通して reward を backprop する。DNA・protein design の reward（binding affinity、機能活性等）が連続値である一方、生成 token は離散であるという gap を、Gumbel-Softmax で滑らかに繋ぐ。
+
+ForceGen [@ni2024forcegen] は **mechanical unfolding** の非線形目標（最大荷重、伸び等）を満たす de novo protein を生成する。protein language diffusion を mechanical objective で条件付けし、配列空間で機械物性を直接最適化する珍しい事例である。
+
+::: {.callout-note}
+## DLM が生物系で構造的に有利な理由
+
+motif scaffolding（既知の活性部位を固定して残りの配列を設計）は、masked DLM では **特定位置を観測済み、他を `[MASK]`** という初期化で自然に書ける。AR で同じことをやるには、固定部位を跨いだ生成順序を人為的に設計するか、constrained decoding を別途実装する必要がある。同様に inverse folding（構造観測 → 配列予測）も、構造を条件として配列全体を masked diffusion で復元する formulation に綺麗に乗る。
+:::
+
+## Robotics (Vision-Language-Action)
+
+視覚言語行動モデル（Vision-Language-Action, VLA）は、視覚観測 → 言語推論 → action token 列の生成を 1 つのモデルで行う枠組みである。action は離散 token 化（gripper open/close、関節角の bin 化等）すれば言語と同様に扱え、これを LLM/VLM（Vision-Language Model）の上に乗せるのが標準的なアプローチとなっている。DLM が VLA に向く理由は次の通り。
+
+- **長 horizon の future prediction が並列化可能**: 数十ステップ先の action 列を一括で iterative refinement
+- **visual subgoal、chain-of-thought（CoT）、action を同時生成**: 全部を `[MASK]` 系列として並列に解ける
+- **prefix attention で観測を効率処理**: visual observation を prompt 側に置けば KV cache が効く
+- **誤り訂正の機会**: AR で 1 度間違えた action を取り戻せないのに対し、DLM は後段で前の action を見直して再 mask できる
+
+### LLaDA-VLA: 汎用 DLM を VLA に転用
+
+LLaDA-VLA [@wen2025lladavla] は LLaDA を base に、VLA タスクへ fine-tuning した最初期の事例である。鍵となる工夫は次の 2 点。
+
+- **Localized special-token classification**: action token の語彙が言語語彙より遥かに小さいため、action 位置のみで限定語彙の分類を行う
+- **階層的 action 構造の decoding**: 高レベル action（move to / grasp 等）→ 低レベル action（具体的な関節角）の階層を iterative refinement の段階に対応付ける
+
+シミュレーション・実機の双方で AR な VLA ベースライン（OpenVLA 等）を上回る性能を示し、汎用 DLM が VLA への有力な base になることを実証している。
+
+### dVLA: MMaDA を backbone とした multimodal joint 生成
+
+dVLA [@wen2025dvla] は、multimodal な diffusion foundation model である MMaDA [@yang2025mmada] を backbone とし、**visual subgoal image, textual CoT, discretized action** の 3 modality を joint diffusion で同時生成する。
+
+- 視覚 subgoal: 数ステップ先の予測画像
+- textual CoT: 行動の理由付け（"reach for cup because..."）
+- action: 具体的な joint command
+
+これらを 1 つの token 列に並べ、全体を masked diffusion で生成する。prefix-attention masking と KV caching により、長 horizon な操作タスクで AR より効率的な inference を実現する。
+
+### UD-VLA: 画像と action の joint discrete diffusion
+
+UD-VLA（Unified Diffusion VLA）[@chen2025udvla] は、将来画像 token と action token を**同一の token 空間で synchronously denoise** する Joint Discrete Denoising Diffusion Process を提案する。
+
+- 画像 token と action token を区別せず、同じ masked diffusion で扱う
+- 両者の相互制約（"こう動けばこう見える"）を 1 つの denoising 過程で表現
+- ベンチマークで SOTA、かつ AR より明確に速い inference
+
+UD-VLA の意義は、**world model（次状態予測）と policy（次行動予測）を統一する**点にある。AR では world model と policy を別ヘッドにする設計が標準だが、DLM では両者を joint denoising で結びつけられる。
+
+## Conventional NLP
+
+大規模 DLM の登場以前から、diffusion ベースの自然言語処理は分類、抽出、要約、対話、機械翻訳など広範に試されてきた。これらの大半は legacy 寄りだが、DLM の構造的利点が際立つ代表例をいくつか取り上げる。
+
+### 編集系: EditText
+
+EditText [@lee2025editext] は、SDEdit ベースの **controllable coarse-to-fine text editing** フレームワークである。連続拡散の SDEdit が「途中ノイズから denoise を再開して画像を編集」する発想を text に持ち込み、self-conditioning と組み合わせて編集精度を高める。infilling と編集は masked DLM の本質的な得意分野であり、AR の制約付き編集（特定箇所だけ書き換え、残りを保持）よりも自然に書ける。
+
+### Planning 系: PLANNER
+
+PLANNER [@zhang2023planner] は段落生成のために **latent diffusion planning module** と autoregressive decoder を組み合わせる。latent space で段落の意味 embedding を diffusion で生成し、それを condition として最終テキストを AR で出力する。
+
+- latent diffusion で大域的構造（"段落全体のテーマと展開"）を捉える
+- AR で局所的流暢性を担保
+- 反復や redundancy を抑制
+
+「大域 plan は diffusion、局所表現は AR」という階層的役割分担は、DLM の構造的優位を活かす一つの設計パターンとして参考になる。
+
+### 制約付き生成: PoetryDiffusion
+
+PoetryDiffusion [@hu2024poetrydiffusion] は詩の生成において、**意味と韻律（metrical structure）の同時制約**を扱う。
+
+- 意味は diffusion model が生成
+- 韻律は独立に訓練された metrical controller が強制
+- 両者を inference 時に組み合わせる
+
+韻律制約（音節数、押韻パターン）は系列の大域構造に依存するため、AR の局所 decoding では満たしにくい。DLM の iterative refinement に外部 controller を挟む設計は、制約付き生成一般のテンプレートとして応用できる。
+
+### 対話: DiffusionDialog
+
+DiffusionDialog [@xiang2024diffusiondialog] は対話生成における **one-to-many 問題**（同じ context に複数の妥当な応答）を、連続 latent 上の diffusion で扱う。AR の温度サンプリングでは多様性と品質が trade-off になるのに対し、latent diffusion は多様性を **latent の sampling**で、品質を **decoding 段**で個別に制御できる。
+
+### 機械翻訳: XDLM
+
+XDLM [@chen2023xdlm] は、diffusion モデル向けに cross-lingual な pre-training 目的関数を導入し、言語間 mapping を pretraining 段階で学習させる。MT における diffusion の利点は、長距離依存の捕捉と、source 全体を見ながら target 全体を refinement できる点にある。
+
+### 分類・抽出系: ROIC-DM, DiffusionNER, IPAD
+
+これらは「**ラベル空間を diffuse する**」という変則的な使い方の DLM である。
+
+- **ROIC-DM** [@yuan2024roicdm]: text classification で **class label を diffuse**。adversarial robustness を改善
+- **DiffusionNER** [@shen2023diffusionner]: 名前付きエンティティ認識（Named Entity Recognition, NER）を **境界（boundary）の denoising** として定式化。エンティティの start/end 位置をランダム noise から iterative refinement
+- **IPAD** [@xiang2025ipad]: scene text recognition を条件付きテキスト生成として枠組み、**easy-first decoding** で認識精度と inference speed をバランス
+
+これらは「DLM = テキスト生成」という素朴な見方を超えて、**任意の構造化出力を denoising で生成する**という広い視野を提供する。境界、ラベル、選択集合のように離散構造を持つ出力は、いずれも DLM の射程に入る。
+
+### その他の代表
+
+要約系では DiffuSum [@zhang2023diffusum] が抽出型要約を文表現の diffusion で扱う。これも「**選択する文集合**を diffuse する」という構造化出力生成の例である。
+
+## 領域横断の比較
+
+各領域における代表手法と、DLM の構造的利点が具体的にどう活きているかを次表にまとめる。
+
+| 領域 | 代表手法 | base / type | DLM の主な利点 | 主結果・備考 |
+|------|---------|-------------|----------------|----------------|
+| Code | DiffuCoder [@gong2025diffucoder] | 7B masked DLM 専用 | iterative refinement, 非系列編集 | coupled-GRPO で HumanEval/MBPP 改善 |
+| Code | DCoLT [@huang2025dcolt] | LLaDA base + outcome RL | 軌道全体を policy 化 | HumanEval +19.5 改善 |
+| Code | DUS [@luxembourg2025dus] | inference-only | joint entropy 制御 | speed-quality 改善、planner-free |
+| Code | Mercury Coder [@labs2025mercury] | 商用 DLM | 並列性 | AR 比 10× throughput |
+| Bio | DPLM [@wang2024dplm] | masked protein DLM | infilling, 表現学習 + 生成 | 配列生成と representation 両立 |
+| Bio | DPLM-2 [@wang2024dplm2] | DPLM の multimodal 拡張 | 配列 + 構造の joint | folding / inverse folding 統一 |
+| Bio | MeMDLM [@goel2024memdlm] | ESM-2 fine-tune | 領域特化 | 膜タンパク質 de novo 設計 |
+| Bio | CFP-Gen [@yin2025cfpgen] | multimodal protein DLM | 複合制約 | 多機能タンパク設計で高成功率 |
+| Bio | DSM [@hallee2025dsm] | LLaDA inspired | 生成 + representation | LLaDA 型 RL の余地 |
+| Bio | TGM-DLM [@gong2024tgmdlm] | text-guided SMILES | 集合的 token 更新 | MolT5-Base 超え |
+| Bio | TransDLM [@xiong2025transdlm] | text-guided molecule | 編集の自然さ | 誤伝播回避 |
+| Bio | DRAKES [@wang2025drakes] | RL fine-tune | Gumbel-Softmax で reward backprop | DNA/protein 設計 |
+| Bio | ForceGen [@ni2024forcegen] | protein language diffusion | 非線形 mechanical 目標 | de novo protein |
+| Robotics | LLaDA-VLA [@wen2025lladavla] | LLaDA base | 階層 action, 並列推論 | AR VLA baseline 超え |
+| Robotics | dVLA [@wen2025dvla] | MMaDA backbone | 視覚 + CoT + action joint | prefix attn + KV cache |
+| Robotics | UD-VLA [@chen2025udvla] | joint discrete diffusion | world model + policy 統一 | SOTA, 高速 inference |
+| NLP | EditText [@lee2025editext] | SDEdit + text | infilling, 編集 | coarse-to-fine 制御 |
+| NLP | PLANNER [@zhang2023planner] | latent diffusion + AR | 大域 plan | 段落生成 |
+| NLP | PoetryDiffusion [@hu2024poetrydiffusion] | diffusion + metrical controller | 制約付き生成 | 意味 + 韻律 |
+| NLP | DiffusionDialog [@xiang2024diffusiondialog] | latent diffusion | one-to-many 対応 | 対話の多様性 |
+| NLP | XDLM [@chen2023xdlm] | cross-lingual diffusion | 双方向文脈 | 機械翻訳 |
+| NLP | ROIC-DM [@yuan2024roicdm] | label を diffuse | adversarial robustness | text classification |
+| NLP | DiffusionNER [@shen2023diffusionner] | boundary denoising | 構造化出力 | NER |
+| NLP | IPAD [@xiang2025ipad] | iterative parallel decoding | easy-first | scene text recognition |
+| NLP | DiffuSum [@zhang2023diffusum] | 文選択を diffuse | 選択集合の生成 | 抽出型要約 |
+
+: 各応用領域における代表的な DLM 手法と構造的利点 {#tbl-applications}
+
+## 商用化の現況
+
+DLM の商用展開は 2024-2025 にかけて急加速している。
+
+- **Mercury Coder** [@labs2025mercury]: Inception Labs、code 特化の商用 DLM、AR 比 10× throughput
+- **Gemini Diffusion** [@deepmind2024geminidiffusion]: Google DeepMind、汎用テキスト DLM の商用提供
+- **Seed Diffusion** [@song2025seeddiffusion]: ByteDance、code 生成向け DLM
+
+いずれも DLM の **並列性によるスループット**を製品差別化の中核に据えている点が共通する。AR LLM の inference cost が問題となるユースケース（コーディングアシスタント、リアルタイム対話、バッチ処理）で、DLM が現実的な選択肢として登場した。
+
+::: {.callout-tip}
+## 商用化が code から始まった理由
+
+code 生成は、(1) 低レイテンシ要求が強い、(2) 多数の補完候補生成が直接価値、(3) 構文制約と非系列性が DLM と相性が良い、という 3 条件を満たすため、DLM の最初の商用化領域として選ばれた。テキスト一般の生成では AR の流暢性とコスト感度のバランスが既に商用最適化されており、DLM が割り込むハードルが高い。
+:::
+
+## 今後の方向性
+
+応用領域全体に通底する未解決の課題と研究方向は次の通り。
+
+- **Test-time scaling と reasoning**: DLM は ステップ数 $T$ を増やすことで品質を改善できるが、reasoning task で AR の chain-of-thought に相当する **iterative refinement の長期化**がスケール則として効くかは未確立。DCoLT のような RL ベース手法が一つの解
+- **編集系の標準ベンチマーク不在**: infilling、fill-in-the-middle（FIM）、controllable edit は DLM の最大の構造的優位だが、AR 側で確立した HumanEval 相当の **DLM 固有ベンチマーク**が乏しい。EditText 等の評価指標が領域標準化されることが望まれる
+- **専用 DLM vs 汎用 DLM**: protein・molecule では領域特化の専用 DLM（DPLM, TGM-DLM）が成果を出し、code・VLA では汎用 DLM（LLaDA, MMaDA）からの fine-tuning が成果を出す。どちらが長期的に伸びるかは、専用データ量と汎用 base の representation 力の競争で決まる
+- **multimodal 拡張**: DPLM-2 や UD-VLA のような multi-modality joint diffusion は始まったばかりで、image・audio・3D・action を統一する diffusion foundation model の方向に伸びる余地が大きい
+- **RL の標準化**: coupled-GRPO（DiffuCoder）、outcome-based RL（DCoLT）、Gumbel-Softmax reward backprop（DRAKES）など、DLM 向け RL は各論文ごとに異なる。AR の RLHF / GRPO に相当する **DLM 標準 RL レシピ**の確立が待たれる
+
+## 関連章
+
+- [Multimodal DLM](multimodal-dllm.qmd): VLA の基礎となる diffusion ベース MLLM（multimodal LLM）の系譜。MMaDA, LLaDA-V, LaViDa など
+- [Post-Training (RL)](post-training-rl.qmd): DiffuCoder の coupled-GRPO、DCoLT の outcome-based RL、DRAKES の Gumbel-Softmax 等、本章で言及した RL 手法の詳細
+- [LLaDA](llada.qmd): LLaDA-VLA、DSM、DCoLT の base となる汎用 8B DLM
+- [MDLM](mdlm.qmd): 本章のほぼすべての masked DLM の定式化の中核
+

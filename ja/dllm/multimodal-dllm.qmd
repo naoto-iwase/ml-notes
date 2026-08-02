@@ -1,0 +1,293 @@
+---
+pagetitle: "Multimodal DLM"
+---
+
+# Multimodal DLM
+
+マルチモーダル離散拡散言語モデル（diffusion Multimodal Large Language Model, dMLLM）は、視覚言語モデル（Vision-Language Model, VLM）の枠組みを拡散言語モデル（Diffusion Language Model, DLLM）のバックボーン上に再構築する試みである。自己回帰（Autoregressive, AR）系の LLaVA・Qwen2-VL などが「視覚エンコーダ → 投影 → AR LLM」という直列構成を取るのに対し、dMLLM は **bidirectional attention と masked diffusion 目的関数を共有することで、画像（空間的）と言語（系列的）を同じ枠組みで扱う**。本書の他の章で扱う Masked Diffusion Language Model（MDLM）[@sahoo2024mdlm]・LLaDA [@nie2025llada]・Block Diffusion[@arriola2025bd3lms]・Embedding-space Diffusion といった主要な定式化が、マルチモーダル設定でどう拡張されるかを整理することが本章の目的である。survey [@li2025dlmsurvey] の §5 を中核に据え、設計選択肢の軸で系統的に俯瞰する。
+
+なお本書のスコープは DLLM 側にあるため、AR 系 VLM（LLaVA-NeXT、Qwen2-VL、Janus）の詳細は扱わない。比較対象として最小限の言及にとどめる。Janus[@wang2025fudoki] は後述の Fudoki が初期化に使うため間接的に登場する。
+
+## なぜ DLLM とマルチモーダルが相性良いのか
+
+AR 系 VLM はテキストを左から右へ逐次生成するため、画像トークン（空間的にしか順序が定義できない）を扱う際に **人工的なラスタ走査順** を強制する。これは画像の本来の構造とミスマッチであり、画像-テキスト間の **双方向な依存** も causal mask により遮断される。
+
+DLLM は次の 3 点で構造的にマルチモーダルに向く。
+
+- **Bidirectional attention**: 全位置が全位置を参照できるため、テキスト→画像、画像→テキストの依存を対称に扱える
+- **Unified masked diffusion 目的**: 画像トークン・テキストトークン双方を同じ `[MASK]` 置換 + cross-entropy ロスで訓練できる
+- **Joint inpainting の自然な定式**: 任意のモダリティの任意の位置を `[MASK]` として与え、残りから推論する設定が訓練分布の範囲に収まる
+
+3 番目の性質は UniDisc[@swerdlow2025unidisc] の **zero-shot joint image-text inpainting** に直接結びつく。AR VLM では達成困難な機能である。
+
+## 設計選択肢の軸
+
+dMLLM を設計する際の主要な選択は次の 4 軸に分解できる。各モデルはこの軸上の異なる組み合わせとして位置付けられる。
+
+| 軸 | 選択肢 A | 選択肢 B |
+|---|---|---|
+| 画像表現 | Continuous embedding（CLIP/SigLIP 等の vision encoder 出力を MLP 投影） | VQ-VAE 系トークン化（modality-agnostic な離散トークン列に変換） |
+| バックボーン初期化 | LLaDA / Dream など DLLM の事前学習済み重み | 画像拡散モデル（MM-DiT, Meissonic, SD3）の重み、もしくは AR-VLM (Janus) の重み |
+| 訓練フェーズ設計 | 段階的（projector のみ → 全体 → reasoning）, あるいは AR→Diffusion ハイブリッド | from-scratch の単一 stage、または unified objective での joint training |
+| モダリティ統合の粒度 | テキストと画像で別ブランチ（Elastic-MoT, dual-branch MM-DiT） | 完全に unified（modality-agnostic transformer + shared vocabulary） |
+
+: dMLLM の主要な設計選択肢 {#tbl-dmllm-axes}
+
+これらの軸は独立ではなく、特に「画像表現」と「初期化」は強く相関する。Continuous embedding 系は LLaDA/Dream 初期化と相性が良く、VQ-VAE 系は MM-DiT/Meissonic 初期化と相性が良い。
+
+## モデル比較
+
+survey [@li2025dlmsurvey] §5 と Table 1 から主要 dMLLM を抜粋し、軸に沿って整理する。
+
+| モデル | パラメータ | 画像表現 | バックボーン初期化 | 訓練データ | 主タスク | 特徴 |
+|---|---|---|---|---|---|---|
+| LLaDA-V[@you2025lladav] | 8.4B | Vision encoder + MLP | LLaDA 8B | 3M image-text | 理解 | LLaVA-NeXT 風 3 段階チューニング |
+| LaViDa[@li2025lavida] | 8.4B | Vision encoder + MLP | LLaDA / Dream-7B | 1.6M image-text | 理解 | Complementary masking, Prefix KV-Cache |
+| Dimple[@yu2025dimple] | 7B | Vision encoder + MLP | -- | 0.8B tokens | 理解 | AR-then-Diffusion 2 段階、Confident Decoding |
+| MMaDA[@yang2025mmada] | 8B | VQ-VAE | LLaDA 8B | 900B image-text tokens | 理解+生成 | UniGRPO, Mixed Long CoT |
+| UniDisc[@swerdlow2025unidisc] | ~1.4B | VQ-VAE | from scratch | -- | 理解+生成 | Joint inpainting, full attention |
+| Muddit[@shi2025muddit] | -- | VQ-VAE | Meissonic MM-DiT | -- | 生成寄り | 軽量 text decoder, T2I に強い |
+| Lumina-DiMOO[@xin2025luminadimoo] | 8B | aMUSEd-VQ (8192) | LLaDA 拡張 | 110M+ image-text | 理解+生成 | 4 段階訓練, Self-GRPO, ML-Cache |
+| LaViDa-O[@li2025lavidao] | 10.4B | VQ-VAE | LaViDa 拡張 | 200M+ image-text | 理解+生成 | Elastic-MoT, 1024px 生成 |
+| D-DiT[@li2025ddit] | -- | 連続 latent + 離散 text | SD3 (MM-DiT) | -- | 理解+生成 | 連続+離散 dual diffusion |
+| Fudoki[@wang2025fudoki] | 1.5B | VQ-VAE | Janus-1.5B | -- | 理解+生成 | Discrete flow matching, kinetic velocity |
+| MMaDA-Parallel[@tian2025mmadaparallel] | 8B | VQ-VAE | MMaDA | -- | thinking-aware 編集 | 並列 reasoning + ParaRL |
+
+: dMLLM の主要モデル比較。Survey [@li2025dlmsurvey] Table 1 および §5 から抽出 {#tbl-dmllm-comparison}
+
+以下、3 つの大ファミリー（エンコーダ接続型 / VQ-VAE 統一型 / 離散-連続ハイブリッド）に分けて詳述する。
+
+## エンコーダ接続型: vision encoder + 投影 + DLLM バックボーン
+
+最も素朴な拡張は、AR 系 VLM の標準アーキテクチャ「vision encoder → MLP projector → LLM」の最後の段だけを LLaDA / Dream に差し替えるものである。LLaDA-V・LaViDa・Dimple がこの系譜に属する。
+
+### LLaDA-V: LLaVA-NeXT 流の段階訓練を DLLM に移植
+
+LLaDA-V[@you2025lladav] は **LLaDA 8B[@nie2025llada] の重みを保ったまま**、MLP-based projector で SigLIP 風 vision encoder の出力を LLaDA の token embedding 空間に射影する。訓練は LLaVA-NeXT に倣って 3 段階構成である。
+
+- **Stage 1**: MLP projector のみを訓練。LLaVA の事前訓練データで視覚表現とテキスト埋め込みを align
+- **Stage 2**: 大規模な visual instruction data で DLLM 目的（masked diffusion CE）により全体を fine-tune
+- **Stage 3**: reasoning chain 付き QA で multimodal CoT 能力を強化
+
+ベンチマーク的には、LLaDA のテキスト性能が LLaMA3-8B より僅かに弱いという handicap がある中で、LLaDA-V は同じデータで訓練した LLaMA3-V を上回り、Qwen2-VL とのギャップを縮め、hybrid / 純 DLM ベースの D-DiT 等を outperform する。
+
+[→ 詳細:]{.detail-link} [LLaDA: 大規模 Masked DLM とサンプリング](llada.qmd)
+
+### LaViDa: complementary masking で訓練の inefficiency を解消
+
+LaViDa[@li2025lavida] は LLaDA と Dream-7B[@ye2025dream] の双方をバックボーンに採用した VLM ファミリーである。LLaDA-V と同じく vision encoder + projector の構成だが、**訓練と推論の両面で固有の貢献**を行う。
+
+訓練面では、masked DLM の **inefficiency 問題** に取り組む。MDLM 系の訓練では平均すると 50% 程度のトークンしか mask されず、つまり残り 50% は loss に寄与しない。さらに VLM 文脈では、画像トークンを mask しても意味が薄く、肝心の **answer token が観測側に落ちて gradient に乗らない**ことが頻発する。
+
+LaViDa の解は **complementary masking** である。各サンプルに対して **disjoint な mask span を持つ 2 つの masked version** を生成し、両者の和で全トークンを cover する。これにより全トークンが訓練に使われ、sample efficiency と gradient flow が改善する。
+
+推論面では **Prefix KV-Cache** を導入する。LLaDA で述べたように、純粋な DLLM では各ステップで全位置の forward を回すため KV-cache の素朴な転用は効かないが、
+
+- **prompt と画像トークンは推論中ずっと観測済み（unmask 状態）**
+
+という固定性に着目すれば、prefix 部分の K/V だけは cache 可能である。これにより最大 3.9 倍の推論高速化を達成し、性能低下は marginal にとどまる。加えて **timestep shifting** で早期に unmask を行い生成品質を上げている。
+
+### Dimple: AR-then-Diffusion ハイブリッド訓練
+
+Dimple[@yu2025dimple] は「純粋な discrete diffusion 訓練は不安定で、性能と length bias の両面で問題が出る」という観察から出発し、**Autoregressive-then-Diffusion** という 2 段階訓練を提案する。
+
+- **Phase 1 (AR)**: 標準的な autoregressive training で vision-language alignment を確立。安定性と性能の土台を作る
+- **Phase 2 (Diffusion)**: diffusion-based training に切り替え、並列デコード能力を回復させる
+
+推論時には次の工夫が組み合わさる。
+
+- **Confident Decoding**: 各ステップで unmask する個数を **confidence threshold で動的に決定**。固定 schedule よりイテレーション数を減らせる
+- **Prefilling**: prompt トークンの prefill により最大 7 倍の高速化
+- **Structure Priors**: 応答の format と length を細かく制御。AR では難しい dMLLM 固有の介入点
+
+::: {.callout-note}
+## エンコーダ接続型の共通する利点と制約
+
+- **利点**: SigLIP/CLIP 等の強力な vision encoder の事前知識をそのまま使え、画像理解性能のベースが高い。3 段階訓練のような既存 VLM レシピをほぼそのまま流用できる
+- **制約**: 画像生成は基本的に苦手（vision encoder は理解側に最適化されており、デコードパスを持たない）。Unified generation を目指すなら次節の VQ-VAE 型に移行する必要がある
+:::
+
+## VQ-VAE 統一型: modality-agnostic な離散トークン空間
+
+画像理解と生成の両方を 1 つのモデルで扱うには、画像を **vision encoder の連続埋め込み**ではなく **VQ-VAE 系の離散トークン列** として表現する方が筋がよい。テキストと画像が同じ語彙（厳密には disjoint だが、同じ shared sequence の上に並ぶ）で表現されることで、**modality-agnostic な 1 つの diffusion transformer** ですべてを処理できる。
+
+### MMaDA: UniGRPO で cross-modal reasoning に踏み込む
+
+MMaDA[@yang2025mmada] は LLaDA を出発点とし、**vision encoder を完全に廃し、画像を VQ-VAE で離散コードに変換**する。テキストと画像のトークン列を modality-agnostic な diffusion transformer で joint 訓練し、modality-specific component を持たない設計に到達している。
+
+訓練の特徴は 2 つある。
+
+- **Mixed Long CoT fine-tuning**: テキストと画像にまたがる CoT reasoning の format を align する。「画像を見て段階的に推論し、結論や生成画像へ繋げる」流れを統一的に学習させる
+- **UniGRPO**: DLLM に特化した unified policy-gradient ベースの RL アルゴリズム。modality を跨いだ reasoning を強化学習で訓練できる枠組みを提供
+
+性能面では、LLaMA3 を text reasoning で、Show-o を multimodal understanding で超え、画像生成では SDXL も上回る領域がある、と報告されている。「単一 backbone で text / understanding / generation を全て carry できる」ことを示した点が大きい。
+
+### UniDisc: full attention + zero-shot joint inpainting
+
+UniDisc[@swerdlow2025unidisc] は D-DiT のような dual-branch ではなく、**テキストと画像を完全に 1 列に並べて full attention でまとめて masked diffusion を回す**設計である。Shared vocabulary 上で disjoint な ID 範囲を持つ token として両者を扱い、from-scratch で unified discrete diffusion CE で訓練する。
+
+最大の特徴は **zero-shot joint inpainting**: 訓練時には特に明示的なタスクとして与えていないにもかかわらず、推論時に「テキストの一部 + 画像の一部」を `[MASK]` にして残りから補完する操作が自然にできる。AR VLM では達成困難な機能であり、unified masked diffusion の構造的利点が最もよく現れる事例である。
+
+Classifier-free guidance との相性が良く、条件付き生成の品質が高い。1.4B までスケールする実験では、同等の AR モデルに対し性能・推論時計算量・controllability の各面で上回るが、**同じ validation loss に到達するまでの training efficiency は AR より劣る** と報告されている。これは後述する dMLLM の open challenge と直接結びつく。
+
+### Muddit: T2I バックボーンに軽量 text decoder を継ぎ足す
+
+Muddit[@shi2025muddit] は出発点が逆方向で、**Meissonic という強力な text-to-image MM-DiT** に軽量な text decoder を継ぎ足し、unified discrete diffusion として全体を再訓練する。Cosine schedule に従ってテキスト・画像両方のトークンを確率的に mask し、re-weighted CE で原トークン予測を学習する。
+
+この設計の意義は、
+
+- **画像生成に強い prior を引き継げる**: 純粋に from-scratch で訓練するより、視覚的に意味のある潜在空間が最初から手に入る
+- **生成と理解の両方を統一フレームで処理**: AR モデルより数倍速く、より大規模な AR baseline と competitive
+
+「画像拡散モデル側から DLLM へ歩み寄る」アプローチであり、後述の D-DiT が dual-branch でやっていることを単一バックボーンで実現する点が異なる。
+
+### Lumina-DiMOO: open-source SOTA を目指す 4 段階訓練
+
+Lumina-DiMOO[@xin2025luminadimoo] は LLaDA を拡張して **8192 個の visual token を語彙に追加**（aMUSEd-VQ 由来）、mixed text-image sequence 上で unified objective を回す。
+
+特徴は次の通り。
+
+- **広範なタスク対応**: text-to-image、image editing、subject-driven generation、controllable generation、画像理解
+- **ML-Cache (Max Logit-based Cache)**: サンプリング加速のための cache 機構
+- **Parallel and block-wise sampling**: 効率的なデコード
+- **End-of-line special token**: 任意の image resolution を扱える
+- **4 段階訓練 + Self-GRPO**: 最終段で自己改善型の RL を回し、生成と理解の alignment を強化
+
+UniGenBench leaderboard で open-source 1 位、AR baseline 比 32 倍の高速化と高い生成品質を両立する、と報告されている。「open-source の SOTA を 1 つの DLLM で取りに行く」野心的な系である。
+
+### LaViDa-O: Elastic-MoT で生成と理解の規模ギャップを埋める
+
+LaViDa-O[@li2025lavidao] は LaViDa を unified multimodal モデルへ拡張する。鍵は **Elastic Mixture-of-Transformers (Elastic-MoT)** である。
+
+これは「画像生成（大量の画像トークンを扱うが意味的には repetitive）」と「画像理解（少数の画像トークンに対し深い推論）」で必要となる計算リソースの非対称性に対応する設計である。
+
+- **軽量な generation branch**: 1024px の高解像度 text-to-image 生成、image editing をスケーラブルに
+- **強力な understanding branch**: 物体レベルのローカライズ理解、interleaved reasoning と planning
+
+両 branch を 1 つの diffusion フレームで束ねながら、それぞれを独立にスケールできる。「**unified だが equal ではない**」という現実的な工夫である。
+
+::: {.callout-tip}
+## VQ-VAE 統一型を選ぶときの判断基準
+
+理解だけが目的なら、エンコーダ接続型（LLaDA-V / LaViDa / Dimple）の方が vision encoder の強力な prior を活用できて性能・効率ともに有利である。**生成も視野に入る、もしくは joint inpainting / 編集など unified な操作が欲しい**なら VQ-VAE 統一型を選ぶ。両者を併存させる Elastic-MoT 的アプローチは「unified の利点と専門化の利点を両取りする」現実解として有力である。
+:::
+
+## 離散+連続ハイブリッド: 連続 latent と離散 token の dual diffusion
+
+画像の自然な表現は本質的に連続（VAE latent）であり、テキストは離散である。両者を強引に同じ離散空間に押し込むのではなく、**それぞれの自然な空間で diffusion を走らせ、attention で結合する**選択肢もある。
+
+### D-DiT: 連続画像 latent + 離散テキスト token の同時拡散
+
+D-DiT (Dual Diffusion Transformer)[@li2025ddit] は **MM-DiT（Stable Diffusion 3 由来）に着想を得た dual-branch transformer** で、画像トークンとテキストトークンを別ブランチで処理し、各 layer で attention を介して相互作用させる。
+
+- **画像側**: frozen VAE で latent 化、**連続空間での DDPM 的拡散**
+- **テキスト側**: **離散 masked-token diffusion**
+- **損失**: 両モダリティの diffusion loss を joint 最適化
+
+注目すべきは、これまでの multimodal diffusion モデルが「テキスト latent を decode するために AR component を残していた」のに対し、D-DiT は **完全に diffusion-based** で動く点である。MM-DiT バックボーンは SD3 の事前学習済み重みから初期化される。
+
+「画像は連続、テキストは離散」という素直な対応を保ったまま、訓練・推論を unified framework に乗せる方向性で、エンコーダ接続型と VQ-VAE 統一型の中間に位置する。
+
+### Fudoki: discrete flow matching + 自己修正
+
+Fudoki[@wang2025fudoki] は **discrete flow matching (DFM)**[@gat2024dfm] フレームワークに完全に基づく初めての汎用 unified multimodal モデルである。Masking 一辺倒の corruption ではなく、
+
+- **metric-induced probability path**: より一般的・semantically meaningful な corruption
+- **kinetic optimal velocity**: 連続 flow matching の velocity に対応する離散版
+
+を学習する。重要な帰結は **self-correction 能力** である。Masked DLM では一度 unmask したトークンは原則として固定だが、Fudoki は iterative refinement の各ステップで予測を **連続的に修正** できる。これは LLaDA 系の low-confidence remasking が「実装上の工夫」として導入していたものを、**定式化のレベルで自然に内包**するアプローチと言える。
+
+訓練は from-scratch ではなく、**AR 系 MLLM の Janus-1.5B から初期化**して 2 段階で DFM に適応させる。Architecture も Janus-1.5B ベースだが full attention mask を採用、time embedding 層を削る（モデルが corrupted input から timestep を暗黙に推定できるため）。
+
+State-of-the-art AR モデルと comparable な性能を画像理解と生成の両方で達成し、test-time inference scaling との相性も良い。**離散拡散の枠組みを保ちながら連続 flow matching の柔軟性を持ち込む**研究方向として注目に値する。
+
+[→ 詳細:]{.detail-link} [連続拡散と離散拡散の橋渡し](continuous-discrete-bridge.qmd)
+
+## MMaDA-Parallel: thinking と generation の cross-modal 同期
+
+MMaDA[@yang2025mmada] の Mixed Long CoT は「まず reasoning（テキスト）を生成し、それを condition として画像を生成する」**sequential** な構成であった。これに対し MMaDA-Parallel[@tian2025mmadaparallel] は、
+
+- テキストの reasoning trace と画像の visual output を **完全に並列に joint 生成**
+- 各 denoising step でテキストと画像が **bidirectional に相互作用**
+
+する fully parallel multimodal diffusion フレームを提案する。
+
+訓練面では trajectory レベルの **Parallel RL (ParaRL)** を導入し、cross-modal consistency を最適化する。Sequential pipeline では「先に確定した reasoning が画像生成を制約する一方向の依存」しかなかったが、ParaRL では reasoning と画像の整合性を trajectory 全体に渡って align できる。これは semantic alignment と thinking-aware image synthesis 性能の双方を大きく改善する、と報告されている。
+
+dMLLM の文脈で重要なのは、これが **「DLLM の bidirectional 性を CoT に活用する」最初の本格事例**である点である。AR では構造的に成立しない「思考と生成の同時並列実行」が、DLLM では自然に組み込める。
+
+[→ 詳細:]{.detail-link} [LLaDA: 大規模 Masked DLM とサンプリング](llada.qmd)
+
+## dMLLM の評価の現状
+
+dMLLM の評価軸は、AR VLM の評価で蓄積されてきたベンチマークを基本的に踏襲している。代表的なものは次の通り。
+
+- **画像理解**: MMMU、MME、MMVet、MMBench、CQA、HellaSwag（言語側に併用）
+- **画像生成**: GenEval、UniGenBench（Lumina-DiMOO[@xin2025luminadimoo] が open-source 1 位を取った leaderboard）、FID 系
+- **数学・推論**: GSM8K、MATH（dMLLM ではテキスト reasoning 能力も併せて評価される）
+- **コード**: HumanEval、MBPP（DiffuCoder 系の文脈）
+
+Survey [@li2025dlmsurvey] の Figure 6（マルチモーダル性能比較図）では、LLaDA-V・LaViDa・Dimple が AR ベースの中型 VLM（Qwen2-VL、LLaVA-NeXT 7B 等）と多くの軸で competitive であること、MMaDA・Lumina-DiMOO が unified モデルとして画像生成・理解の両軸で同等以上のレンジに到達していること、が示されている。
+
+ただし、評価軸そのものが AR VLM 用に設計されているため、**DLLM 固有の利点（zero-shot inpainting、parallel reasoning-generation、structure prior による format 制御等）を直接測れる benchmark は未整備**である。これは次節の open challenges の 1 つでもある。
+
+## dMLLM の open challenges
+
+dMLLM 分野には現時点で次のような未解決問題が積み残っている。
+
+### VLM 訓練の inefficiency
+
+Masked DLM は平均 50% 程度のトークンしか loss に乗らない。**画像トークンが大量に存在する VLM 設定では特にこの inefficiency が深刻**で、肝心の answer token が unmask 側に落ちる事故も起きる。LaViDa の complementary masking は応急処置だが、根本的には「mask schedule をモダリティ別に最適化する」「reweighting で answer token を重要視する」等の方向で更なる工夫が必要である。
+
+### 画像トークン配置と長文の TFLOPS
+
+VQ-VAE 統一型では、画像 1 枚あたり数百〜数千トークンを 1 つの sequence に詰め込む。テキストの長文と組み合わせると sequence 長が爆発し、bidirectional attention の $O(N^2)$ コストが顕在化する。LaViDa-O の Elastic-MoT は対症療法だが、
+
+- **画像領域だけ局所 attention に落とす**
+- **画像トークンの解像度を動的に切り替える**
+
+など、構造的な解決はこれからである。Lumina-DiMOO の end-of-line special token は「任意解像度対応」の一手だが、計算量自体は減らない。
+
+### Cross-modal CoT の評価軸不在
+
+MMaDA-Parallel が示した「並列 reasoning + generation」は、**そもそも sequential CoT と公平に比較する benchmark がない**。「画像を見て段階的に推論しつつ生成画像を更新する」プロセスの良し悪しを測る指標は未確立で、現状は GenEval 等の最終生成画像のスコアでしか評価できない。
+
+### AR VLM との head-to-head ベンチマーク不足
+
+UniDisc が指摘した「同じ validation loss に到達するまでの training efficiency は AR より劣る」という観察は重要である。**DLLM 側に有利な土俵を作りつつ AR 側にも公平な評価**を実現する benchmark 設計（特に zero-shot inpainting、structure-controlled generation、joint reasoning-generation を含む）が必要になる。AR VLM 側のレシピが極端に最適化されているため、現状の比較は基盤モデルの quality というよりレシピの成熟度を見ているに近い。
+
+[→ 詳細:]{.detail-link} [DLLM 分野の現状と未解決問題](open-problems.qmd)
+
+::: {.callout-note collapse="true"}
+## Closed-source の大規模 dMLLM の位置付け
+
+商用側では Google DeepMind の **Gemini Diffusion**[@deepmind2024geminidiffusion] や、それに関連する Gemini 2.5 Flash Image など、dMLLM 的構造を持つと推測される製品が登場している。技術的詳細の多くが非公開であるため本書では深入りしないが、
+
+- 推論レイテンシで AR baseline を大きく下回ること
+- 画像編集・生成の柔軟性が高いこと
+
+が共通の特徴として伝えられている。Open-source 側で MMaDA・Lumina-DiMOO・LaViDa-O 等が追随する構図は、AR LLM 黎明期の GPT-3 → LLaMA の追走に似た形を取りつつある。
+:::
+
+## 既存章との関係
+
+dMLLM の各モデルは、本書の他章で扱った定式化の組み合わせとして理解できる。
+
+- **LLaDA バックボーン系** (LLaDA-V, LaViDa, MMaDA, Lumina-DiMOO): [LLaDA: 大規模 Masked DLM とサンプリング](llada.qmd) で扱った masked diffusion の 8B スケールの実用化が前提
+- **MDLM の目的関数**: 全モデルが [MDLM](mdlm.qmd) の masked CE を踏襲している
+- **Block-wise / semi-AR 的構造**: LaViDa-O の Elastic-MoT や Lumina-DiMOO の block-wise sampling は [Block Diffusion](block-diffusion.qmd) の発想を multimodal に拡張したもの
+- **Embedding-space diffusion との対比**: エンコーダ接続型は連続埋め込みを condition として与えるが、diffusion 自体は離散側で行う。純粋な continuous-space text diffusion との違いは [Embedding-Space Diffusion](embedding-space-diffusion.qmd) を参照
+- **連続 vs 離散の橋渡し**: D-DiT の連続+離散 dual diffusion と Fudoki の discrete flow matching は、[連続拡散と離散拡散の橋渡し](continuous-discrete-bridge.qmd) の議論が multimodal でどう拡張されるかの直接的な事例
+- **DLLM の未解決問題**: dMLLM 固有の training inefficiency や評価軸不在は、より広い [DLLM 分野の現状と未解決問題](open-problems.qmd) と地続きである
+
+[→ 詳細:]{.detail-link} [LLaDA: 大規模 Masked DLM とサンプリング](llada.qmd)
+
+[→ 詳細:]{.detail-link} [MDLM: Masked Diffusion Language Models](mdlm.qmd)
+
+[→ 詳細:]{.detail-link} [Block Diffusion](block-diffusion.qmd)
+
+[→ 詳細:]{.detail-link} [Embedding-Space Diffusion](embedding-space-diffusion.qmd)
+
+[→ 詳細:]{.detail-link} [連続拡散と離散拡散の橋渡し](continuous-discrete-bridge.qmd)
+
+[→ 詳細:]{.detail-link} [DLLM 分野の現状と未解決問題](open-problems.qmd)

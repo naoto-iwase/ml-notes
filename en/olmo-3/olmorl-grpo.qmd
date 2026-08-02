@@ -1,0 +1,296 @@
+---
+pagetitle: "OlmoRL / GRPO"
+---
+
+# OlmoRL / GRPO: Efficient Reinforcement Learning
+
+OlmoRL is a framework developed to improve the efficiency of reinforcement learning training for reasoning models. It is built upon Group Relative Policy Optimization (GRPO) and employs the Reinforcement Learning with Verifiable Rewards (RLVR) approach.
+
+As the third stage of post-training, reinforcement learning is conducted across multiple domains including math, coding, instruction-following, and general chat, combining verifiable rewards with LM-judge rewards.
+
+## Overview of OlmoRL
+
+OlmoRL is a system that tightly integrates algorithmic improvements and engineering infrastructure to address the challenges of reinforcement learning with long reasoning traces. It extends RLVR, which was previously limited to math and code, to a broader range of verifiable tasks.
+
+**Key features**:
+
+- **Algorithmic improvements**: Built on GRPO, integrating recent improvements from DAPO and Dr GRPO
+- **Large-scale dataset**: Dolci-Think-RL (approximately 100K prompts across 4 domains)
+- **Efficient infrastructure**: A distributed training system that efficiently handles long sequences (up to 32K tokens)
+- **4x speedup**: Achieves approximately 4x speedup compared to OLMo 2's RL infrastructure
+
+## OlmoRL Algorithm Details
+
+The reinforcement learning stage of OlmoRL is built upon GRPO (Shao et al., 2024), integrating recent algorithmic improvements such as DAPO (Yu et al., 2025) and Dr GRPO (Liu et al., 2025b).
+
+### Improvements over Vanilla GRPO
+
+OlmoRL implements the following improvements over Vanilla GRPO:
+
+**1. Zero gradient signal filtering**:
+
+- Excludes groups where all rewards are identical (i.e., the standard deviation of advantages is zero)
+- Avoids training on zero-gradient samples (similar to DAPO)
+
+**2. Active sampling**:
+
+- Maintains a consistent batch size despite zero gradient filtering
+- Implements an improved version of dynamic sampling (details in Section 4.4.3)
+
+**3. Token-level loss**:
+
+- Normalizes the loss by the total number of tokens across the batch, rather than per sample
+- Avoids length bias
+
+**4. No KL loss**:
+
+- Removes the Kullback-Leibler (KL) loss term (following the practice of GLM-4.5, DAPO, Dr GRPO, and others)
+- Enables less restrictive policy updates without causing over-optimization or training instability
+
+**5. Clip higher**:
+
+- Sets the upper clipping bound slightly higher than the lower bound
+- Allows larger updates for tokens (Yu et al., 2025)
+
+**6. Truncated importance sampling**:
+
+- Adjusts for differences in log-probabilities between the inference engine and training engine
+- Multiplies the loss by a truncated importance sampling ratio (Yao et al., 2025)
+
+**7. No standard deviation normalization**:
+
+- Does not normalize by the standard deviation when computing advantages (Liu et al., 2025b)
+- Removes difficulty bias (prevents advantages from being inflated disproportionately for problems with low reward standard deviation)
+
+### OlmoRL Objective Function
+
+The final objective function incorporates token-level loss, truncated importance sampling, clip-higher, and no standard deviation normalization in the advantage computation:
+
+$$
+J(\theta) = \frac{1}{\sum_{i=1}^{G} |y_i|} \sum_{i=1}^{G} \sum_{t=1}^{|y_i|} \min\left(\frac{\pi(y_{i,t} | x, y_{i,<t}; \theta_{\text{old}})}{\pi_{\text{vllm}}(y_{i,t} | x, y_{i,<t}; \theta_{\text{old}})}, \rho\right) \times \min(r_{i,t} A_{i,t}, \text{clip}(r_{i,t}, 1 - \varepsilon_{\text{low}}, 1 + \varepsilon_{\text{high}}) A_{i,t})
+$$
+
+Where:
+
+- $r_{i,t} = \frac{\pi(y_{i,t}|x,y_{i,<t};\theta)}{\pi(y_{i,t}|x,y_{i,<t};\theta_{\text{old}})}$
+- $\varepsilon_{\text{low}}$ and $\varepsilon_{\text{high}}$ are the clipping hyperparameters
+- $\rho$ is the upper bound for truncated importance sampling
+- The advantage $A_{i,t}$ is computed based on relative rewards within group $G$:
+
+$$
+A_{i,t} = r(x, y_i) - \text{mean}(\{r(x, y_i)\}_{i=1}^{G})
+$$
+
+::: {.callout-note collapse="true"}
+## Comparison of GRPO and PPO
+
+GRPO is a variant of Proximal Policy Optimization (PPO), and the main difference lies in the reward normalization method.
+
+**PPO**:
+
+- Normalizes rewards across the entire dataset or batch
+- Uses a global baseline
+
+**GRPO**:
+
+- Normalizes rewards within a group of responses generated from the same prompt
+- Improves training stability through group-based relative quality assessment
+- Particularly effective when output lengths vary significantly, as in reasoning models
+
+**OlmoRL improvements**:
+
+- Implements 7 major improvements over Vanilla GRPO
+- Zero gradient filtering and active sampling substantially improve training efficiency and stability
+:::
+
+### Verifiers
+
+OlmoRL extends verifiable rewards beyond OLMo 2's math domain to general domains. Different custom verifiers are used for each domain. @fig-olmorl-verifiers illustrates how the verifiers operate across Instruction Following, Math, Coding (verifiable), and General Chat (non-verifiable).
+
+![Per-domain verifiers in OlmoRL. Verifiable tasks (IF, Math, Coding) compute rewards via constraint checks, equivalence judgments, and unit tests, whereas the non-verifiable task (General Chat) is scored by a Large Language Model (LLM)-as-a-judge. Source: Olmo 3 Technical Report (arXiv:2512.13961)](images/olmorl-verifiers.png){#fig-olmorl-verifiers}
+
+**Math**:
+
+- Rule-based verifier
+- Performs basic normalization and compares against the reference answer using SymPy
+- Returns 1 if the answer matches the reference, 0 otherwise
+
+**Code**:
+
+- Test-case-based verifier
+- Runs a set of test cases against the response
+- (a) Uses the proportion of passed test cases as the reward, or (b) returns 1 if all test cases pass, 0 otherwise
+
+**Instruction-following**:
+
+- Passes the response through a set of functions that check compliance with constraints from the prompt
+- Returns 1 if all constraints are satisfied, 0 otherwise
+
+**Chat -- reference**:
+
+- When a ground-truth response is available, uses an LM judge to compare the model's response against the reference answer
+- Assigns a score in [0, 1] based on response quality
+
+**Chat -- open-ended**:
+
+- Without a reference answer, uses an LM judge to assign a score in [0, 1] based on response quality
+
+## Dolci-Think-RL Dataset
+
+Dolci-Think-RL is a large and diverse dataset consisting of approximately 100K samples across four domains (math, coding, instruction-following, and general chat). It supports robust RL across diverse reasoning tasks while maintaining general helpfulness.
+
+### Dataset Composition
+
+| Category | Dataset | Think RL Prompts | Instruct RL Prompts |
+|----------|---------|-----------------|---------------------|
+| **Precise IF** | IF-RLVR | 30,186 | 38,000 |
+| **Math** | Open-Reasoner-Zero | 3,000 | 14,000 |
+|  | DAPO-Math | 2,584 | 7,000 |
+|  | AceReason-Math | 6,602 | - |
+|  | Polaris-Dataset | - | 14,000 |
+|  | KlearReasoner-MathSub | 3,000 | 9,000 |
+|  | OMEGA-train | 15,000 | 20,000 |
+| **Coding** | AceCoder | 9,767 | 20,000 |
+|  | KlearReasoner-Code | 8,040 | - |
+|  | Nemotron Post-training Code | 2,303 | - |
+|  | SYNTHETIC-2 | 3,000 | - |
+| **General Chat** | Tulu 3 SFT | 7,129 | 18,955 |
+|  | Wildchat-4.8M | 7,129 | 18,761 |
+|  | Multi-Subject RLVR | 7,129 | 12,234 |
+| **Total** |  | **104,869** | **171,950** |
+
+### Data Construction Process
+
+**Step 1: Prompt sourcing**:
+
+High-quality prompts are collected and curated from each domain.
+
+- **Math**: Open-Reasoner-Zero, DAPO-Math, AceReason-Math, KlearReasoner-MathSub, OMEGA, etc.
+- **Coding**: AceCoder, Klear-Reasoner Code, Nemotron Post-training Code, SYNTHETIC-2, etc.
+- **Instruction-following**: IF-RLVR (up to 5 constraints, sampled from IFEval and IFBench-Train)
+- **General chat**: Tulu 3 SFT, WildChat-4.8M, Multi-subject-RLVR
+
+**Step 2: Offline difficulty filtering**:
+
+- Generates 8 rollouts per prompt from the model's initial checkpoint
+- Excludes samples that the model easily solves (pass rate > 62.5%)
+- Samples at temperature 1.0, top-p 1.0 (matching RL training settings)
+
+**Step 3: Data mixing**:
+
+- Conducts domain-specific experiments and observes downstream evaluation trends over the first 500-1000 steps
+- Upweights high-quality datasets
+- Uses roughly equal data volumes across domains (with slightly more emphasis on math and instruction-following)
+- Downsamples specific subtasks from OMEGA
+
+## OlmoRL Infrastructure
+
+OlmoRL introduces substantial improvements to the reinforcement learning infrastructure for handling long sequences and achieving faster overall throughput.
+
+### Compute Resources
+
+A major technical challenge in RL is managing inference (rollouts). For the final model, rollouts are generated with a maximum length of 32K tokens, averaging over 10K tokens.
+
+**Resource allocation** (for the 32B model):
+
+- **Training**: 8 H100 nodes
+- **Inference**: 20 nodes
+- **GPU utilization**: Inference uses approximately 5x the compute of training
+
+Due to the high cost of autoregressive inference, the learner spends 75% of its time waiting for data.
+
+### Key Technical Innovations
+
+The infrastructure rests on four pillars:
+
+1. **Fully Asynchronous Training** — centralized learner across nodes (DeepSpeed), a large pool of independent vLLM actors, and queue-based coordination between them.
+2. **Continuous Batching** — enqueues new generations as each one finishes, saving up to 54% compute vs. static batching.
+3. **Active Sampling** — continuously resamples prompts to fill non-zero-gradient batches, 3x more efficient than DAPO's dynamic oversampling.
+4. **Inflight Updates** — updates weights without pausing the generation engine and without KV cache invalidation, yielding up to 4x throughput.
+
+Each is detailed below.
+
+**Fully Asynchronous Training** (@fig-olmorl-distributed):
+
+- Distributes a centralized learner across multiple nodes (using DeepSpeed)
+- Large pool of actors, each running an independent vLLM instance
+- The learner enqueues prompts and distributes them to actors
+- Actors interact with the environment and return results through a queue
+
+![OlmoRL distributed architecture. The Learner pushes prompts into the Prompts queue, and a pool of Actors (multiple vLLM instances) returns results via the Results queue. Learner and Actors run asynchronously. Source: Olmo 3 Technical Report (arXiv:2512.13961)](images/olmorl-distributed.png){#fig-olmorl-distributed}
+
+**Continuous Batching**:
+
+- Constantly enqueues new generations as each one finishes
+- Reduces compute waste on long generations compared to static batching
+- In Olmo 3, with a 32K generation length, the average is 14,628 tokens and the maximum is 32K tokens
+- Static batching would waste up to 54% of compute
+
+**Active Sampling**:
+
+- To compensate for filtered instances, continuously pulls completions from actors and resamples prompts into the queue
+- Actively samples and filters until the desired batch size of non-zero-gradient completions is reached
+- More efficient than DAPO's dynamic sampling (which requires 3x oversampling)
+
+**Inflight Updates**:
+
+- After each training step, immediately updates weights without pausing the generation engine
+- Relies on a thread-safe generation framework to continue generation without invalidating the Key-Value (KV) cache
+- Achieves up to 4x speedup with the same resources
+
+### Impact of Infrastructure Improvements
+
+| Configuration | Total Tokens (Mtok) | Tokens/sec | MFU (%) | MBU (%) |
+|---------------|---------------------|------------|---------|---------|
+| OLMo 2 | 6.34 | 881 | 0.30 | 12.90 |
+| + continuous batching | 7.02 | 975 | 0.33 | 14.29 |
+| + better threading | 9.77 | 1358 | 0.46 | 19.89 |
+| + inflight updates (Olmo 3) | 21.23 | 2949 | 1.01 | 43.21 |
+
+The addition of inflight updates provides the most dramatic improvement.
+
+## Extended Training of Olmo 3.1 Think 32B
+
+Olmo 3.1 Think 32B demonstrated performance gains through extended OlmoRL training. Additional epochs on the Dolci Think RL dataset yielded the following improvements:
+
+**Performance gains**:
+
+- **AIME 2024**: +4 points
+- **IFBench**: +20 points
+- **Other benchmarks**: Performance maintained
+
+Extended training confirmed that longer RL training improves generalization without catastrophic forgetting, enabling stable training.
+
+## Key Findings
+
+### Delta Learning Provides a Stronger Initialization for RLVR
+
+Performing preference tuning with Delta Learning before applying RLVR achieves better overall performance than SFT alone.
+
+### Both DPO and SFT Benefit from RL, but DPO Is a Better Starting Point
+
+Running the final RL mix on a DPO model consistently yields superior performance compared to running it on an SFT model.
+
+**Key differences**:
+
+- On evaluations where RL does not improve performance, the DPO model often outperforms and maintains its advantage throughout RL training (e.g., AlpacaEval)
+- On evaluations explicitly targeted by RL, both DPO and SFT models achieve similar final performance (e.g., OMEGA)
+- On evaluations targeted by RL where further improvement from DPO is difficult, the SFT model improves to approach DPO performance (e.g., AIME 2025)
+
+### Rewards Steadily Increase Across All Domains
+
+During RL training, rewards steadily increase across all domains, though at different rates. Instruction-following data shows the most consistent increase, while code rewards increase most slowly.
+
+## Summary
+
+OlmoRL is an efficient reinforcement learning framework built on GRPO, achieving the following:
+
+**Key contributions**:
+
+- **Algorithmic improvements**: 7 important improvements over Vanilla GRPO
+- **Large-scale dataset**: Dolci-Think-RL (100K prompts across 4 domains)
+- **Efficient infrastructure**: 4x speedup through continuous batching, active sampling, and inflight updates
+- **Multi-domain support**: Math, Code, Instruction-following, and General chat
+- **Extended training**: Significant performance gains through 2,300 steps of extended training on Olmo 3.1 Think 32B
+
+OlmoRL substantially improves the efficiency of reasoning model training and provides a fully open RL research environment.

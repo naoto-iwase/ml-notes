@@ -1,0 +1,189 @@
+# Phase 6 Reference: Details for index.qmd and _quarto-public.yml
+
+In Phase 6, create the book landing page, `index.qmd`, and register it in the site-wide sidebar. These details have been separated from `SKILL.md`.
+
+## 6.1: Create index.qmd
+
+### Division of Responsibilities: index.qmd vs overview.qmd
+
+- **index.qmd = the book's "cover"**: what the book is about, what its sources are, and when it was written. A reader arriving from a listing should be able to decide within five seconds whether the book is relevant. **Keep it minimal.**
+- **overview.qmd = the book's "big picture"**: the main questions, structure, and importance. It contains the structural diagram, performance comparison tables, and each chapter's role.
+
+### Minimal Template
+
+```yaml
+---
+title: "Book Title"
+description: "One-line book description"
+date: "YYYY-MM-DD"
+date-modified: last-modified
+author:
+  name: "Author Name"
+  url: "https://example.com"
+categories: [Category 1, Category 2]
+image: "images/cover-image.png"
+toc: false
+---
+
+A brief description of the model or technique (one or two paragraphs explaining what the book covers and why it matters)
+
+**Paper**: [arXiv:XXXX.XXXXX](https://arxiv.org/abs/XXXX.XXXXX)
+
+**Code**: URL (if available)
+
+**Demo**: URL (if available)
+```
+
+Even for a multi-paper survey, do not put a paper-list table in the index. The sidebar already conveys chapter order, the opening of each chapter provides paper information, and `overview.qmd` provides the recommended reading order; do not duplicate those functions in the index.
+
+### Content That Does Not Belong in index.qmd (Put It in overview.qmd)
+
+Do **not** put the following in `index.qmd`; write it in `overview.qmd` instead:
+
+- A bullet list of main contributions or features.
+- A list of model variants or model sizes.
+- Benchmark or performance-evaluation tables.
+- Training costs or compute resources.
+- A list of open artifacts.
+- A list of major topics equivalent to chapter titles, because the sidebar already provides it.
+- A literal `## 目次` ("Table of Contents") section, because it duplicates the sidebar completely.
+- A paper-list table, even for a multi-paper survey, because the sidebar and chapter openings provide this information.
+
+Do not place any `## ...` heading in the index. Always include `toc: false` in the front matter so the right-hand table-of-contents sidebar stays hidden even if a heading is added accidentally.
+
+### Field Descriptions
+
+- **title**: the book title.
+  - **English only**, whether it is a model, method, or book name. Do not add a Japanese subtitle.
+  - For an existing book, **respect the original title**, including any subtitle after a colon; for example, `Probabilistic Machine Learning: An Introduction`.
+  - Keep it **identical across Japanese and English**.
+  - Examples: `Olmo 3`, `Molmo2`, `Diffusion Language Models`, `CoT Verification`.
+- **description**: a one-line description.
+  - In Japanese, end with a **noun phrase**, not an inflected verb. For example, change the literal `整理する` ("organizes") to `整理` ("organization").
+  - Do not add a final period.
+  - Do not use a colon. Express scope or qualification in parentheses.
+  - Make the field and distinctive angle clear in one line so readers know what the book covers.
+  - Target length: **20–35 Japanese characters** for `ja`, **60–85 characters** for `en`.
+  - Japanese example: `拡散言語モデル（DLLM）の主要文献を体系的に整理` ("Systematic organization of the key literature on diffusion language models (DLLMs)").
+  - Japanese example: `1ステップ生成モデルの最前線（Flow Matching から Drifting Models まで）` ("The frontier of one-step generative models, from Flow Matching to Drifting Models").
+  - English example: `Fully open language and reasoning models (7B/32B)`.
+- **date**: the creation date or paper publication date in `YYYY-MM-DD` format.
+  - **Important**: determine the current date by running `date +%Y-%m-%d` with the Bash tool.
+  - Always use the command output rather than typing the year manually, to prevent typographical errors.
+- **date-modified**: set to `last-modified`, which is resolved automatically from Git history. This is required to show "last updated" on the book's index page.
+- **author**: copy the canonical author object from an existing public book index or project metadata. Do not hard-code a person's identity in a reusable example.
+- **categories**: specify **at most two** appropriate categories as a list.
+  - **Important**: first inspect existing categories to avoid spelling variants:
+    ```bash
+    python .agents/skills/book-writer/scripts/list_categories.py .
+    ```
+  - Prefer an existing category; add a new one only when necessary.
+  - Examples: `[LLM, Reasoning]`, `[VLM, Multimodal]`, `[Deep Learning, Statistical Physics]`.
+- **image**: path to the cover image within the `images/` directory.
+- **toc**: always `false`. A book's `index.qmd` is a landing page, so this is required to suppress the right-hand table-of-contents sidebar.
+
+## 6.2: Configure the Sidebar (`_quarto-public.yml`)
+
+Add a new public book sidebar to `_quarto-public.yml`. Register every chapter in the sidebar. Because `index.qmd` contains no table of contents, the sidebar is the only entry point for chapter navigation.
+
+```yaml
+sidebar:
+  - id: new-book-ja
+    title: "ML Notes"
+    style: "docked"
+    collapse-level: 3
+    contents:
+      - section: "New Book Title"
+        href: ja/new-book/index.qmd
+        contents:
+          - text: "Overview"
+            href: ja/new-book/overview.qmd
+          - text: "Concept A"
+            href: ja/new-book/concept-a.qmd
+          - text: "Concept B"
+            href: ja/new-book/concept-b.qmd
+          # Add the remaining supplementary documents in the same way
+```
+
+If an English edition exists, add a separate sidebar in the same way with an `-en` suffix:
+
+```yaml
+  - id: new-book-en
+    title: "ML Notes"
+    style: "docked"
+    collapse-level: 3
+    contents:
+      - section: "New Book Title"
+        href: en/new-book/index.qmd
+        contents:
+          - text: "Overview"
+            href: en/new-book/overview.qmd
+          # ...
+```
+
+### Notes
+
+- `id` is a unique identifier. It must match `sidebar` in `_metadata.yml` and, for a public book, end in `-ja` or `-en`.
+- Standardize `title` as **exactly `"ML Notes"`**. The gray area at the top of the sidebar serves as the site name; the book title appears in the `section:` below.
+- `collapse-level: 3` expands all sections by default.
+- Use `section:` plus `href:` to make `index.qmd`, the landing page, a collapsible parent.
+- Always write `href` as a relative path.
+- Register every chapter, including the overview and supplementary documents. Because `index.qmd` has no table of contents, the sidebar is the only navigation entry point.
+- For a book with many chapters, nest `section:` entries by Part or Section; see `murphy1` and `olmo-3`.
+- Use existing sidebar entries such as `olmo-3` and `molmo2` as references.
+- Add a private book to `private/_quarto-private.yml`.
+
+### Naming Nested `section:` Entries: Use Functional Terms
+
+When a book has at least eight chapters and the sidebar nests them by Part or Section, name each section with a **two- or three-character Japanese functional term that describes the chapters' role**.
+
+Past example: the first edition of `recursive-reasoning` used the Japanese labels `系譜と地図` ("Lineage and Map") and `比較と動向` ("Comparison and Trends") and was criticized as vague. Those labels merely joined chapter-title concepts with "and," so the section's contents were not inferable from its name. The `reliable-reasoning` labels `訓練側の信号` ("Training-Side Signals"), `推論側の信号` ("Inference-Side Signals"), and `構造的アプローチ` ("Structural Approaches") are the model for functional classification.
+
+| Recommended (functional term) | Not recommended (abstract enumeration) |
+|-------------------------------|-----------------------------------------|
+| `中心` / `主役` / `本論` (core / focus / main subject) | `系譜と地図` (lineage and map) |
+| `背景` / `前史` (background / prehistory) | `比較と動向` (comparison and trends) |
+| `評価` / `対比` / `比較` (evaluation / contrast / comparison) | `位置付けと整理` (positioning and organization) |
+| `訓練側の信号` (training-side signals) | `学習関連の話題` (learning-related topics) |
+| `推論側の信号` (inference-side signals) | `推論まわり` (things around inference) |
+| `構造的アプローチ` (structural approaches) | `アーキテクチャ系` (architecture-ish) |
+| `応用` / `派生` / `展開` (applications / derivatives / extensions) | `その他` (other) |
+| `入門` / `基礎` (introduction / foundations) | `前提知識` (prerequisite knowledge) |
+
+Avoid these abstract Japanese labels: **`文脈`** ("context," which conflicts semantically with LLM context), **`位置付け`** ("positioning," too abstract), **`諸論点`** ("various issues," which does not identify the issues), and **`その他`** ("other," which states no function).
+
+See [style-consistency.md](style-consistency.md) for details.
+
+### Language Rules for `text:`
+
+- **English sidebar (`-en`)**: keep text in English.
+- **Japanese sidebar (`-ja`) and private sidebar**: localize text toward Japanese, except for the following items, which remain in English:
+  - Model and dataset names, such as LLaDA, MDLM, Dolma 3, olmOCR, and Dolci.
+  - Established method names and abbreviations, such as MaskGIT, MeanFlow, NTK, RG Flow, GRPO, VAE, GANs, MCMC, GLM, and BD3-LMs.
+  - Task names without an established Japanese translation, such as Dense Video Captioning, Video Grounding, and Vision-Language Connector.
+- Translate abstract or descriptive titles into Japanese:
+  - `Overview` → `概要` ("Overview").
+  - `Open Problems` → `未解決問題` ("Open Problems").
+  - `Part I: Foundations` → `第 I 部: 基礎` ("Part I: Foundations").
+  - `Deduplication` → `重複除去` ("Deduplication") and `Data Mixing` → `データ混合` ("Data Mixing").
+- Match the tone of existing sidebar groups in `_quarto-public.yml` / `_quarto-private.yml`.
+- **Japanese sidebar text must match the chapter's Japanese H1 exactly**, as described below. When adding a chapter, use the same string for H1 and sidebar text.
+
+### Chapter-Title Synchronization Rules
+
+- **Japanese**: H1 ≡ `pagetitle` ≡ sidebar text, exactly. Do not use the bilingual `# English: 日本語` format, where `日本語` means "Japanese"; it was retired because repeating the same words is redundant.
+- **English**: H1 may be fully descriptive and can include a subtitle. Only `pagetitle` ≡ sidebar text is mandatory; H1 does not have to match `pagetitle`.
+- **Cross-language**: require Japanese H1 to match the main portion of the English H1 before the colon only when the Japanese H1 itself is entirely English. If the Japanese H1 is localized into Japanese, the automatic check skips it and a human must verify semantic alignment.
+- In the overview, the visible text of `[→ 詳細:]` / `[→ Detail:]` links must equal the target chapter's sidebar text. The first label is the literal Japanese "Details" label.
+- Visible text in inter-chapter links within prose must equal the target chapter's sidebar text.
+
+Use **Chicago-style Title Case** for English, including capitalization of roots after hyphens: `Long-Context`, `Test-Time`, `Self-Consistency`, and `Post-Training`.
+
+`lint_chapters.py` verifies these rules automatically with `[TITLE_SYNC]` / `[TITLE_XLANG]`:
+
+```bash
+python3 .agents/skills/book-writer/scripts/lint_chapters.py ja/{book}
+python3 .agents/skills/book-writer/scripts/lint_chapters.py en/{book}
+```
+
+When `--sidebar` is omitted, the script automatically finds `_quarto-public.yml` for a public book or `private/_quarto-private.yml` for a private book.

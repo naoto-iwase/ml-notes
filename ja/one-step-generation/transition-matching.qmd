@@ -1,0 +1,252 @@
+---
+pagetitle: "Transition Matching"
+---
+
+# Transition Matching
+
+## 背景と動機 {#sec-background}
+
+Flow Matching [@lipman2023flowmatching] は連続時間の確定的（deterministic）な常微分方程式（Ordinary Differential Equation, ODE）に基づく生成モデルであり、ノイズからデータへの滑らかな軌道を学習する。しかし、この定式化にはいくつかの制約がある:
+
+- **連続時間への依存**: 実際の推論では Euler 法などで離散化するため、ステップ数と精度のトレードオフが不可避である
+- **確定的な軌道**: 各ノイズ点に対して1本の軌道しか存在せず、確率的な探索ができない
+- **他のパラダイムとの断絶**: 拡散モデル（確率的）や自己回帰モデル（離散的・因果的）とは異なるフレームワークに位置する
+
+Shaul ら [@shaul2025transition] は **Transition Matching** を提案し、これらの制約を同時に解消する統一的フレームワークを構築した。核心的な問いは次の通りである:
+
+
+> 拡散モデル、Flow Matching、自己回帰モデルを**離散時間のマルコフ遷移**として統一できないか？
+
+Transition Matching はこの問いに肯定的に答え、生成過程を確率的な遷移カーネルの列として定式化することで、3つのパラダイムを包含する柔軟なフレームワークを実現する。
+
+## Transition Matching の一般的枠組み {#sec-framework}
+
+### マルコフ遷移カーネルによる生成
+
+Transition Matching は生成過程を、離散時間 $t = 0, 1, \ldots, T$ におけるマルコフ遷移カーネルの列として定式化する。具体的には、学習すべき生成過程は以下の形をとる:
+
+$$
+p^\theta(X_0, X_1, \ldots, X_T) = p(X_0) \prod_{t=0}^{T-1} p^\theta_{t+1|t}(X_{t+1} | X_t)
+$$ {#eq-generative-process}
+
+ここで $p(X_0)$ はノイズ分布（例: 標準正規分布）、$p^\theta_{t+1|t}$ は学習パラメータ $\theta$ で定まる遷移カーネルである。生成は $X_0 \sim p(X_0)$ からスタートし、逐次的に $X_{t+1} \sim p^\theta_{t+1|t}(\cdot | X_t)$ をサンプリングする。
+
+### 監督過程（Supervising Process）
+
+学習の目標は、データ分布 $q_1$ を終端分布として持つ**監督過程**（supervising process）$q$ を模倣することである。監督過程は以下の同時分布で定義される:
+
+$$
+q(X_0, X_1, \ldots, X_T) = p(X_0) \prod_{t=0}^{T-1} q_{t+1|t}(X_{t+1} | X_t)
+$$
+
+この監督過程は通常、ノイズとデータを結ぶ補間パス（例: 線形補間 $X_t = (1-\alpha_t) X_0 + \alpha_t X_1$）から構成される。
+
+### 損失関数
+
+学習は、監督過程の遷移カーネルとモデルの遷移カーネルの間の乖離を各時刻で最小化することで行われる:
+
+$$
+\mathcal{L}(\theta) = \sum_{t=0}^{T-1} \mathbb{E}_{q(X_t)} \left[ D\left( q_{t+1|t}(\cdot | X_t) \,\|\, p^\theta_{t+1|t}(\cdot | X_t) \right) \right]
+$$ {#eq-loss}
+
+ここで $D$ は確率分布間の乖離度（KL（Kullback-Leibler）ダイバージェンスなど）である。重要な点は、各時刻の遷移カーネルを**独立に**マッチングできることであり、これがフレームワークの柔軟性の源泉となっている。
+
+### 潜在変数によるカーネルのパラメータ化
+
+監督過程の遷移カーネル $q_{t+1|t}$ を直接近似するのは困難な場合がある。Transition Matching では**潜在変数 $Y$** を導入し、カーネルをパラメータ化する:
+
+$$
+q_{t+1|t}(X_{t+1} | X_t) = \int q_{t+1|t,Y}(X_{t+1} | X_t, Y) \, q_{Y|t}(Y | X_t) \, dY
+$$
+
+潜在変数 $Y$ の選び方により、異なるバリアントが生まれる。この設計の自由度が Transition Matching の汎用性を支えている。
+
+![Flow Matching との対比における Transition Matching の核心。左: Flow Matching では中間点 $X_t$ から終端 $X_T$ への確定的な「線」を学習する。右: Transition Matching では現在状態 $X_t$ から次状態への確率的な遷移 $u_t(X_t)$ を学習し、終端候補は複数あり得る分布として扱われる。出典: [@shaul2025transition]](images/tm-vs-fm.png){#fig-tm-vs-fm}
+
+@fig-tm-vs-fm が示す通り、Transition Matching は単一の確定的軌道ではなく、各時刻における**遷移分布**を学習対象とする。
+
+- **監督過程**: $q_{t+1|t}(X_{t+1} | X_t)$ をターゲットとする
+- **学習**: $p^\theta_{t+1|t}(X_{t+1} | X_t)$ で模倣する
+- **損失**: 各時刻で独立に $D(q_{t+1|t} \| p^\theta_{t+1|t})$ を最小化
+
+## DTM: Difference Transition Matching {#sec-dtm}
+
+### 定式化
+
+DTM（Difference Transition Matching）は Transition Matching の最も基本的なバリアントであり、Flow Matching の離散時間への自然な一般化である。
+
+潜在変数として**差分** $Y = X_T - X_0$（データとノイズの差）を採用する。これにより、各遷移ステップにおいて、モデルはノイズからデータへの「方向」を予測することになる。遷移カーネルは以下のように定義される:
+
+$$
+p^\theta_{t+1|t}(X_{t+1} | X_t) = \mathcal{N}\left(X_{t+1}; X_t + (\alpha_{t+1} - \alpha_t) f_\theta(X_t, t), \sigma_t^2 I \right)
+$$
+
+ここで $f_\theta(X_t, t)$ は差分（$X_T - X_0$ の方向）を予測するニューラルネットワーク、$\alpha_t$ は補間スケジュールのパラメータ、$\sigma_t$ は確率的ノイズの大きさである。
+
+### Flow Matching との理論的関係
+
+DTM と FM の関係を明確にする重要な定理が証明されている。
+
+::: {.callout-note collapse="true"}
+## DTM ステップと FM Euler ステップの等価性
+
+**定理**: DTM の1ステップの期待値は、Flow Matching の Euler ステップと一致する。すなわち:
+
+$$
+\mathbb{E}\left[X_{t+1} | X_t\right] = X_t + (\alpha_{t+1} - \alpha_t) \mathbb{E}\left[f_\theta(X_t, t)\right]
+$$
+
+これは FM の Euler 離散化:
+
+$$
+z_{t+\Delta t} = z_t + \Delta t \cdot v_\theta(z_t, t)
+$$
+
+と構造的に同一である。さらに、$T \to \infty$（時間ステップ数を無限大）の極限では、DTM は FM の Euler ステップに正確に収束する。
+
+この定理は2つの重要な含意を持つ:
+
+- DTM は FM の厳密な離散時間版として理論的に正当化される
+- 有限ステップでは、DTM は FM に対して確率的なノイズ項 $\sigma_t$ を追加的に持つ
+
+また、論文では FM の周辺速度場（marginal velocity field）の**新しい初等的証明**も与えている。従来の FM の定式化では周辺速度場の存在と一意性の証明にやや複雑な議論が必要であったが、Transition Matching の枠組みを通じて、より直接的で見通しの良い証明が得られる。
+:::
+
+### Backbone-Head アーキテクチャ
+
+DTM の実用的な実装では、**Backbone-Head アーキテクチャ**が採用される。これは計算効率の観点から極めて重要な設計である。
+
+![DTM の Backbone-Head アーキテクチャ。重い Backbone が入力トークン列 $\{x_t^i\}$ から共通の隠れ表現 $\{h_t^i\}$ を 1 回だけ計算し、軽量な Head が各位置と時刻 $(t, s)$ における遷移 $u_s^i$ を予測する。これにより Backbone forward の回数を大幅に削減できる。出典: [@shaul2025transition]](images/tm-arch-dtm.png){#fig-tm-arch-dtm}
+
+Backbone forward pass の回数は 128回（FM）から16回（DTM）に削減され、**7倍の高速化**を実現する。
+
+このアーキテクチャの要点は以下の通りである:
+
+- **Backbone**: UNet や Diffusion Transformer（DiT）などの重いネットワークで、入力から共通の特徴量を抽出する。サンプルあたり1回のみ実行される
+- **Head**: 各時刻 $t$ に特化した軽量なネットワークで、Backbone の出力から各ステップの遷移を予測する
+- **高速化**: 従来の FM が128回の Backbone forward pass を必要としたのに対し、DTM は16回で済む。これは **7倍の高速化**に相当する
+
+## ARTM: Autoregressive Transition Matching {#sec-artm}
+
+ARTM（Autoregressive Transition Matching）は、自己回帰モデルの構造を Transition Matching に組み込んだバリアントである。
+
+### 独立線形過程と因果構造
+
+ARTM では、各トークン位置 $i$ に対して**独立な線形過程**を定義する:
+
+$$
+X_t^{(i)} = (1 - \alpha_t) X_0^{(i)} + \alpha_t X_T^{(i)}
+$$
+
+ここで $X_t^{(i)}$ はトークン位置 $i$ における時刻 $t$ の状態である。重要な点は、この過程が**因果的（causal）**な構造を持つことである。すなわち、位置 $i$ の遷移は位置 $1, \ldots, i-1$ の情報のみに依存する。
+
+これにより、自己回帰モデルのように**左から右へ**順次生成する構造と、Flow Matching のように**ノイズからデータへ**変換する構造が自然に統合される。各トークン位置での速度（velocity）は独立に学習され、因果マスクにより情報の流れが制御される。
+
+### 自己回帰モデルとの関係
+
+ARTM は、離散トークンの自己回帰生成を連続空間に拡張したものと解釈できる。トークン数を1に固定し、ステップ数 $T=1$ とすると、標準的な自己回帰モデルの1ステップに退化する。
+
+## FHTM: Full History Transition Matching {#sec-fhtm}
+
+FHTM（Full History Transition Matching）は、最も表現力の高いバリアントであり、大規模言語モデル（Large Language Model, LLM）アーキテクチャとの統合において重要な位置を占める。
+
+### 完全履歴へのアクセス
+
+DTM や ARTM が現在の状態 $X_t$ のみに基づいて次の状態を予測するのに対し、FHTM は**完全な履歴** $X_0, X_1, \ldots, X_t$ にアクセスできる:
+
+$$
+p^\theta_{t+1|0:t}(X_{t+1} | X_0, X_1, \ldots, X_t)
+$$
+
+これはマルコフ性を放棄する代わりに、より豊かな文脈情報を活用できることを意味する。
+
+### Teacher-Forcing による訓練
+
+FHTM の訓練には **teacher-forcing** が用いられる。これは自然言語処理における自己回帰モデルの標準的な訓練手法であり、訓練時には監督過程からの真の履歴を入力として使用する:
+
+$$
+\mathcal{L}_{\text{FHTM}}(\theta) = \sum_{t=0}^{T-1} \mathbb{E}_{q(X_0, \ldots, X_t)} \left[ D\left( q_{t+1|0:t}(\cdot | X_0, \ldots, X_t) \,\|\, p^\theta_{t+1|0:t}(\cdot | X_0, \ldots, X_t) \right) \right]
+$$
+
+Teacher-forcing により、訓練は効率的かつ安定的に行われる。推論時には、モデル自身が生成した履歴を逐次的に使用する。
+
+### 完全因果的モデルとしての革新性
+
+FHTM の最も注目すべき成果は、**完全因果的（fully causal）なモデルとして初めて Flow Matching を凌駕した**ことである。従来、因果的な構造を持つ生成モデルは双方向的（bidirectional）なモデルに比べて性能が劣るとされてきた。FHTM はこの常識を覆し、完全な履歴情報の活用が因果的構造の制約を補って余りあることを示した。
+
+![FHTM のアーキテクチャ。Backbone への入力は `boi`（begin-of-image トークン）から始まる完全履歴 $x_0^1, \dots, x_t^{i-1}$ の系列であり、因果的に隠れ表現 $h_{t+1}^i$ までを計算する。Head は次トークンへの遷移 $u_s^i$ を予測する。LLM の decoder アーキテクチャと因果マスクがそのまま再利用できる構造である。出典: [@shaul2025transition]](images/tm-arch-fhtm.png){#fig-tm-arch-fhtm}
+
+::: {.callout-tip collapse="true"}
+## LLM アーキテクチャとの統合可能性
+
+FHTM は標準的な LLM アーキテクチャ（Transformer decoder）で直接実装可能である。その理由は以下の通りである:
+
+- **因果マスク**: FHTM の因果構造は、LLM の自己回帰的な因果マスクと完全に一致する
+- **Teacher-forcing**: LLM の標準的な訓練手法がそのまま適用できる
+- **トークン列としての表現**: 各時刻の状態 $X_t$ をトークンとして扱い、時間方向のシーケンスとして処理できる
+
+この互換性は、テキスト生成と画像生成を**シームレスに統合**する可能性を開く。例えば、テキストトークンの自己回帰生成の後に、同じモデル・同じアーキテクチャで画像の段階的な精緻化を行うことが考えられる。LLM の巨大なエコシステム（最適化手法、推論エンジン、ハードウェアサポート）をそのまま活用できるという実践的な利点も大きい。
+:::
+
+## 実験結果 {#sec-experiments}
+
+### DTM の画像生成性能
+
+DTM は **350M の Shutterstock データ**で訓練され、テキスト条件付き画像生成で評価された。評価指標は画像品質とプロンプト整合性の両面をカバーしている。
+
+| 指標 | DTM (16 steps) | FM (128 steps) | 備考 |
+|------|----------------|-----------------|------|
+| CLIPScore | 上回る | ベースライン | テキスト-画像整合性 |
+| PickScore | 上回る | ベースライン | 人間の嗜好に基づく評価 |
+| ImageReward | 上回る | ベースライン | 報酬モデルスコア |
+| Aesthetics | 上回る | ベースライン | 美的品質 |
+| Backbone forwards | 16 | 128 | **7倍の高速化** |
+
+DTM はわずか16ステップの Backbone forward pass で、128ステップの FM をすべての指標で上回っている。これは Backbone-Head アーキテクチャの有効性を実証するものである。
+
+### FHTM の性能
+
+FHTM は完全因果的モデルとして、以下の点で注目に値する結果を示した:
+
+- **FM を凌駕**: 因果的モデルが双方向モデルを超えた初の例
+- **LLM アーキテクチャ**: 標準的な Transformer decoder で実装可能であることを実証
+- **Teacher-forcing の有効性**: 訓練の安定性と効率性を確認
+
+## 3つのバリアントの比較 {#sec-comparison}
+
+各バリアントの位置づけを整理すると:
+
+| バリアント | 潜在変数 $Y$ | 構造 | 主な利点 |
+|-----------|-------------|------|---------|
+| DTM | $X_T - X_0$（差分） | マルコフ | FM の離散時間版、7倍高速化 |
+| ARTM | 独立線形過程 | 因果的 | AR モデルと FM の橋渡し |
+| FHTM | 完全履歴 | 完全因果的 | 初めて FM を凌駕、LLM 互換 |
+
+## 意義と位置づけ {#sec-significance}
+
+Transition Matching の貢献は、個別の性能改善にとどまらない。このフレームワークは、これまで別々に発展してきた3つの生成モデルのパラダイムを統一的に扱う視点を提供する:
+
+- **拡散モデル**: 確率的な遷移カーネルとして表現可能
+- **Flow Matching**: DTM の $T \to \infty$ 極限として回復可能
+- **自己回帰モデル**: ARTM および FHTM の特殊ケースとして包含
+
+この統一は、理論的な理解を深めるだけでなく、実践的にも新しい設計空間を開拓する。例えば、確率的な遷移と確定的な遷移を混在させたり、一部のステップでは因果的、残りでは双方向的な構造を採用するといった柔軟な設計が可能となる。
+
+特に FHTM が LLM アーキテクチャと互換であるという事実は、テキストと画像の統一的な生成に向けた重要な一歩である。1ステップ生成の文脈では、[メイン文書](overview.qmd)で議論した他の手法と相補的な位置にあり、少ないステップ数での高品質生成という共通目標に対して、離散時間・確率的という独自の角度からアプローチしている。
+
+::: {.callout-note collapse="true"}
+## Flow Matching の周辺速度場に対する新しい初等的証明
+
+Transition Matching の理論的副産物として、Flow Matching の周辺速度場（marginal velocity field）に対する新しい初等的証明が得られている。
+
+従来の Flow Matching の定式化では、条件付き速度場 $u_t(x | x_1)$ から周辺速度場 $u_t(x)$ を導出する際に、確率フローの理論や連続方程式（continuity equation）を経由する必要があった。
+
+Transition Matching の枠組みでは、離散時間の遷移カーネルから出発し、$T \to \infty$ の極限をとることで、周辺速度場の存在と表現が直接的に導かれる。具体的には:
+
+$$
+u_t(x) = \lim_{\Delta t \to 0} \frac{1}{\Delta t} \mathbb{E}\left[X_{t+\Delta t} - X_t \mid X_t = x\right]
+$$
+
+この証明は、連続時間の FM を離散時間の極限として理解するという視点を提供し、Flow Matching の理論的基盤をより堅固なものにしている。
+:::
+

@@ -1,0 +1,183 @@
+---
+pagetitle: "Guidance"
+---
+
+# Guidance
+
+本章は拡散言語モデル（Diffusion Language Model, DLM）における **guidance** —— 訓練済みモデルの推論時 trajectory を望ましい属性へ誘導する技法群 —— を扱う。画像系の連続拡散モデルでは、分類器ガイダンス（Classifier Guidance, CG）と分類器無しガイダンス（Classifier-Free Guidance, CFG）が条件付き生成の事実上の標準となり、Stable Diffusion や DALL·E 系のサービス品質を支えている。一方、離散側の DLM では、勾配ベースの classifier guidance がそのまま書けないという構造的な事情があり、別系統の道具立てが整備されつつある。
+
+連続側で確立された技法を踏まえつつ、離散 DLM 固有の guidance —— Nisonoff らの連続時間 Markov 連鎖（Continuous-Time Markov Chain, CTMC）ベース一般枠組み、Schiff らの masked diffusion 向け簡潔実装、LLaDA や A-CFG といった大規模 DLM での CFG 実装、さらに FreeCache や DINGO のような加速・制約付き拡張 —— を体系的に整理する。本章のスコープは「連続側ルーツの再確認 → 離散一般枠組み → DLM 固有 guidance → 加速・制約付き guidance」という流れで、概念地図として読めるよう構成する。
+
+## 連続側 guidance の再確認
+
+離散側の議論に入る前に、出発点となる連続側 guidance を要約する。連続拡散モデル（Denoising Diffusion Probabilistic Models（DDPM）系）の reverse 過程は、スコア関数 $s_\theta(x_t, t) \approx \nabla_{x_t} \log p_t(x_t)$ を使って書ける。条件 $y$（クラスラベル、テキストプロンプト、属性等）の下でのサンプリングに guidance を乗せる場合、二つの代表的な定式がある。
+
+### Classifier Guidance
+
+CG [@dieleman2023guidance] は、別途学習した分類器 $p_\phi(y \mid x_t)$ の勾配を score へ加算する。
+
+$$
+s_\text{guided}(x_t, t, y) = s_\theta(x_t, t) + \lambda \, \nabla_{x_t} \log p_\phi(y \mid x_t)
+$$ {#eq-classifier-guidance}
+
+$\lambda$ は guidance scale で、これを大きくすると条件への忠実度が上がり多様性が下がる。CG は条件付け済みでないモデル（unconditional モデル）に対して、後から分類器だけで条件付けを差し込めるのが強みである一方、ノイズ付き入力 $x_t$ 上で動作する分類器を別途用意する必要がある。
+
+### Classifier-Free Guidance
+
+CFG は、同じモデルを条件あり ($s_\text{cond}$) と条件なし ($s_\text{uncond}$) の両方で訓練し、推論時にその差分を増幅する。
+
+$$
+s_\text{guided}(x_t, t, y) = s_\text{uncond}(x_t, t) + \lambda \bigl( s_\text{cond}(x_t, t, y) - s_\text{uncond}(x_t, t) \bigr)
+$$ {#eq-cfg}
+
+実装上は訓練時に確率 $p_\text{drop}$ で条件を null トークンに置き換えるだけで済み、追加の分類器が不要である点が広く採用された理由になっている。$\lambda > 1$ で「条件への過剰適合」が起き、$\lambda = 1$ では通常の条件付き生成、$\lambda = 0$ では完全に無条件生成となる。
+
+連続側でこれらが素直に動く本質的な理由は、**score が線形空間の量** であり、加算・差分・スケーリングがそのまま意味を持つ点にある。確率密度 $p_t(x_t)$ そのものではなく $\log$ の勾配を扱う限り、guidance の合成は線形結合で書ける。
+
+::: {.callout-note}
+## Diffusion-LM と embedding 空間の CG
+
+連続側で text に CG を最初に持ち込んだ代表例が Diffusion-LM [@li2022diffusionlm] である。トークンを連続埋め込みへ写し、その上のガウシアン拡散に対して $\nabla_e \log p_\phi(y \mid e_t)$ を加える。離散の `[MASK]` を介さないため、連続側の道具立てがそのまま流用できる。詳細は [Embedding-Space Diffusion](embedding-space-diffusion.qmd) 章を参照のこと。
+:::
+
+## 離散側の一般枠組み
+
+離散状態空間の DLM では、@eq-classifier-guidance の $\nabla_{x_t}$ が意味を持たない。$x_t$ はトークン ID のような離散値であり、勾配を取る土台がないからである。この障害をどう回避するかで、二つの代表的な系譜がある。
+
+### Nisonoff の CTMC guidance
+
+Nisonoff ら [@nisonoff2025discreteguidance] は、離散拡散・離散 flow を **CTMC** として書き直し、その rate matrix を条件付き分布に応じて修正する形で guidance を一般化した。連続時間で状態 $x \in \mathcal{V}$ の遷移率 $R_t(x, y)$ を持つ CTMC を考えると、Bayes 則から、条件 $c$ 下の rate matrix $R_t^c$ は次のように書ける。
+
+$$
+R_t^c(x, y) = R_t(x, y) \, \frac{p_t(c \mid y)}{p_t(c \mid x)}
+$$ {#eq-nisonoff-rate}
+
+右辺第二項は「遷移先 $y$ の条件付き尤度比」であり、勾配ではなく **確率比 (ratio)** を分類器から得る点が連続側との本質的な違いになる。分類器 $p_t(c \mid \cdot)$ さえ各時刻で訓練しておけば、訓練時にモデルが条件 $c$ を見ていなくても、推論時に rate matrix を上書きするだけで条件付き生成が成立する。
+
+Nisonoff の枠組みの利点は、masked diffusion・uniform transition・任意の D3PM・discrete flow matching までを単一の式でカバーすることである。短所は、各時刻 $t$ の **ノイズ付き入力上で動作する分類器** が必要になる点で、これは連続側の CG と同じ訓練負担を継承している。
+
+### Schiff の simple guidance
+
+Schiff ら [@schiff2024simpleguidance] は、Nisonoff の一般枠組みを masked DLM（Masked Diffusion Language Model, MDLM [@sahoo2024mdlm]）向けに簡略化した。absorbing transition では reverse 過程が $x_0$-prediction から直接導けるため、rate matrix の操作を **$x_0$-prediction の logit に対する gating** として書き直せる。
+
+直感的には、各 `[MASK]` 位置で得られる予測分布 $p_\theta(x_0 \mid x_t)$ を、条件付き分類器 $p_\phi(c \mid x_0)$ で重み付けする。
+
+$$
+\tilde p(x_0 \mid x_t, c) \;\propto\; p_\theta(x_0 \mid x_t)^{1-\gamma} \cdot p_\phi(c \mid x_0)^{\gamma}
+$$ {#eq-schiff-gating}
+
+$\gamma$ は guidance 強度で、$\gamma = 0$ で素のモデル、$\gamma > 0$ で条件への引き寄せが効く。Nisonoff 式の確率比が masked 設定では logit 空間の足し算に帰着するため、実装は softmax 出力に分類器 logit を加算するだけで済む。
+
+両者の関係は、**Nisonoff が一般枠組み**、**Schiff が masked diffusion 上での実装の簡略化** という分担である。masked diffusion を主軸に据える本書の対象（MDLM、LLaDA、Block Diffusion 系）では、Schiff の定式が実用的に最も扱いやすい。
+
+## LLaDA / 大規模 DLM の CFG
+
+8B 級にスケールした実用 DLM である LLaDA [@nie2025llada] は、上記の理論枠組みとは独立に **CFG を実装側で乗せている**。MDLM の損失関数は「重み付き masked cross-entropy」の形をしているが、訓練時に確率 $p_\text{drop}$ でプロンプト全体を null（あるいは全 `[MASK]`）に置き換える操作を追加するだけで、条件あり/無し両方の予測を 1 モデルで持てる。推論時には、各ステップで両方の logit を計算し、
+
+$$
+\ell_\text{guided}(x_t, c) = \ell_\text{uncond}(x_t) + \lambda \bigl( \ell_\text{cond}(x_t, c) - \ell_\text{uncond}(x_t) \bigr)
+$$ {#eq-llada-cfg}
+
+として混合する。$\ell$ は softmax 直前の logit である。連続側 CFG が score の線形結合で書けたのと対応して、masked DLM では logit の線形結合で書ける、と理解するとよい。
+
+LLaDA の実装には実用上の細部がいくつかある。
+
+- **プロンプトはマスクしない**: forward 過程の対象は応答部分のみ。プロンプトは常に観測済みとして扱い、CFG での「条件なし」分岐は応答部分のみを生成
+- **CFG scale を推論時パラメータ化**: $\lambda \in [1, 5]$ 程度の範囲で品質と多様性のトレードオフを調整
+- **ステップごとに同じ $\lambda$**: 連続側では timestep 依存の schedule が研究されているが、LLaDA では固定スケールで実装
+
+### A-CFG: 動的 low-confidence masking との結合
+
+A-CFG (Adaptive Classifier-Free Guidance) [@li2025acfg] は、固定 $\lambda$ の CFG をさらに **適応化** する。LLaDA のサンプラは confidence-based unmask を行うため、各ステップで低信頼度の位置が自然に同定される。A-CFG はこの低信頼度位置に対してのみ CFG を強く効かせ、すでに高信頼で確定した位置には guidance を弱める。
+
+具体的には、各位置 $i$ の信頼度 $c_t^i$ をもとに、その位置固有の guidance scale $\lambda_t^i$ を
+
+$$
+\lambda_t^i = \lambda_\text{base} \cdot f(c_t^i)
+$$
+
+の形で動的に決める。$f$ は単調減少関数で、低信頼度ほど大きな $\lambda$ を与える。これによって、
+
+- **早期ステップ**（ほとんど `[MASK]`）では CFG が広く効く
+- **後期ステップ**（多くの位置が確定済み）では CFG が局所的に効く
+
+という挙動になり、固定 $\lambda$ よりも品質と多様性のバランスが取りやすい。A-CFG は LLaDA / Dream 系の DLM に追加学習なしで載せられる軽量な拡張として位置づけられる。
+
+::: {.callout-note}
+## A-CFG と remasking の親和性
+
+LLaDA の low-confidence remasking（[LLaDA](llada.qmd) 章参照）は「一度 unmask した位置の中で低信頼度のものを再 `[MASK]` に戻す」戦略で、A-CFG の動的スケールと信号を共有している。実装上は同じ confidence 計算を二つの用途に使い回せるため、組み合わせコストが低い。
+:::
+
+## 構造制約と guidance 加速
+
+ここまでの手法は「分類器あるいは条件付き logit の重みを操作して条件付き分布へ寄せる」枠組みであった。実用 DLM では、これに加えて (i) **構造制約**（文法・JSON Schema・正規表現）を厳密に満たさせる方向、(ii) **推論加速** を guidance と両立させる方向、の二つの実装が登場している。
+
+### DINGO: DFA-based 制約付き生成
+
+DINGO [@suresh2025dingo] は、正規表現や文脈自由文法のような **構造制約** を DLM に課す手法で、制約を決定性有限オートマトン（Deterministic Finite Automaton, DFA）として表現し、その上の動的計画法によって「制約を満たすトークン列の確率分布」を直接構成する。
+
+DINGO の特徴は、**モデル分布 $p_\theta$ を変えずに制約を満たす** 点にある。CG / CFG が「望ましい属性へ分布を引き寄せる」のに対し、DINGO は「許容集合の外を確率 0 にする」操作であり、性質が異なる。具体的には、
+
+- 各 `[MASK]` 位置で、DFA の現在状態から遷移可能なトークンの集合 $\mathcal{A}_t^i \subseteq \mathcal{V}$ を計算
+- モデルの softmax を $\mathcal{A}_t^i$ に制限して再正規化
+- 制約違反のトークンは確率 0 なので、出力は必ず制約を満たす
+
+双方向の unmask 順序を扱うため、DFA の前向き・後ろ向きの両方を動的計画法で計算する必要があり、ここが連続側にはない実装上の工夫になっている。
+
+### FreeCache: 軽量 verifier と feature cache の結合
+
+FreeCache [@hu2025freecache] は推論加速の手段として登場した手法で、軽量な自己回帰（Autoregressive, AR）verifier と DLM を組み合わせる。
+
+- DLM が draft（複数トークンの並列予測）を出す
+- 軽量 AR verifier が draft を「承認 / 拒否」
+- 承認されたトークンは確定、拒否されたトークンは再生成
+
+この承認/拒否プロセスを通すことで coherence が担保され、結果として **より aggressive な feature/KV cache** が許容される（cache のずれによる品質劣化を verifier が吸収する）。FreeCache は LLaDA 系で最大 34× の加速を報告している。
+
+FreeCache を guidance の文脈で見ると、AR verifier が「条件 $c$ への忠実度を判定する分類器」の役割を兼ねる点が興味深い。Nisonoff / Schiff の枠組みでは分類器 $p_\phi(c \mid x_t)$ を別途訓練する必要があったが、FreeCache では既存の小さな AR LLM を verifier として再利用できる。性質的には CG と speculative decoding [@christopher2025specdiff] のハイブリッドと見るのが近い。詳細は [Inference Acceleration](inference-acceleration.qmd) 章を参照のこと。
+
+## 手法の比較
+
+ここまでに挙げた guidance 手法を、タイプ・適用範囲・訓練の追加負担・推論オーバーヘッド・主用途で整理する。
+
+| 手法 | タイプ | 適用範囲 | 訓練追加 | 推論オーバーヘッド | 主用途 |
+|---|---|---|---|---|---|
+| Classifier Guidance | gradient | 連続のみ | ノイズ付き分類器 | 1 forward / step | クラス・属性制御 |
+| CFG | 線形結合 | 連続・離散両方 | 条件 drop で再訓練 | 2× forward / step | プロンプト忠実度 |
+| Nisonoff CTMC | ratio | 任意の離散 | ノイズ付き分類器 | 分類器 forward | 一般枠組み |
+| Schiff simple | logit gating | masked diffusion | $x_0$ 上の分類器 | 分類器 forward | masked DLM での実装簡略 |
+| LLaDA CFG | logit 線形結合 | masked DLM | 条件 drop 学習 | 2× forward / step | 8B 級の実用 CFG |
+| A-CFG | 適応 logit 結合 | masked DLM (confidence-based) | なし（推論時拡張） | LLaDA CFG と同等 | $\lambda$ schedule 自動化 |
+| DINGO | DFA 制約射影 | 任意の離散 | なし | DFA DP | 文法・正規表現制約 |
+| FreeCache | verifier + cache | masked DLM | 小型 AR verifier | 加速（〜34×） | 制約と加速の両立 |
+
+: DLM 向け guidance 手法の比較 {#tbl-guidance}
+
+@tbl-guidance から見えるのは、離散側 guidance が「一般枠組み（Nisonoff）→ masked 特化（Schiff）→ 大規模実装（LLaDA, A-CFG）→ 制約・加速拡張（DINGO, FreeCache）」という具体化の階層を成していることである。連続側 CFG が単一の式で済んでいたのに比べ、離散側は適用範囲・実装簡略性・加速可能性で複数のトレードオフ軸が並ぶ。
+
+## 既存章との関係
+
+本章で扱った話題は、本書の他章とも交差する。読者の関心に応じて以下を参照してほしい。
+
+- 連続埋め込み空間での classifier guidance（Diffusion-LM 中心）の詳細は [Embedding-Space Diffusion](embedding-space-diffusion.qmd) 章
+- LLaDA の CFG 実装と low-confidence remasking の詳細は [LLaDA](llada.qmd) 章
+- FreeCache を含む KV/feature cache・並列復号などの推論加速側の文脈は [Inference Acceleration](inference-acceleration.qmd) 章
+- guidance に関する未解決の問い（CoT との結合、verifier guidance、test-time compute の配分）の包括議論は [Open Problems](open-problems.qmd) 章
+
+本章は、これらの章で個別に触れられている guidance 関連の記述を **単一の章として** 横断整理した位置づけにある。
+
+## Open Questions
+
+最後に、本章の視点から見える未解決の問いを四つ挙げておく。
+
+- **最適 CFG schedule の設計**: 連続側では timestep 依存の $\lambda(t)$ がサンプル品質に大きく効くことが知られているが、masked DLM では LLaDA がほぼ固定 $\lambda$ で実装している。A-CFG が confidence-based に動的化を試みたが、これが最良の選択肢かは未確定。$\lambda$ をステップ・位置・トークンクラスのどの軸で動かすのが最適かは、まだ実証的にも理論的にも整理されていない
+- **Classifier 訓練の mask 率設計**: Nisonoff / Schiff 枠組みの中核には「ノイズ付き入力上で動作する分類器」がある。どの mask 率分布で訓練するのが最良か、訓練データを DLM 自身の出力で増やすべきか、外部データのみで学習すべきか —— こうした分類器訓練のレシピは masked DLM 固有の論点として整理されていない
+- **Verifier guidance の DLM 各ステップへの埋め込み**: AR LLM 側では Process Reward Model（PRM）が CoT の各ステップに verifier を乗せる構造で成功している。masked DLM ではステップが「位置の確定」と一致するため、各位置の確定に対して verifier 信号を乗せる設計が原理的には可能である。FreeCache の AR verifier はこの方向の最初の事例だが、PRM 風の細粒度 verifier をどう載せるかは未整備
+- **制約付き生成と reasoning task の競合**: DINGO のような DFA-based 厳密制約と、Chain of Thought（CoT）系の自由形式推論は、設計思想がぶつかる。「正しい JSON を出しつつ思考過程は自由に書く」「制約を満たす範囲で最適な推論経路を探す」といった組み合わせは、masked DLM 側でも AR LLM 側でも標準解がない。Block Diffusion 系で思考ブロックと出力ブロックを非対称に扱う方向が有望候補だが、まだ研究の入口にある
+
+## まとめ
+
+離散側 DLM の guidance は、連続側 CFG が「式 1 本で実用化された」状況に比べると、まだ標準が定まっていない。Nisonoff の CTMC 一般枠組みと Schiff の masked diffusion 向け簡略実装が理論的な骨格を提供し、LLaDA が 8B 級スケールでの CFG 実装を確立、A-CFG が schedule の動的化を試み、DINGO が制約付き生成、FreeCache が加速との両立をそれぞれ別軸で進めている。これらは互いに排他的ではなく組み合わせ可能であり、適用範囲も masked diffusion から任意の離散拡散まで広がる。
+
+CFG 周辺は本書執筆時点でも 1 年 1 論文ペースで更新が続いており、本章で扱った手法群もそのスナップショットに過ぎない。共通する構図は「連続側の道具立て（score の線形結合、分類器の追加、適応スケール）を、離散側の言語（rate matrix、logit gating、confidence-based unmask、DFA 制約）に翻訳する」という翻案作業であり、AR LLM 側で確立された推論時介入を DLM へ移植する [Open Problems](open-problems.qmd) 章の流れに直接連なる。実用品質の DLM 上で guidance のレシピを一つ提案するだけで論文一本になる、というのが現状の地形である。

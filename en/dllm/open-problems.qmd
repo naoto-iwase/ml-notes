@@ -1,0 +1,269 @@
+---
+pagetitle: "Open Problems"
+---
+
+# Open Problems: Current State and Future Directions of DLLMs
+
+This chapter serves as the book's conclusion. Compared to Autoregressive (AR) LLMs, Diffusion Language Models (DLLMs) remain a field in which many areas are still unestablished and there is substantial room for research. By contrast, AR LLMs already have an enormous body of techniques systematized into procedures, and the ecosystem is mature. In this chapter we contrast the situations of the two by domain and organize the open problems and research directions on the DLLM side.
+
+## "There Is Room to Maneuver" Is a Correct Perception
+
+DLLMs are still developing both theoretically and in implementation. The concise formulation of MDLM (Sahoo+ 2024) and the scale-up by LLaDA (Nie+ 2025) have established "the skeleton of the modern DLLM," but the surrounding territory remains open space: no standards have been firmly settled across training recipes, sampling, inference-time intervention, evaluation, or theory.
+
+While this situation is an opportunity for researchers, for practitioners it also represents the cost that "if you adopt it, you must assemble the recipe yourself." Even merely translating the toolkit that already exists on the AR LLM side (scaling laws, instruction tuning, inference-time intervention, an established suite of evaluation benchmarks) over to DLLMs generates a considerable number of research topics. Drawing on the organization of the survey [@li2025dlmsurvey], this book treats already-broken-ground areas — inference acceleration, guidance, post-training Reinforcement Learning (RL), multimodal, applications — as their own chapters. This chapter consolidates the questions of "design choices," "evaluation methods," and "theory" that remain unresolved even after those.
+
+The statement that "DLLMs still have room to maneuver" is not an irresponsible observation, but rather a correct characterization of the current research landscape. For readers who have worked through this book, this chapter plays the role of mapping where this room exists.
+
+What is important here is to view the locations of this room separately as "training," "sampling," "inference-time intervention," "evaluation," "theory," and "architecture." Many discussions lump everything together as "DLLMs are still immature" without distinguishing domains, but in fact maturity differs by domain. For example, training recipes have reached a practical line with LLaDA, but inference-time intervention is almost untouched. The comparison table and the subsequent sections make this distinction explicit.
+
+## Domain-by-Domain Comparison
+
+The maturity of AR LLMs and DLLMs in major domains is summarized in @tbl-maturity.
+
+| Domain | AR LLM status | DLLM status |
+|--------|---------------|-------------|
+| Main baselines | GPT-4 / Claude / Llama are the de facto standard | LLaDA / Dream have only just appeared |
+| Training recipes | Scaling laws, instruction tuning, Reinforcement Learning from Human Feedback (RLHF) / Direct Preference Optimization (DPO), etc. systematized | Not yet established; mask schedule and choice of noise are under investigation |
+| Sampling | top-p / top-k / temperature / contrastive decoding, etc. mature | confidence-based unmask, remasking, semi-AR, etc. still developing |
+| Inference-time intervention | self-consistency, Chain of Thought (CoT), Tree of Thoughts (ToT), Minimum Bayes Risk (MBR), verification, etc. mature | Yet to take off in earnest |
+| Evaluation benchmarks | MMLU, GSM8K, MATH, HumanEval, etc. established | The same benchmarks are reused, but DLLM-specific axes of evaluation are unexplored |
+| Theory | Scaling laws, in-context learning theory, etc. becoming mature | Expressiveness of mask diffusion, correspondence with AR, convergence, etc. still in early stages |
+| Architecture | Decoder-only is the de facto standard | Encoder-decoder, bidirectional attention, hybrid, etc. still in flux |
+
+: Domain-by-domain comparison of maturity between AR LLMs and DLLMs {#tbl-maturity}
+
+This table is not meant to be read as "DLLMs are inferior to AR." DLLMs are a framework that attempts language generation with a different factorization from AR, and a comparison between the two is more appropriately captured as "mapping different terrains" rather than as "time differences in the same race." The work of formally reproducing within DLLMs what has been established in AR, and the work of drawing out DLLM-specific strengths (parallelism, bidirectionality, naturalness of editing), are each progressing independently.
+
+Below, we organize the situation and open questions for each domain individually.
+
+## Training Recipes
+
+For AR LLMs, scaling laws (Kaplan, Chinchilla), instruction tuning (FLAN, SuperNI family), and preference optimization such as RLHF or DPO are published as recipes that are essentially systematized as procedures. They have a level of maturity such that reading the papers brings one close to reproduction, and even newcomers are in a position where they can build on top of existing recipes.
+
+The DLLM side has not reached this point. The MDLM loss function itself has an extremely clear form as "weighted BERT training," but the surrounding recipes for growing that equation into a model of practical quality (time-step distribution, data mixing, warmup, evaluation loops) are not yet settled. The LLaDA paper describes many settings, but at present it is not possible to distinguish whether they were adopted "because they are optimal" or "because they worked."
+
+The following can be listed as open questions.
+
+- **Mask schedule**: At training time, from what distribution should the time $t$ be sampled to be optimal? Uniform, cosine, logarithmic, or task-dependent? On the continuous diffusion side, Signal-to-Noise Ratio (SNR)-aware weighting has become standard practice, but what is the corresponding choice on the discrete side?
+- **Choice of noise**: Can transitions other than absorbing (uniform transition, hybrid) win at scale, or is absorbing dominantly advantageous? The D3PM framework permits diverse choices, but a map of relative advantage by scale is not organized
+- **Data efficiency**: Compared to AR models of the same size, is data efficiency better or worse, and how should the trade-off be measured? Even looking at the same number of tokens, DLLMs have the aspect that they can use multiple mask patterns from a single sample as learning signals
+- **Instruction following**: At Supervised Fine-Tuning (SFT) time, should the mask rate be the same distribution as at training, or should it be adjusted task-dependently? The impact of choices such as not masking the instruction / masking only the output is also not yet organized
+- **Preference optimization**: How should preference optimization corresponding to DPO / Group Relative Policy Optimization (GRPO) on the AR side be constructed for DLLMs? Compare at the trajectory level, or step-by-step? The GRPO-family DLM adaptations (d1, DiffuCoder's coupled-GRPO, UniGRPO, SPG, wd1, IGPO, SAPO, BGPO) and the DPO adaptation via VRPO are covered in the [Post-Training for Reasoning: DLM Reinforcement and Reasoning Capability](post-training-rl.qmd) chapter. Remaining issues such as adapting critic-based RL and long-horizon credit assignment are untouched
+
+In particular, mask schedule and noise design are as important as the AR-side learning rate schedule, yet at present they are chosen empirically. If theoretical guidance appears, that alone has room to substantially move training efficiency.
+
+[→ More:]{.detail-link} [Post-Training for Reasoning: DLM Reinforcement and Reasoning Capability](post-training-rl.qmd)
+
+[→ More:]{.detail-link} [AR-to-DLM Adaptation: Building DLMs from Autoregressive Pretrained Models](ar-to-dllm-adaptation.qmd)
+
+## Sampling
+
+For AR LLMs, sampling strategies have been studied almost exhaustively. Choices such as top-p, top-k, temperature, typical sampling, contrastive decoding, and speculative decoding are used in a stable manner, and their behavior is organized both theoretically and empirically.
+
+The samplers for DLLMs, by contrast, are still under development. @fig-sampling-open shows the points in a DLLM sampling loop where decisions must be made.
+
+```{mermaid}
+%%| label: fig-sampling-open
+%%| fig-cap: "Undecided decision points in the DLLM sampling loop"
+
+flowchart TD
+    Start["All positions [MASK]"] --> Pred["Predict at all positions"]
+    Pred --> Q1{"How many to unmask?"}
+    Q1 --> Q2{"Which positions to unmask?<br/>(confidence? random?)"}
+    Q2 --> Q3{"Remask or not?<br/>If yes, what?"}
+    Q3 --> Q4{"Semi-AR?<br/>What block width?"}
+    Q4 --> Check{"All positions fixed?"}
+    Check -- "No" --> Pred
+    Check -- "Yes" --> End["Output"]
+```
+
+The open questions corresponding to each decision point are as follows.
+
+- **Optimal number of steps**: How is the trade-off curve between quality and computation drawn? What is the natural unit corresponding to "1 token = 1 forward" in AR? Can the lower bound on Number of Function Evaluations (NFE) required to reach the same quality be obtained theoretically?
+- **Dynamic scheduling**: Can the appropriate number of steps be predicted per input? Can simple inputs run with few steps and complex inputs with many steps adaptively? Can early-stopping criteria be obtained from internal state?
+- **Remasking decisions**: When and where should one remask? Confidence-based, or some other signal (entropy, margin, external verifier)? LLaDA's [@nie2025llada] low-confidence remasking is powerful, but comparisons with other strategies are insufficient. Note that GIDD [@vonrutte2025gidd] points to a direction in which non-mask noise (uniform) is mixed during training to give "the ability to self-correct errors," and choices on the training side can change the space available for remasking strategies
+- **Trajectory diversity**: How should one avoid mode collapse at low-temperature sampling? What should the "trajectory-level diversity control" corresponding to AR's top-p look like?
+- **Hybrid with AR**: How does the optimal block width of semi-AR (block-wise semi-autoregressive) depend on task and model scale? It can be viewed as a continuous parameter that degenerates to AR at block width 1 and to fully parallel at block width equal to sequence length. BD3-LMs [@arriola2025bd3lms] promoted this axis to a first-class citizen by introducing block structure already at training (see the [Block Diffusion](block-diffusion.qmd) chapter)
+- **Theoretical optimality of the schedule**: Whether the inference-time noise schedule (which $t$ values are passed through and in what order) has optimization room independent of the training-time schedule
+
+Because sampling directly determines "the performance one can extract from the same trained model," it is a research area where the impact-per-cost is large. With released trained models (such as LLaDA) as material, there is room to produce contributions worth a paper using only inference-time algorithms. Contemporary techniques such as Fast-dLLM, APD, SlowFast, Dimple, ReMDM, BD3-LM's KV-cache, dLLM-cache, dKV-Cache, Elastic-Cache, and Di4C are detailed in the [Inference Acceleration: Speeding Up DLM Generation](inference-acceleration.qmd) chapter.
+
+[→ More:]{.detail-link} [Inference Acceleration: Speeding Up DLM Generation](inference-acceleration.qmd)
+
+## Inference-Time Intervention
+
+For AR LLMs, the toolkit for inference-time intervention is rich.
+
+- **Self-consistency**: Take multiple samples and take a majority vote
+- **Chain of Thought (CoT)**: Have the model write out stepwise reasoning as intermediate tokens
+- **Tree of Thoughts (ToT)**: Search with branching
+- **Minimum Bayes Risk (MBR)**: Choose the minimum-risk option from a hypothesis set
+- **Verification / Process Reward Model**: Run a verifier over intermediate states
+- **Constrained decoding**: Constrained generation, attribute control
+
+These are designed so as to fit well with AR's "stretching sequentially" property. In DLLMs, applying the same interventions naively does not work, or one must transform them into a different shape.
+
+The following can be cited as open areas.
+
+- **DLLM versions of CoT**: How should stepwise reasoning be implemented in DLLMs? As a form expanded over the whole sequence in one shot (writing thoughts and answer in a single parallel unmask), or as a form expanded block-by-block sequentially (block 1 = thought, block 2 = answer)? In AR, the "left-to-right" structure fit well with CoT, but in DLLMs the structure changes. The direction of putting block structure into training from the start, as in BD3-LMs [@arriola2025bd3lms], may fit well with CoT block expansion
+- **Classifier guidance / CFG family**: The discrete versions of classifier guidance and classifier-free guidance that have been standardized in continuous diffusion. On the continuous embedding diffusion side, Diffusion-LM [@li2022diffusionlm] brought classifier guidance to text early on (see the [Embedding-Space Text Diffusion](embedding-space-diffusion.qmd) chapter); on the discrete side, Nisonoff et al. [@nisonoff2025discreteguidance] gave a general Continuous-Time Markov Chain (CTMC)-based framework, and Schiff et al. [@schiff2024simpleguidance] organized a concise implementation for masked diffusion. LLaDA [@nie2025llada] also implements classifier-free guidance. This area could become a standard means for attribute control, style control, and conditional generation, but optimal guidance schedules and strength design are not yet organized
+- **Constrained decoding**: Generation under structural constraints such as grammar, JSON Schema, or regular expressions. In AR, techniques that impose constraints token by token in a Weighted Finite-State Transducer (WFST)-like manner are well-developed, but in bidirectional unmask the way constraints are satisfied changes. The handling of intermediate states that temporarily violate constraints in mid-step is also not yet organized. The discrete guidance framework [@nisonoff2025discreteguidance; @schiff2024simpleguidance] can be reused when constraints can be expressed as classifiers
+- **Editing / infilling-style interventions**: Areas such as fill-in-the-middle, replacement at arbitrary positions, and structured rewriting, where DLLMs are structurally more comfortable than AR. LLaDA [@nie2025llada] can accept arbitrary mask placements, so naive infilling is possible, but standard APIs, evaluation sets, and benchmarks are not yet assembled, so the "design of DLLM-style editing interfaces" can itself become a research subject. The encoder-decoder type of DiffuSeq [@gong2023diffuseq] can be referenced as a starting point for seq2seq editing
+- **Turning verifiers / reward models into guidance**: Methods that place a Process Reward Model (PRM) or reward model on each step of a DLLM in a classifier guidance style. Nisonoff et al. [@nisonoff2025discreteguidance] and Schiff et al. [@schiff2024simpleguidance] give general frameworks for guidance on the discrete side, and designs treating verifiers like classifiers can be built on top of these. On the other hand, since gradient-based guidance cannot be written in the same form as on the continuous side on discrete domains, other techniques (ratio injection, logit re-weighting, etc.) are required
+- **Allocation of test-time compute**: The DLLM version of "increasing inference-time compute to raise performance" (which has progressed on the AR side in the o1 family). Unlike AR's "increase the number of samples and pick the best," in DLLMs multiple knobs — number of steps, guidance strength, block splitting [@arriola2025bd3lms], remask strategy — exist in parallel, so the allocation problem becomes high-dimensional
+
+Because DLLMs structurally have the advantage of being able to intervene at each step, intervention flexibility is inherently higher than in AR. The current state is that recipes for drawing out this flexibility have not yet been established. The series of guidance works (Nisonoff's general CTMC framework, Schiff's concise form for masked diffusion, LLaDA's CFG, A-CFG, DINGO, FreeCache) are individually treated in the [Guidance: Conditional Generation and Inference-Time Intervention for DLMs](guidance.qmd) chapter.
+
+[→ More:]{.detail-link} [Guidance: Conditional Generation and Inference-Time Intervention for DLMs](guidance.qmd)
+
+@fig-intervention-points shows typical points within the DLLM loop where intervention can occur. Whereas in AR the points where intervention can occur are aggregated into "the distribution of the next token," in DLLMs multiple intervention points exist in parallel at each step.
+
+```{mermaid}
+%%| label: fig-intervention-points
+%%| fig-cap: "Intervention points within the DLLM loop (dashed lines mark intervenable locations)"
+
+flowchart LR
+    State["Current state<br/>(partially fixed)"] --> Model["DLLM forward"]
+    Model --> Logits["Logits at all positions"]
+    Logits -.-> G1["guidance:<br/>logit addition"]
+    Logits --> Sample["sampling"]
+    Sample -.-> G2["constrained<br/>decoding"]
+    Sample --> Confidence["confidence computation"]
+    Confidence -.-> G3["re-evaluate<br/>with verifier"]
+    Confidence --> Unmask["unmask / remask"]
+    Unmask --> NextState["Next state"]
+```
+
+Because each dashed location can be used as an independent intervention layer, the expressive power of intervention is higher than "tweaking temperature or top-p" in AR. The issue is recipes and evaluation methods to take advantage of that expressiveness.
+
+## Evaluation
+
+The challenges on the evaluation side are twofold. First, current DLLM papers compare performance using the same benchmarks as AR (MMLU, GSM8K, MATH, HumanEval, etc.). This is necessary as a side-by-side reference point but does not measure the characteristics of DLLMs. Second, evaluation axes that measure DLLM-specific properties have not yet been proposed.
+
+The following are DLLM-specific evaluation axes with room for development.
+
+- **Performance per NFE**: A standard metric on the continuous diffusion side, directly showing the trade-off between computation and quality. Bringing this to the language side would make the comparison with AR's "cost to emit the same number of tokens" transparent
+- **Step-quality curve**: At how many steps does quality saturate? How does this depend on the task?
+- **Editability / Controllability**: Advantage on editing tasks (infilling at arbitrary positions, replacing specific tokens, constrained rewriting). AR is intrinsically poor at this area, and DLLM strengths should appear, but there is no standard evaluation set
+- **Bidirectional knowledge utilization**: Measurement in settings that use both left and right context (bidirectional cloze, fill-in-the-middle). AR is structurally weak here
+
+::: {.callout-note}
+## The Limits of Comparing on the Same Benchmarks
+
+Existing benchmarks such as MMLU and GSM8K are implicitly designed assuming "AR-style generation." DLLM advantages should lie in "parallelism," "bidirectionality," and "naturalness of editing," but these are unlikely to appear in MMLU scores. Even if DLLMs look weaker than AR on the same benchmark, that does not necessarily indicate an intrinsic weakness of DLLMs.
+
+Conversely, suppose new evaluation axes are designed where DLLM advantages appear. For these not to be seen as "an arbitrary selection of evaluations favoring DLLMs," the axes themselves need persuasiveness through practical value (naturalness as a task, industrial-use context, usefulness to humans). The design of evaluation axes is itself an area where the design itself can be acknowledged as a research contribution.
+:::
+
+Another challenge on the evaluation side is the standardization of sampling settings. In AR, choices are aggregated to roughly "greedy or temperature=1," but for DLLMs there is a vast combination of step count, remask strategy, block size, etc., and how to fix these for comparison varies paper by paper. For reproducibility and comparability, standardization of evaluation protocols will also become necessary going forward.
+
+## Theory
+
+Theoretical understanding of DLLMs is in an early stage. On the continuous diffusion side, the Stochastic Differential Equation (SDE) / Ordinary Differential Equation (ODE) correspondence, convergence analysis of score matching, and discussions of expressiveness are progressing, but the discrete side is still at a stage where individual results are scattered.
+
+Questions with large room for development include the following.
+
+- **Expressiveness**: Are DLLMs equivalent to AR, stronger, or weaker? What are the conditions for representing arbitrary probability distributions? AR approximates each factor of the chain rule $p(x) = \prod_i p(x_i \mid x_{<i})$ with a neural network, and expressiveness-wise it suffices to have the set of conditional distributions. DLLMs have a different factorization (denoising chain), and the equivalence or difference in expressiveness between the two is not obvious
+- **Convergence**: How is the convergence of the iterative refinement loop guaranteed theoretically? Does increasing the number of steps approach the true distribution, or does it plateau somewhere? On the continuous diffusion side, SDE / ODE convergence analysis has progressed, but corresponding organization on the discrete side is thin
+- **Correspondence with AR**: What is the mathematical correspondence for adapting AR LLM techniques (speculative decoding, Key-Value (KV) cache, long-context optimization, context window extension) to DLLMs? Some AR methods depend strongly on the "left-to-right" structure, while others do not. Adapting the latter to DLLMs is relatively easy, but adapting the former requires a new structure
+- **Scaling laws**: Are there DLLM-specific scaling laws? In the same form as AR ($L \propto N^{-\alpha}$), or in a different form taking into account the number of steps? Since performance moves with inference-time NFE even at the same parameter count, there are elements not captured by an AR-shaped law
+- **Sample complexity**: Theoretical bounds on the data required for training. How does the fact that one can produce multiple mask patterns from the same sequence as learning signals affect the data-efficiency discussion?
+
+In particular, "correspondence with AR" is the language-side counterpart to the "bridging continuous and discrete diffusion" repeatedly touched on in this book. A dictionary mapping AR-established results into DLLMs does not yet exist. The reverse adaptation (how DLLM-side findings can be reduced to AR) also has research room.
+
+## Architecture
+
+For AR LLMs, the decoder-only Transformer has become the de facto standard and architecture choices have largely converged. Position encoding has stabilized at Rotary Position Embedding (RoPE), and the other components (attention scheme, normalization, activation function, etc.) are also broadly aligned. The DLLM side is still fluid.
+
+Sorting out the issues:
+
+- **Attention scheme**: Fully bidirectional (BERT family), or maintain causal masking, or hybrid? LLaDA is bidirectional, while the Dream lineage may take different choices. Going bidirectional makes weight sharing with AR difficult, so bootstrapping from AR pretraining becomes hard to use
+- **Encoder-decoder**: Whether to separate inputs (condition) and outputs (generation target). This could be a natural option in conditional generation. There is an advantage in inheriting the experience of the T5 family and a disadvantage in losing the simplicity of decoder-only
+- **Positional encoding**: For bidirectional architectures, which is optimal among RoPE / Attention with Linear Biases (ALiBi) / learned? AR-established conclusions cannot necessarily be used directly. In particular, behavior in long sequences and under variable-length mask placements is worth reconsidering
+- **Long-context handling**: Because DLLMs hold the entire sequence in memory, long contexts may be more constrained than in AR. BD3-LMs [@arriola2025bd3lms] alleviate some long-context constraints by splitting the sequence into blocks and offloading completed blocks to a KV-cache, and combinations with sparse attention or hierarchization are conceivable, but standard solutions on the design side are not yet fixed
+- **Initialization from AR**: The route of using existing AR-pretrained models as the initial value of a DLLM is attractive, but it must be reconciled with becoming bidirectional. The Dream [@ye2025dream] family of papers has attempts in this direction
+
+The choice of architecture is inseparable from training recipes, with the complication that both must be explored simultaneously. On the AR side, the two are independent enough that they can be explored separately, but in DLLMs they are more tightly coupled.
+
+## Research Directions
+
+::: {.callout-tip}
+## To Readers Starting Research
+
+Some easy-to-tackle themes when starting DLLM research:
+
+- Adapting interventions that do not strongly depend on AR's left-to-right sequential structure (guidance, constrained decoding, editing, infilling) to DLLMs
+- Designing novel interventions that directly leverage DLLM's structural features (parallelism, bidirectionality, naturalness of editing)
+- Improving sampling strategies (new schedules, new remask strategies, dynamic step allocation)
+- Proposing DLLM-specific evaluation axes and re-evaluating existing models; in particular, building editing/infilling benchmarks
+- Theoretical analysis at small scale (expressiveness, convergence, correspondence with AR, the form of scaling laws)
+
+In particular, both axes of "adapting what is established in AR to DLLMs" and "drawing out DLLM-specific advantages" have many untouched items, and each item from the AR-side knowledge stock has room for reconsideration on the DLLM side.
+:::
+
+These themes often do not require massive compute resources. Sampler improvements and evaluation-axis proposals can be verified on top of existing pretrained models (LLaDA, etc.), and theoretical analyses can be discussed on small synthetic data. "There is room to maneuver" also means there is room for researchers with limited compute to participate.
+
+Conversely, just compiling an "AR-to-DLLM adaptation list" by comprehensively grasping the techniques established on the AR LLM side gives one a research program for the near future. The literature treated in each chapter of this book provides the foundation for this adaptation work; in particular, the MDLM loss function and the LLaDA sampler are valuable as "skeletons that serve as starting points for adaptation."
+
+### An Example of Adaptation
+
+As a concrete example, consider adapting AR's Chain of Thought (CoT) to DLLMs. In AR, the structure of "writing out the reasoning as intermediate tokens from left to right before generating the answer" aligned naturally with sequential generation. In DLLMs, the moment one tries to do the same thing, multiple design axes appear in parallel.
+
+- Whether to expand the whole sequence in one parallel unmask (writing thought and answer simultaneously), or to expand it block-by-block sequentially (block 1 = thought, block 2 = answer)
+- Whether to use different mask schedules or remask strategies for the thought block and the answer block
+- Whether the length of the thought block can be determined dynamically, or fixed length
+- Whether there is room to design asymmetrically — the thought block as semi-AR and the answer block as parallel
+- Whether to introduce early-stopping criteria on the intermediate state (e.g., move on to the answer once the thought has stabilized)
+
+Even for the one-line idea "do CoT in a DLLM," the implementation design space is clearly broader than in AR. This is the general structure that appears when adapting an AR-established method to a DLLM, and similar design choices line up across guidance, constrained decoding, and editing-style interventions. One established procedure on the AR side opens up as a one-family-with-a-design-space on the DLLM side; this is the structure of DLLM research.
+
+## Will DLLMs Replace AR?
+
+To close this chapter, we touch on the frequently asked question "Will DLLMs replace AR?"
+
+::: {.callout-note collapse="true"}
+## A Short-Term View
+
+In the short term, AR and DLLMs are likely to **coexist**.
+
+- **AR strengths**: Established ecosystem, long-context quality, inference cost structure (KV-cache), streaming generation
+- **DLLM strengths**: Parallel generation, bidirectional context, naturalness of editing/infilling, flexibility of inference-time intervention
+
+A realistic future picture is one of use according to task and required characteristics. A division where AR becomes "the standard for long-form generation and dialogue" and DLLM becomes "the standard for editing, control, and structured generation" is a fully plausible scenario.
+
+In the medium-to-long term, there is also a possibility that hybrids that integrate the strengths of both (semi-AR, block diffusion, AR backbone + diffusion head, etc.) become mainstream. As of this book's writing, which scenario will prevail is not yet determined.
+:::
+
+Neither the strong claim that DLLMs will completely replace AR, nor the strong denial that DLLMs will never be practical, is supported by current evidence. An intermediate "use case separation" or "integration" is the realistic near-term answer.
+
+From the standpoint of researchers, this very uncertainty is an opportunity. The period when no hegemonic model is fixed is precisely the period when newcomers can most likely move the frontier. Compared to the current state of AR LLMs (where giant companies own the training recipes and outside researchers can only contribute inference-time tricks), DLLMs are still a field where there is room to contribute even at the level of the training recipe itself.
+
+## Summary of the Book
+
+DLLMs are a field still developing both theoretically and in implementation. MDLM's concise formulation and LLaDA's scale-up have been established, but other areas (sampler design, inference-time intervention, evaluation, theory, architecture) are still open space. The work of adapting the vast technique stack established for AR LLMs to DLLMs will likely be the main research frontier for the next several years.
+
+The literature treated in this book serves as the "scaffolding" for this open space. MDLM provides the scaffolding for training; LLaDA provides the scaffolding of scale and a practical sampler; MaskGIT is the origin of confidence-based unmask; D3PM / SEDD are other choices on the discrete diffusion side; and the bridge between continuous and discrete provides a translation dictionary for reusing knowledge from the continuous diffusion side. Each of these can be read independently, but only by reading them together does "what DLLMs are" come into three-dimensional view.
+
+By leveraging knowledge of continuous diffusion as a "template" while switching to the discrete-side-specific toolkit (cross-entropy-based objective, $x_0$-prediction, confidence-based sampling) as one reads on, the literature treated in this book should come into three-dimensional view. Beyond that, on top of this scaffolding, each reader can stack research and implementation according to their own interests.
+
+Finally, what I want to emphasize is that DLLM research is not a project of "building an evolution of AR LLMs," but a project of "trying a different factorization than AR for the problem of language generation." That AR is dominant is not so much a necessity in performance as it is largely a matter of historical path dependence. DLLM's structural features — parallelism, bidirectionality, naturalness of editing — are properties hard to obtain intrinsically in AR, and as designs that directly leverage these accumulate, a lineage of language models with strengths different from AR's may be established.
+
+We hope that this book functions as a starting point for that journey.
+
+## Links to Related Chapters
+
+The sources for the points touched on in this chapter are scattered across the chapters of this book. As an entry point when starting research or implementation, please refer to the following correspondences.
+
+- Starting point for the overall picture: [Diffusion Language Models: Overview](overview.qmd); as a survey overview, [A Survey on Diffusion Language Models: A Map of Li et al. 2025](survey-li2025.qmd)
+- The central formulation (training recipe and loss function): [MDLM: Masked Diffusion Language Models](mdlm.qmd)
+- The state of the art in implementation (sampling and scaling): [LLaDA: Scaling Masked DLM and Sampling](llada.qmd)
+- AR adaptation and derived discrete models: [AR-to-DLM Adaptation: Building DLMs from Autoregressive Pretrained Models](ar-to-dllm-adaptation.qmd), [Recent Discrete DLMs: Latest Developments in Discrete Diffusion Language Models](discrete-recent-models.qmd)
+- The continuum connecting AR and DLLMs (training-time block structure): [Block Diffusion](block-diffusion.qmd); for the broader lineage, [Hybrid AR-Diffusion: The Lineage of AR-DLM Hybrids](hybrid-ar-diffusion.qmd)
+- Text diffusion in continuous embedding space (the starting point of guidance): [Embedding-Space Text Diffusion](embedding-space-diffusion.qmd)
+- Concrete methods for inference acceleration: [Inference Acceleration: Speeding Up DLM Generation](inference-acceleration.qmd)
+- Guidance / conditional generation: [Guidance: Conditional Generation and Inference-Time Intervention for DLMs](guidance.qmd)
+- Reinforcement learning and preference optimization (post-training of DLMs): [Post-Training for Reasoning: DLM Reinforcement and Reasoning Capability](post-training-rl.qmd)
+- Multimodal extensions: [Multimodal Diffusion Language Models](multimodal-dllm.qmd)
+- Application areas (Code / Bio / Robotics / NLP): [Applications: Domain-Specific DLM Use Cases](applications.qmd)
+
+Many of the questions on the training side can be developed from the equations of the MDLM chapter as a starting point. Questions of sampling and inference-time intervention can be expanded from the LLaDA chapter's sampler description; questions of block design from the Block Diffusion / Hybrid AR-Diffusion chapters; guidance-family questions from the Guidance chapter; and inference acceleration from the Inference Acceleration chapter. For theoretical questions, by rereading the ELBO derivation in the MDLM chapter one can verify the mathematical structure that serves as a starting point.

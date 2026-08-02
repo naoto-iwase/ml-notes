@@ -1,0 +1,269 @@
+---
+pagetitle: "未解決問題"
+---
+
+# 未解決問題
+
+本章は本書のまとめにあたる。Diffusion Language Models（DLLM）は Autoregressive（AR）LLM に比べて、まだ多くの領域が未確立であり、研究の余地が大きい分野である。一方で AR LLM はすでに膨大なテクニックが手順化され、エコシステムも成熟している。本章では領域別に両者の状況を対比し、DLLM 側の未解決問題と研究の方向性を整理する。
+
+## 「自由度がある」のは正しい認識
+
+DLLM は理論的にも実装的にも発展途上である。MDLM（Sahoo+ 2024）の簡潔な定式化と LLaDA（Nie+ 2025）のスケールアップによって「現代的な DLLM の骨格」は確立されたが、その周辺領域は依然として open space であり、訓練レシピ・サンプリング・推論時介入・評価・理論のいずれをとっても標準が定まりきっていない。
+
+この状況は、研究者にとって機会である一方で、実務者にとっては「採用するなら自分でレシピを組まなければならない」というコストでもある。AR LLM 側にすでに存在する道具立て（scaling law、instruction tuning、推論時介入、確立された評価ベンチマーク群）を DLLM へ翻案するだけでも、相当数の研究テーマが生まれる。本書では survey [@li2025dlmsurvey] の整理を踏まえ、推論加速・guidance・post-training RL・multimodal・applications といった既に着手された領域を独立章として扱う。本章ではそれらでなお未解決として残る「設計選択肢」「評価方法」「理論」の問いを集約する。
+
+「DLLM はまだ自由度がある」というのは、無責任な観察ではなく、現状の研究地形を正しく言い表したものである。本書を一通り読み終えた読者にとって、本章はこの自由度がどこに存在するかを地図化する役割を果たす。
+
+ここで重要なのは、自由度の所在を「訓練」「サンプリング」「推論時介入」「評価」「理論」「アーキテクチャ」のように分けて見ることである。多くの議論は領域を区別せずに「DLLM はまだ未熟」と一括りにするが、実際には領域ごとに成熟度が異なる。たとえば訓練レシピは LLaDA で実用ラインまで来ているが、推論時介入はほぼ手付かずである。次節以降の対比表と各論はこの区別を明示する。
+
+## 領域別の対比
+
+主要領域における AR LLM と DLLM の成熟度を @tbl-maturity にまとめる。
+
+| 領域 | AR LLM の状況 | DLLM の状況 |
+|------|--------------|------------|
+| 主要 baseline | GPT-4 / Claude / Llama 等が事実上の標準 | LLaDA / Dream が出てきたばかり |
+| 訓練レシピ | scaling law, instruction tuning, Reinforcement Learning from Human Feedback（RLHF）/Direct Preference Optimization（DPO）等が手順化 | 未確立。mask schedule、ノイズの選び方は研究中 |
+| サンプリング | top-p / top-k / temperature / contrastive decoding 等が成熟 | confidence-based unmask, remasking, semi-AR 等が発展途上 |
+| 推論時介入 | self-consistency, CoT, ToT, MBR, verification 等が成熟 | これから本格化 |
+| 評価ベンチマーク | MMLU, GSM8K, MATH, HumanEval 等が確立 | 同じベンチを流用しているが、DLLM 固有の評価軸は未開拓 |
+| 理論 | scaling law, in-context learning theory 等が成熟しつつある | mask 拡散の表現力、AR との対応、収束性などまだ初期 |
+| アーキテクチャ | decoder-only が事実上の標準 | encoder-decoder、双方向 attention、hybrid 等まだ流動的 |
+
+: AR LLM と DLLM の領域別成熟度の対比 {#tbl-maturity}
+
+この表は「DLLM が AR より劣っている」と読むためのものではない。DLLM は AR と異なる factorization で言語生成を試みる枠組みであり、両者の比較は「同じレースのタイム差」ではなく「異なる地形のマッピング」として捉える方が適切である。AR で確立されたものを DLLM でも形式的に再現する作業と、DLLM 固有の強み（並列性、双方向性、編集の自然さ）を引き出す作業の両方が、それぞれ独立に進んでいる。
+
+以下、各領域について個別に状況と未解決の問いを整理する。
+
+## 訓練レシピ
+
+AR LLM では、scaling law（Kaplan, Chinchilla）、instruction tuning（FLAN, SuperNI 系）、RLHF や DPO のような選好最適化が、ほぼ手順化されたレシピとして公開されている。論文を読めばそのまま再現に近づける程度の成熟度であり、新規参入者でも既存レシピを土台に上積みすればよい状況にある。
+
+DLLM 側はそこに到達していない。MDLM の損失関数自体は「重み付き BERT 訓練」という極めて明快な形をしているが、その式を実用品質のモデルに育て上げるための周辺レシピ（時刻分布、データ混合、warmup、評価ループ）は未確定である。LLaDA の論文には多くの設定が記述されているが、それが「最適だから」採用されているのか「動いたから」採用されているのかは、現時点では区別がつかない。
+
+未解決の問いとして以下が挙げられる。
+
+- **Mask schedule**: 訓練時に時刻 $t$ をどの分布からサンプルするのが最適か。uniform、cosine、対数的、あるいはタスク依存の schedule か。連続拡散側では信号雑音比（Signal-to-Noise Ratio, SNR）-aware な重み付けが定石化しているが、離散側でこれに対応するのは何か
+- **ノイズの選び方**: absorbing 以外（uniform transition, hybrid）の遷移は規模で勝てるのか、それとも absorbing が支配的に有利か。D3PM の枠組みは多様な選択肢を許容するが、規模ごとの優劣マップは未整理である
+- **データ効率**: AR の同サイズモデルと比較してデータ効率は良いのか悪いのか、そのトレードオフをどう測るか。同じトークン数を見ても、DLLM は 1 サンプルから複数の mask パターンを学習信号として使えるという面がある
+- **指示追従**: Supervised Fine-Tuning（SFT）時の mask 率を訓練時と同じ分布にすべきか、それともタスク依存に調整すべきか。指示文を mask しない / 出力のみ mask する、といった選択肢の影響もまだ整理されていない
+- **選好最適化**: AR 側の DPO / Group Relative Policy Optimization（GRPO）に相当する選好最適化を DLLM でどう構成するか。trajectory レベルで比較するのか、ステップごとに比較するのか。GRPO 一族の DLM 翻案 (d1, DiffuCoder の coupled-GRPO, UniGRPO, SPG, wd1, IGPO, SAPO, BGPO) と VRPO による DPO 化は [Post-Training (RL)](post-training-rl.qmd) 章で扱う。残課題として critic-based RL や long-horizon credit assignment の翻案は未着手
+
+特に mask schedule とノイズ設計は、AR の learning rate schedule に相当する程度に重要だが、現状は経験的に選ばれているに留まる。理論的な指針が出れば、それだけで訓練効率が大きく動く余地がある。
+
+[→ 詳細:]{.detail-link} [Post-Training (RL): DLM の事後学習と推論能力強化](post-training-rl.qmd)
+
+[→ 詳細:]{.detail-link} [AR-to-DLM Adaptation: 自己回帰モデルからの拡散言語モデル適応](ar-to-dllm-adaptation.qmd)
+
+## サンプリング
+
+AR LLM ではサンプリング戦略はほぼ研究し尽くされている。top-p、top-k、temperature、typical sampling、contrastive decoding、speculative decoding といった選択肢が安定して使われ、その挙動も理論・経験の両面で整理されている。
+
+DLLM のサンプラはこれに対して、まだ発展途上である。@fig-sampling-open は DLLM のサンプリングループで意思決定が必要なポイントを示す。
+
+```{mermaid}
+%%| label: fig-sampling-open
+%%| fig-cap: "DLLM のサンプリングループにおける未確定の意思決定点"
+
+flowchart TD
+    Start["全位置 [MASK]"] --> Pred["全位置に予測"]
+    Pred --> Q1{"いくつ unmask するか?"}
+    Q1 --> Q2{"どの位置を unmask?<br/>(confidence? ランダム?)"}
+    Q2 --> Q3{"remask するか?<br/>するなら何を?"}
+    Q3 --> Q4{"semi-AR にするか?<br/>ブロック幅は?"}
+    Q4 --> Check{"全位置確定?"}
+    Check -- "No" --> Pred
+    Check -- "Yes" --> End["出力"]
+```
+
+各意思決定点に対応する未解決の問いは以下である。
+
+- **最適なステップ数**: 品質と計算量のトレードオフ曲線はどう描かれるか。AR で言う「1 トークン = 1 forward」に対応する自然な単位は何か。同じ品質に到達するための NFE（Number of Function Evaluations）下限は理論的に求まるか
+- **動的スケジューリング**: 入力ごとに適切なステップ数を予測できるか。簡単な入力は少ステップ、複雑な入力は多ステップで適応的に走らせられるか。早期停止の基準を内部状態から得られるか
+- **Remasking の判断**: いつ・どこを remask すべきか。confidence ベースか、別の信号（entropy、margin、外部 verifier）か。LLaDA [@nie2025llada] の low-confidence remasking は強力だが、それ以外の戦略との比較は不十分である。なお GIDD [@vonrutte2025gidd] では訓練時にマスク以外のノイズ（uniform）を混ぜることで「誤りを自己訂正する」能力を持たせる方向が示されており、訓練側の選択が remasking 戦略の余地を変えうる
+- **Trajectory diversity**: 低温度サンプリングでの mode collapse をどう避けるか。AR の top-p に対応する「軌道レベルの多様性制御」はどうあるべきか
+- **AR との hybrid**: semi-AR（ブロック単位の半自己回帰）の最適なブロック幅は、タスクやモデル規模にどう依存するか。ブロック幅 1 で AR に、ブロック幅 = 系列長で完全並列に退化する連続パラメータとして見ることもできる。BD3-LMs [@arriola2025bd3lms] は訓練段階からブロック構造を入れることでこの軸を一級市民に格上げした（[Block Diffusion](block-diffusion.qmd) 章参照）
+- **Schedule の理論的最適性**: 推論時の noise schedule（どの $t$ をどの順序で通過するか）に、訓練時 schedule と独立な最適化余地があるかどうか
+
+サンプリングは「同じ訓練済みモデルから引き出せる性能」を直接決めるため、低コストで効果の大きい研究領域である。訓練済みの公開モデル（LLaDA など）を素材に、推論時アルゴリズムだけで論文一本に値する貢献が出せる余地がある。Fast-dLLM, APD, SlowFast, Dimple, ReMDM, BD3-LM の KV-cache, dLLM-cache, dKV-Cache, Elastic-Cache, Di4C 等の現代手法は [Inference Acceleration](inference-acceleration.qmd) 章で詳述する。
+
+[→ 詳細:]{.detail-link} [Inference Acceleration: DLM の推論高速化](inference-acceleration.qmd)
+
+## 推論時介入
+
+AR LLM では推論時介入の道具立てが豊富である。
+
+- **Self-consistency**: 複数サンプルを取って多数決
+- **Chain of Thought（CoT）**: 段階推論を中間トークンとして書き出させる
+- **Tree of Thoughts（ToT）**: 分岐を持つ探索
+- **Minimum Bayes Risk（MBR）**: 仮説集合の中で最小リスクを選ぶ
+- **Verification / Process Reward Model**: 中間状態に対して検証器を回す
+- **Constrained decoding**: 制約付き生成、属性制御
+
+これらは AR の「逐次的に伸ばす」性質と相性が良いように設計されている。DLLM では同じ介入を素朴に適用しても効かない、あるいは異なる形に変形する必要がある。
+
+未解決の領域として以下が挙げられる。
+
+- **CoT の DLLM 版**: 段階推論を DLLM でどう実装するか。系列全体に一度で展開する形（思考と答えを 1 回の並列 unmask で書く）か、ブロック単位で逐次的に展開する形（ブロック1=思考、ブロック2=答え）か。AR では「左から右」の構造が CoT と相性が良かったが、DLLM では構造が変わる。BD3-LMs [@arriola2025bd3lms] のように訓練時からブロック構造を入れる方向は、CoT のブロック展開と相性がよい可能性がある
+- **Classifier guidance / CFG 系**: 連続拡散で定石化した classifier guidance および classifier-free guidance の離散版。連続埋め込み拡散側では Diffusion-LM [@li2022diffusionlm] が早期に classifier guidance を text に持ち込み（[Embedding-Space Diffusion](embedding-space-diffusion.qmd) 章参照）、離散側では Nisonoff ら [@nisonoff2025discreteguidance] が CTMC ベースの一般的枠組みを与え、Schiff ら [@schiff2024simpleguidance] が masked diffusion 向けの簡潔な実装を整理した。LLaDA [@nie2025llada] も CFG を実装している。属性制御・スタイル制御・条件付き生成の標準手段になりうる領域だが、最適な guidance schedule や強度設計はまだ整理されていない
+- **Constrained decoding**: 文法・JSON Schema・正規表現といった構造制約下での生成。AR ではトークンごとに WFST 的に制約を乗せる手法が整備されているが、双方向 unmask では制約の満たし方が変わる。途中ステップで一時的に制約違反になる中間状態の扱いも未整理。離散 guidance の枠組み [@nisonoff2025discreteguidance; @schiff2024simpleguidance] は制約条件を classifier として表現できる場合に流用できる
+- **編集・穴埋め系の介入**: 中央埋め (fill-in-the-middle)、任意位置の差し替え、構造化書き換えなど、DLLM が AR より構造的に得意とする領域。LLaDA [@nie2025llada] は任意の mask 配置を受け付けられる点で素朴な infilling は可能だが、標準的な API・評価セット・ベンチマークが揃っていないため、「DLLM 流の編集インターフェース設計」自体が研究対象になりうる。DiffuSeq [@gong2023diffuseq] の encoder-decoder 型は seq2seq 編集の出発点として参照可能
+- **Verifier / 報酬モデルの guidance 化**: PRM や reward model を classifier guidance 風に DLLM の各ステップに乗せる方法。Nisonoff ら [@nisonoff2025discreteguidance] と Schiff ら [@schiff2024simpleguidance] が離散側の guidance 一般枠組みを与えており、verifier を classifier 同様に扱う設計はこの上に乗りうる。一方、離散側では勾配ベース guidance が連続側と同じ形で書けないため、別の技法（ratio injection、logit re-weighting など）が要る
+- **Test-time compute の配分**: 推論時計算量を増やすことで性能を引き上げる方向（AR では o1 系で進展した）の DLLM 版。AR の "サンプル数を増やしてベスト" と異なり、DLLM ではステップ数・guidance 強度・ブロック分割 [@arriola2025bd3lms]・remask 戦略など複数のつまみが並列に存在するため、配分問題が高次元になる
+
+DLLM はステップごとに介入できるという構造的利点を持つため、AR よりも介入の柔軟性は本来高い。その柔軟性を引き出すレシピがまだ確立されていない、というのが現状である。guidance に関する一連の研究 (Nisonoff CTMC 一般枠組み、Schiff の masked diffusion 向け簡潔形、LLaDA の CFG、A-CFG, DINGO, FreeCache) は [Guidance](guidance.qmd) 章で個別に扱う。
+
+[→ 詳細:]{.detail-link} [Guidance: 拡散言語モデルにおける条件付き生成と推論時介入](guidance.qmd)
+
+@fig-intervention-points は DLLM のループ内で介入できる典型的な箇所を示す。AR では介入できる場所が「次トークンの分布」に集約されるのに対し、DLLM では各ステップで複数の介入点が並列に存在する。
+
+```{mermaid}
+%%| label: fig-intervention-points
+%%| fig-cap: "DLLM ループ内の介入点（破線が介入可能箇所）"
+
+flowchart LR
+    State["現在の状態<br/>(部分的に確定)"] --> Model["DLLM forward"]
+    Model --> Logits["全位置の logits"]
+    Logits -.-> G1["guidance:<br/>logits 加算"]
+    Logits --> Sample["sampling"]
+    Sample -.-> G2["constrained<br/>decoding"]
+    Sample --> Confidence["confidence 計算"]
+    Confidence -.-> G3["verifier で<br/>再評価"]
+    Confidence --> Unmask["unmask / remask"]
+    Unmask --> NextState["次の状態"]
+```
+
+各破線箇所が独立した介入レイヤとして使えるため、AR の「temperature や top-p をいじる」よりも介入の表現力が高い。問題はその表現力を活かすレシピと評価方法である。
+
+## 評価
+
+評価面の課題は二重である。第一に、現状の DLLM 論文は AR と同じベンチマーク（MMLU、GSM8K、MATH、HumanEval 等）で性能を比較しており、これは横並びの参照点としては必要だが、DLLM の特性を測れていない。第二に、DLLM 固有の性質を測る評価軸がまだ提案されていない。
+
+DLLM 固有の評価軸として開拓余地があるものを挙げる。
+
+- **NFE あたりの性能**: 連続拡散モデルでは標準的な指標で、計算量と品質のトレードオフを直接見せる。これを言語側に持ち込めば、AR の「同じトークン数を出すコスト」との比較が透明になる
+- **Step-quality 曲線**: 何ステップで品質が飽和するか。タスク依存性はどうか
+- **Editability / Controllability**: 編集タスク（任意位置の穴埋め、特定トークンの差し替え、制約付き書き換え）での優位性。AR では本質的に苦手な領域で、DLLM の強みが出るはずだが、標準的な評価セットがない
+- **Bidirectional 知識利用**: 左右両方向の文脈を使う設定（双方向 cloze、中央埋め）での測定。AR では構造的に難しい
+
+::: {.callout-note}
+## 同じベンチで比べることの限界
+
+MMLU や GSM8K のような既存ベンチは、暗黙のうちに「AR 的な生成」を前提に設計されている。DLLM の優位性は「並列性」「双方向性」「編集の自然さ」にあるはずだが、これらは MMLU のスコアには現れにくい。同じベンチで AR より弱く見えても、それは DLLM の本質的な弱さとは限らない。
+
+逆に、DLLM の利点が出る評価軸を新規に設計したとして、それが「DLLM が有利な評価を恣意的に選んだ」と見られない説得力を持つには、評価軸自体に実用的な価値（タスクとしての自然さ、産業利用の文脈、人間にとっての有用性）が要る。評価軸の設計それ自体が研究貢献として認められる領域である。
+:::
+
+評価面のもう一つの課題は、サンプリング設定の標準化である。AR では「greedy か temperature=1 か」程度の選択肢に集約されるが、DLLM ではステップ数・remask 戦略・block size 等の組み合わせが膨大であり、これらをどう固定して比較するかが論文ごとにバラつく。再現性と比較可能性のために、評価プロトコルの標準化も今後必要になる。
+
+## 理論
+
+DLLM の理論的理解は初期段階にある。連続拡散モデル側では SDE / ODE の対応、score matching の収束解析、表現力の議論などが進んでいるが、離散側はまだ各論的な結果が散在している段階である。
+
+開拓余地が大きい問いとして以下がある。
+
+- **表現力**: DLLM は AR と等価か、より強いか、弱いか。任意の確率分布を表現できる条件は何か。AR は連鎖律 $p(x) = \prod_i p(x_i \mid x_{<i})$ の各因子をニューラルネットで近似する形であり、表現力としては条件付き分布の集合を持てば十分である。DLLM は別の分解（denoising chain）を持ち、両者の表現力の同値性や差は自明でない
+- **収束性**: iterative refinement ループの収束は理論的にどう保証されるか。ステップ数を増やすほど真の分布に近づくか、それともどこかで頭打ちか。連続拡散側では SDE / ODE の収束解析が進んでいるが、離散側は対応する整理が薄い
+- **AR との対応**: AR LLM のテクニック（speculative decoding、KV cache、長文最適化、context window 拡張）を DLLM へ翻案するための数学的な対応関係は何か。AR の手法には「左から右」という構造に強く依存するものと、そうでないものがある。後者の DLLM 翻案は比較的容易だが、前者の翻案には新しい構造が要る
+- **Scaling law**: DLLM 固有の scaling 則はあるか。AR と同じ形（$L \propto N^{-\alpha}$）か、ステップ数を加味した別の形か。同じパラメータ数でも推論時 NFE で性能が動く以上、AR と同形の law では捕まらない要素がある
+- **Sample complexity**: 訓練に必要なデータ量の理論的な境界。同じ系列から複数の mask パターンを生成して学習信号にできることが、データ効率の議論にどう効くか
+
+特に「AR との対応」は、本書で繰り返し触れた「連続拡散と離散拡散の橋渡し」の言語側版にあたる。AR で確立された結果を DLLM へ写像する辞書がまだ存在しない。逆方向の翻案（DLLM 側の発見が AR にどう還元されるか）も研究余地がある。
+
+## アーキテクチャ
+
+AR LLM では decoder-only Transformer が事実上の標準となり、アーキテクチャ選択はほぼ収束した。位置エンコーディングこそ RoPE で安定したものの、それ以外（attention の方式、normalization、活性化関数など）も大筋で揃っている。DLLM 側はまだ流動的である。
+
+論点を整理すると以下である。
+
+- **Attention 方式**: 完全双方向（BERT 系）か、causal masking を保つか、hybrid か。LLaDA は双方向であり、Dream の系統では別の選択を取る場合もある。双方向にすると AR との重み共有が難しくなり、AR 事前学習からの bootstrap が使いにくくなる
+- **Encoder-decoder**: 入力（条件）と出力（生成対象）を分離するかどうか。条件付き生成での自然な選択肢になりうる。T5 系の経験を引き継げる利点と、decoder-only の単純さを失う欠点がある
+- **Positional encoding**: 双方向アーキテクチャで RoPE / ALiBi / 学習型のどれが最適か。AR で確立された結論をそのまま使えるとは限らない。特に長文や可変長 mask 配置での挙動は再検討の余地がある
+- **長文への対応**: DLLM は系列全体をメモリに保持するため、長文では AR より制約が厳しくなる可能性がある。BD3-LMs [@arriola2025bd3lms] は系列をブロックに分割して完了済みブロックを KV-cache に逃がすことで一部の長文制約を緩和しており、sparse attention や階層化との組み合わせも考えうるが、設計上の標準解は未確定
+- **AR からの初期化**: 既存の AR 事前学習モデルを DLLM の初期値として使うルートは魅力的だが、双方向化と整合させる必要がある。Dream [@ye2025dream] 系の論文ではこの方向の試みがある
+
+アーキテクチャの選択は訓練レシピと不可分であり、両者を同時に探索しなければならないという複雑さがある。AR 側ではこの 2 つが分離して探索できる程度には独立性があるが、DLLM ではより密に結合している。
+
+## 研究の方向性
+
+::: {.callout-tip}
+## 研究を始める読者へ
+
+DLLM の研究を始める際に取り組みやすいテーマを挙げる。
+
+- AR の左→右の逐次構造に強く依存しない介入手法（guidance、constrained decoding、編集系、infilling）の DLLM への翻案
+- DLLM の構造的特徴（並列性・双方向性・編集の自然さ）を直接活かす新規介入の設計
+- サンプリング戦略の改良（新しい schedule、新しい remask 戦略、動的ステップ配分）
+- DLLM 固有の評価軸の提案と既存モデルの再評価。とくに編集・穴埋め系のベンチマーク整備
+- 小規模での理論解析（表現力、収束性、AR との対応、scaling law の形）
+
+特に「AR で確立されたものを DLLM へ翻案する」「DLLM 固有の利点を引き出す」の 2 軸はいずれも未着手の項目が多く、AR 側の知識ストックの一つひとつが DLLM 側で再検討の余地を持つ。
+:::
+
+これらのテーマは、いずれも巨大な計算資源を必要としない場合が多い。サンプラ改良や評価軸の提案は既存の訓練済みモデル（LLaDA など）の上で検証可能であり、理論解析は小規模合成データで議論できる。「自由度がある」というのは、計算資源の少ない研究者にも参入余地があるという意味でもある。
+
+逆に言えば、AR LLM 側で確立された技術を網羅的に把握し、それらの「DLLM 翻案リスト」を作るだけでも、当面の研究プログラムが組める。本書の各章で扱った文献はその翻案作業のための土台であり、特に MDLM の損失関数と LLaDA のサンプラは「翻案の出発点となる骨格」として価値が高い。
+
+### 翻案の例
+
+具体例として、AR の CoT (chain-of-thought) を DLLM へ翻案する場合を考える。AR では「思考過程を中間トークンとして左から右に書き出してから答えを生成する」という構造が、逐次生成と自然に整合していた。DLLM では同じことをやろうとした途端、複数の設計軸が並存する。
+
+- 系列全体を一度の並列 unmask で展開するか（思考と答えを同時に書く）、ブロック単位で逐次的に展開するか（ブロック 1 = 思考、ブロック 2 = 答え）
+- 思考ブロックと答えブロックで mask schedule や remask 戦略を変えるか
+- 思考ブロックの長さを動的に決められるか、固定長か
+- 思考ブロックは semi-AR、答えブロックは並列、と非対称に設計する余地はあるか
+- 中間状態に対して early stop の基準を入れるか（思考が十分に確定したら答えに進む等）
+
+「CoT を DLLM でやる」という一行のアイデアでも、実装の設計空間は AR より明確に広い。これは AR 側の確立された手法を DLLM へ翻案する際に一般に現れる構図であり、guidance、constrained decoding、編集系の介入のいずれにおいても同様の設計選択肢が並ぶ。AR 側で 1 つの確立された手順が、DLLM 側では設計空間を伴う 1 ファミリーとして開く、というのが DLLM 研究の構造である。
+
+## DLLM が AR を置き換えるのか
+
+本章の最後に、よく問われる「DLLM は AR を置き換えるのか」という問いに触れておく。
+
+::: {.callout-note collapse="true"}
+## 短期的な見立て
+
+短期的には AR と DLLM は **共存** する可能性が高い。
+
+- **AR の強み**: 確立されたエコシステム、長文の品質、推論コスト構造（KV cache）、ストリーミング生成
+- **DLLM の強み**: 並列生成、双方向文脈、編集・穴埋めの自然さ、推論時介入の柔軟性
+
+タスクや要求特性によって使い分けられるのが現実的な未来像である。AR が「長文生成・対話の標準」、DLLM が「編集・制御・構造化生成の標準」になるという棲み分けは、十分にありうるシナリオである。
+
+中長期的には、両者の良いところを統合した hybrid（semi-AR、block diffusion、AR backbone + diffusion head など）が主流になる可能性もある。本書執筆時点ではどのシナリオが優勢かは確定していない。
+:::
+
+DLLM が AR を完全に置き換えるという強い主張も、DLLM は実用にならないという強い否定も、現状の証拠ではいずれも支持できない。中間的な「使い分け」「統合」が当面の現実解である。
+
+研究者の立場からは、この不確実性こそが好機である。覇権モデルが定まっていない時期は、新規参入者がフロンティアを動かせる可能性が最も高い時期でもある。AR LLM の現状（巨大企業が訓練レシピを所有し、外部の研究者は推論時の工夫しかできない）と比較すると、DLLM はまだ訓練レシピ自体に貢献できる余地が残っている分野である。
+
+## 本書のまとめ
+
+DLLM は理論的にも実装的にも発展途上の分野である。MDLM の簡潔な定式化と LLaDA のスケールアップは確立されたが、それ以外の領域（サンプラ設計、推論時介入、評価、理論、アーキテクチャ）はまだ open space である。AR LLM で確立された膨大な技術スタックを DLLM へ翻案する作業が、今後数年の主要な研究フロンティアになると考えられる。
+
+本書で扱った文献群は、この open space の「足場」にあたる。MDLM は訓練の足場を、LLaDA はスケールと実用サンプラの足場を、MaskGIT は confidence-based unmask の起源を、D3PM / SEDD は離散拡散の他の選択肢を、連続/離散の橋渡しは既知の連続拡散側の知識を再利用するための翻訳辞書を、それぞれ提供する。これらは互いに独立に読めるが、合わせて読むことで初めて「DLLM とは何か」が立体的に理解できる構成になっている。
+
+連続拡散の知識を「型」として活かしながら、離散側固有の道具立て（cross-entropy ベースの目的関数、$x_0$-prediction、confidence-based サンプリング）に切り替えて読み進めることで、本書で扱った文献群が立体的に見えるはずである。あとはこの足場の上に、各読者が自身の関心に応じて研究や実装を積み上げていけばよい。
+
+最後に強調しておきたいのは、DLLM の研究は「AR LLM の進化版を作る」プロジェクトではなく、「言語生成という問題に対して、AR とは異なる factorization を試す」プロジェクトであるという点である。AR が支配的なのは性能上の必然というより、歴史的な経路依存の側面が大きい。並列性・双方向性・編集の自然さといった DLLM の構造的特徴は、AR では本質的に得にくい性質であり、それらを正面から活かす設計が積み上がっていけば、AR とは異なる強みを持つ言語モデルの系譜が確立されうる。
+
+本書がその出発点として機能することを期待する。
+
+## 関連章へのリンク
+
+本章で触れた論点の出典は、本書の各章に分散している。研究や実装を始める際の入口として、以下の対応関係を参考にしてほしい。
+
+- 全体俯瞰の出発点: [Diffusion Language Models 全体像](overview.qmd)、サーベイ俯瞰として [Survey: Li et al. 2025](survey-li2025.qmd)
+- 中心となる定式化（訓練レシピと損失関数）: [MDLM: Masked Diffusion Language Models](mdlm.qmd)
+- 実装の最先端（サンプリングとスケーリング）: [LLaDA: 大規模 Masked DLM とサンプリング](llada.qmd)
+- AR からの適応・派生 discrete モデル: [AR-to-DLM Adaptation](ar-to-dllm-adaptation.qmd)、[Recent Discrete DLMs](discrete-recent-models.qmd)
+- AR と DLLM を結ぶ連続体（訓練時ブロック構造）: [Block Diffusion](block-diffusion.qmd)、より広い系譜は [Hybrid AR-Diffusion](hybrid-ar-diffusion.qmd)
+- 連続埋め込み空間でのテキスト拡散（guidance の出発点）: [Embedding-Space Text Diffusion](embedding-space-diffusion.qmd)
+- 推論加速の具体手法: [Inference Acceleration](inference-acceleration.qmd)
+- guidance / 条件付き生成: [Guidance](guidance.qmd)
+- 強化学習と選好最適化（DLM の事後学習）: [Post-Training (RL)](post-training-rl.qmd)
+- マルチモーダル拡張: [Multimodal DLM](multimodal-dllm.qmd)
+- 応用領域（Code / Bio / Robotics / NLP）: [Applications](applications.qmd)
+
+訓練面の問いの多くは MDLM 章の式を起点に展開でき、サンプリングと推論時介入の問いは LLaDA 章のサンプラ記述、ブロック設計の問いは Block Diffusion / Hybrid AR-Diffusion 章、guidance 系の問いは Guidance 章、推論加速は Inference Acceleration 章をそれぞれ起点に拡張できる。理論面の問いは MDLM 章の ELBO 導出を再読することで、出発点となる数学的構造が確認できる。

@@ -1,0 +1,183 @@
+---
+pagetitle: "Guidance"
+---
+
+# Guidance: Conditional Generation and Inference-Time Intervention for DLMs
+
+This chapter covers **guidance** in Diffusion Language Models (DLMs) — the family of techniques that steer the inference-time trajectory of a trained model toward desired attributes. In continuous diffusion models on the image side, Classifier Guidance (CG) and Classifier-Free Guidance (CFG) became the de facto standard for conditional generation and underpin the service quality of Stable Diffusion and the DALL E family. On the discrete DLM side, however, gradient-based classifier guidance cannot be written down as-is for structural reasons, and a separate body of tooling has been developed.
+
+Building on the techniques established on the continuous side, we systematically organize guidance specific to discrete DLMs — Nisonoff et al.'s general framework based on Continuous-Time Markov Chains (CTMCs), Schiff et al.'s concise implementation for masked diffusion, CFG implementations in large-scale DLMs such as LLaDA and A-CFG, and accelerated and constrained extensions such as FreeCache and DINGO. The scope of this chapter follows the flow "revisit the continuous-side roots → general discrete framework → DLM-specific guidance → accelerated and constrained guidance," structured so that it can be read as a conceptual map.
+
+## Revisiting Guidance on the Continuous Side
+
+Before entering the discrete-side discussion, we summarize the continuous-side guidance that serves as our starting point. The reverse process of continuous diffusion models (the Denoising Diffusion Probabilistic Models (DDPM) family) can be written using the score function $s_\theta(x_t, t) \approx \nabla_{x_t} \log p_t(x_t)$. When attaching guidance to sampling under a condition $y$ (class label, text prompt, attribute, etc.), there are two representative formulations.
+
+### Classifier Guidance
+
+CG [@dieleman2023guidance] adds the gradient of a separately trained classifier $p_\phi(y \mid x_t)$ to the score.
+
+$$
+s_\text{guided}(x_t, t, y) = s_\theta(x_t, t) + \lambda \, \nabla_{x_t} \log p_\phi(y \mid x_t)
+$$ {#eq-classifier-guidance}
+
+Here $\lambda$ is the guidance scale; making it larger increases fidelity to the condition and decreases diversity. The strength of CG is that conditioning can be injected after the fact, via a classifier alone, into a model that has not been pre-conditioned (an unconditional model); on the other hand, it requires a separately prepared classifier that operates on the noisy input $x_t$.
+
+### Classifier-Free Guidance
+
+CFG trains the same model under both conditional ($s_\text{cond}$) and unconditional ($s_\text{uncond}$) settings, and amplifies their difference at inference.
+
+$$
+s_\text{guided}(x_t, t, y) = s_\text{uncond}(x_t, t) + \lambda \bigl( s_\text{cond}(x_t, t, y) - s_\text{uncond}(x_t, t) \bigr)
+$$ {#eq-cfg}
+
+Implementation-wise it suffices to replace the condition with a null token at probability $p_\text{drop}$ during training, and no extra classifier is needed — the reason it was widely adopted. At $\lambda > 1$ "over-fitting to the condition" appears; $\lambda = 1$ gives ordinary conditional generation, and $\lambda = 0$ gives fully unconditional generation.
+
+The essential reason these work straightforwardly on the continuous side is that **score is a quantity in a linear space**: addition, differences, and scaling carry direct meaning. As long as one handles the gradient of the log rather than the density $p_t(x_t)$ itself, composition of guidance can be written as a linear combination.
+
+::: {.callout-note}
+## Diffusion-LM and CG in Embedding Space
+
+The representative early example of bringing CG to text on the continuous side is Diffusion-LM [@li2022diffusionlm]. Tokens are mapped to continuous embeddings, and $\nabla_e \log p_\phi(y \mid e_t)$ is added on top of Gaussian diffusion over them. Because no discrete `[MASK]` is involved, the continuous-side machinery can be reused as-is. See the [Embedding-Space Diffusion](embedding-space-diffusion.qmd) chapter for details.
+:::
+
+## General Framework on the Discrete Side
+
+In DLMs with discrete state spaces, $\nabla_{x_t}$ in @eq-classifier-guidance does not carry meaning. $x_t$ is a discrete value such as a token ID, and there is no ground on which to take a gradient. There are two representative lineages for circumventing this obstacle.
+
+### Nisonoff's CTMC Guidance
+
+Nisonoff et al. [@nisonoff2025discreteguidance] rewrote discrete diffusion and discrete flow as **CTMCs** and generalized guidance by modifying their rate matrix according to the conditional distribution. Consider a CTMC over states $x \in \mathcal{V}$ in continuous time with transition rate $R_t(x, y)$; by Bayes' rule, the rate matrix $R_t^c$ under condition $c$ can be written as follows.
+
+$$
+R_t^c(x, y) = R_t(x, y) \, \frac{p_t(c \mid y)}{p_t(c \mid x)}
+$$ {#eq-nisonoff-rate}
+
+The second factor on the right is the "conditional likelihood ratio at the destination $y$," and the essential difference from the continuous side is that one obtains a **ratio** from the classifier rather than a gradient. As long as a classifier $p_t(c \mid \cdot)$ is trained at each time, conditional generation holds simply by overwriting the rate matrix at inference, even when the model did not see the condition $c$ during training.
+
+The advantage of Nisonoff's framework is that it covers masked diffusion, uniform transitions, arbitrary D3PMs, and discrete flow matching in a single formula. The downside is that it requires a **classifier that operates on noisy inputs** at each time $t$, inheriting the same training burden as continuous-side CG.
+
+### Schiff's Simple Guidance
+
+Schiff et al. [@schiff2024simpleguidance] simplified Nisonoff's general framework for masked DLMs (the Masked Diffusion Language Model (MDLM) [@sahoo2024mdlm]). In absorbing transitions, the reverse process can be derived directly from $x_0$-prediction, so the rate-matrix manipulation can be rewritten as **gating on the logits of $x_0$-prediction**.
+
+Intuitively, the predicted distribution $p_\theta(x_0 \mid x_t)$ obtained at each `[MASK]` position is reweighted by the conditional classifier $p_\phi(c \mid x_0)$.
+
+$$
+\tilde p(x_0 \mid x_t, c) \;\propto\; p_\theta(x_0 \mid x_t)^{1-\gamma} \cdot p_\phi(c \mid x_0)^{\gamma}
+$$ {#eq-schiff-gating}
+
+Here $\gamma$ is the guidance strength: $\gamma = 0$ gives the raw model, and $\gamma > 0$ pulls toward the condition. Since the probability ratio in Nisonoff's formula reduces to addition in logit space in the masked setting, the implementation simply adds the classifier logits to the softmax output.
+
+The relationship between the two divides as **Nisonoff provides the general framework**, and **Schiff provides the implementational simplification on top of masked diffusion**. For the targets of this book centered on masked diffusion (MDLM, LLaDA, Block Diffusion lineage), Schiff's formulation is the most practically tractable.
+
+## CFG in LLaDA and Large-Scale DLMs
+
+LLaDA [@nie2025llada], a practical DLM scaled to the 8B class, **adds CFG on the implementation side** independently of the theoretical frameworks above. The MDLM loss function takes the form of "weighted masked cross-entropy," and merely adding the operation of replacing the entire prompt with null (or all `[MASK]`) at probability $p_\text{drop}$ during training lets a single model carry both conditional and unconditional predictions. At inference, both logits are computed at each step, and mixed as
+
+$$
+\ell_\text{guided}(x_t, c) = \ell_\text{uncond}(x_t) + \lambda \bigl( \ell_\text{cond}(x_t, c) - \ell_\text{uncond}(x_t) \bigr)
+$$ {#eq-llada-cfg}
+
+where $\ell$ is the pre-softmax logit. Just as continuous-side CFG was written as a linear combination of scores, masked DLMs can be written as a linear combination of logits.
+
+The LLaDA implementation has several practical details.
+
+- **The prompt is not masked**: only the response portion is the subject of the forward process. The prompt is always treated as observed, and the "unconditional" branch in CFG generates only the response portion
+- **CFG scale as an inference-time parameter**: the trade-off between quality and diversity is adjusted in a range like $\lambda \in [1, 5]$
+- **The same $\lambda$ at every step**: on the continuous side, timestep-dependent schedules have been studied, but LLaDA implements it with a fixed scale
+
+### A-CFG: Coupling with Dynamic Low-Confidence Masking
+
+A-CFG (Adaptive Classifier-Free Guidance) [@li2025acfg] further **adapts** fixed-$\lambda$ CFG. Because LLaDA's sampler performs confidence-based unmasking, low-confidence positions are naturally identified at each step. A-CFG applies CFG strongly only to these low-confidence positions and weakens guidance at positions already fixed with high confidence.
+
+Concretely, based on the confidence $c_t^i$ at each position $i$, a position-specific guidance scale $\lambda_t^i$ is determined dynamically in the form
+
+$$
+\lambda_t^i = \lambda_\text{base} \cdot f(c_t^i)
+$$
+
+with $f$ a monotonically decreasing function, giving larger $\lambda$ to lower confidence. The resulting behavior is:
+
+- **Early steps** (mostly `[MASK]`): CFG acts broadly
+- **Late steps** (many positions already fixed): CFG acts locally
+
+making the quality/diversity balance easier to control than with a fixed $\lambda$. A-CFG is positioned as a lightweight extension that can be layered onto LLaDA / Dream-class DLMs without additional training.
+
+::: {.callout-note}
+## A-CFG and the Affinity with Remasking
+
+LLaDA's low-confidence remasking (see the [LLaDA](llada.qmd) chapter) is a strategy that "returns low-confidence positions among the once-unmasked back to `[MASK]`," sharing a signal with A-CFG's dynamic scale. Implementation-wise the same confidence computation can be repurposed for both uses, so the combination cost is low.
+:::
+
+## Structural Constraints and Guidance Acceleration
+
+The methods so far are a framework of "manipulating the weights of classifiers or conditional logits to pull toward the conditional distribution." In practical DLMs, two further directions have appeared on top of this: (i) the direction of **strictly enforcing structural constraints** (grammars, JSON Schema, regular expressions), and (ii) the direction of **inference acceleration** that is compatible with guidance.
+
+### DINGO: DFA-Based Constrained Generation
+
+DINGO [@suresh2025dingo] is a method that imposes **structural constraints** such as regular expressions or context-free grammars on a DLM, representing the constraint as a Deterministic Finite Automaton (DFA) and directly constructing the "probability distribution over token sequences that satisfy the constraint" via dynamic programming on top of it.
+
+The defining feature of DINGO is that it **satisfies the constraint without changing the model distribution $p_\theta$**. Whereas CG / CFG "pull the distribution toward a desired attribute," DINGO is the operation "set the probability outside the admissible set to zero" — qualitatively different. Concretely,
+
+- At each `[MASK]` position, compute the set of tokens $\mathcal{A}_t^i \subseteq \mathcal{V}$ reachable from the DFA's current state
+- Restrict the model's softmax to $\mathcal{A}_t^i$ and renormalize
+- Constraint-violating tokens have probability zero, so the output necessarily satisfies the constraint
+
+Because bidirectional unmask orders must be supported, both forward and backward passes of the DFA must be computed by dynamic programming, and this is an implementational refinement not present on the continuous side.
+
+### FreeCache: Combining a Lightweight Verifier with a Feature Cache
+
+FreeCache [@hu2025freecache] is a technique that emerged as a means of inference acceleration, combining a lightweight Autoregressive (AR) verifier with a DLM.
+
+- The DLM emits a draft (a parallel prediction of multiple tokens)
+- A lightweight AR verifier "accepts / rejects" the draft
+- Accepted tokens are finalized; rejected tokens are regenerated
+
+Routing through this accept/reject process maintains coherence, which in turn permits **more aggressive feature/KV caching** (the verifier absorbs the quality degradation due to cache drift). FreeCache reports up to 34x acceleration on LLaDA-class models.
+
+Seen through the lens of guidance, FreeCache is interesting in that the AR verifier doubles as the "classifier judging fidelity to the condition $c$." Whereas the Nisonoff / Schiff framework required separately training a classifier $p_\phi(c \mid x_t)$, FreeCache can reuse an existing small AR LLM as a verifier. Qualitatively it is closest to a hybrid of CG and speculative decoding [@christopher2025specdiff]. See the [Inference Acceleration](inference-acceleration.qmd) chapter for details.
+
+## Comparison of Methods
+
+We organize the guidance methods listed so far by type, applicable range, additional training burden, inference overhead, and primary use.
+
+| Method | Type | Applicable range | Extra training | Inference overhead | Primary use |
+|---|---|---|---|---|---|
+| Classifier Guidance | gradient | continuous only | noisy classifier | 1 forward / step | class/attribute control |
+| CFG | linear combination | both continuous and discrete | retraining with condition drop | 2x forward / step | prompt fidelity |
+| Nisonoff CTMC | ratio | any discrete | noisy classifier | classifier forward | general framework |
+| Schiff simple | logit gating | masked diffusion | classifier on $x_0$ | classifier forward | implementational simplification for masked DLMs |
+| LLaDA CFG | logit linear combination | masked DLM | training with condition drop | 2x forward / step | practical CFG at 8B class |
+| A-CFG | adaptive logit combination | masked DLM (confidence-based) | none (inference-time extension) | same as LLaDA CFG | automated $\lambda$ scheduling |
+| DINGO | DFA constraint projection | any discrete | none | DFA DP | grammar/regex constraints |
+| FreeCache | verifier + cache | masked DLM | small AR verifier | acceleration (~34x) | combining constraints and acceleration |
+
+: Comparison of guidance methods for DLMs {#tbl-guidance}
+
+What @tbl-guidance makes visible is that discrete-side guidance forms a hierarchy of specialization: "general framework (Nisonoff) → masked specialization (Schiff) → large-scale implementation (LLaDA, A-CFG) → constraint and acceleration extensions (DINGO, FreeCache)." Compared with the continuous side, where CFG fits a single formula, the discrete side has multiple trade-off axes — applicable range, implementational simplicity, acceleration potential.
+
+## Relationship to Existing Chapters
+
+The topics covered in this chapter intersect with other chapters of this book. Depending on the reader's interest, please refer to the following.
+
+- For details of classifier guidance on continuous embedding space (centered on Diffusion-LM): the [Embedding-Space Diffusion](embedding-space-diffusion.qmd) chapter
+- For details of LLaDA's CFG implementation and low-confidence remasking: the [LLaDA](llada.qmd) chapter
+- For the inference-acceleration context including FreeCache (KV/feature cache, parallel decoding, etc.): the [Inference Acceleration](inference-acceleration.qmd) chapter
+- For a comprehensive discussion of open problems around guidance (combination with Chain of Thought (CoT), verifier guidance, allocation of test-time compute): the [Open Problems](open-problems.qmd) chapter
+
+This chapter is positioned as a **single-chapter cross-cut** that reorganizes guidance-related descriptions that are individually touched on in those chapters.
+
+## Open Questions
+
+Finally, we list four open questions visible from this chapter's vantage point.
+
+- **Designing the optimal CFG schedule**: on the continuous side, timestep-dependent $\lambda(t)$ is known to substantially affect sample quality, while LLaDA implements masked DLMs with nearly a fixed $\lambda$. A-CFG attempts a confidence-based dynamic scheme, but whether this is the best choice is not settled. Whether $\lambda$ is best varied along the step axis, the position axis, or the token-class axis is not yet organized empirically or theoretically
+- **Mask-rate design for classifier training**: at the core of the Nisonoff / Schiff framework is a "classifier that operates on noisy inputs." Which mask-rate distribution to train under, whether to augment training data with the DLM's own outputs, or whether to train only with external data — such classifier training recipes are not organized as a topic specific to masked DLMs
+- **Embedding verifier guidance into each DLM step**: on the AR LLM side, Process Reward Models (PRMs) have succeeded in placing verifiers at each step of CoT. In masked DLMs, since a step coincides with "fixing positions," it is in principle possible to attach verifier signals at each position's fixation. FreeCache's AR verifier is the first instance in this direction, but how to attach a PRM-style fine-grained verifier remains unsettled
+- **Conflict between constrained generation and reasoning tasks**: strict DFA-based constraints like DINGO and free-form reasoning of the CoT lineage have clashing design philosophies. Combinations such as "produce correct JSON while writing the thinking process freely" or "search for the optimal reasoning path within constraint-satisfying outputs" have no standard answer on either the masked DLM side or the AR LLM side. The direction of asymmetrically handling thinking blocks and output blocks in the Block Diffusion lineage is a promising candidate, but research is still in its infancy
+
+## Summary
+
+Compared to the continuous-side situation where CFG "became practical with a single formula," guidance on the discrete DLM side has not yet settled into a standard. Nisonoff's CTMC general framework and Schiff's simplified implementation for masked diffusion provide the theoretical skeleton; LLaDA established CFG implementation at the 8B class; A-CFG attempts dynamic scheduling; DINGO pursues constrained generation; and FreeCache pushes compatibility with acceleration — each along a different axis. These are not mutually exclusive but combinable, and their applicable range stretches from masked diffusion to arbitrary discrete diffusion.
+
+The neighborhood of CFG continues to be updated at roughly a paper per year even at the time of writing, and the methods covered in this chapter are no more than a snapshot. The shared figure is a translation effort of "rewriting continuous-side machinery (linear combinations of scores, additional classifiers, adaptive scales) into the language of the discrete side (rate matrices, logit gating, confidence-based unmask, DFA constraints)," directly continuous with the flow of the [Open Problems](open-problems.qmd) chapter on porting inference-time interventions established on the AR LLM side into DLMs. Proposing just one guidance recipe on a practical-quality DLM is enough for a paper — that is the topography as it stands.

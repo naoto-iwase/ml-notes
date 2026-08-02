@@ -1,0 +1,32 @@
+---
+title: "ML Notes (English)"
+description: "Machine learning and deep learning research notes (English edition)"
+author:
+  name: "Naoto Iwase"
+  url: "https://iwase.dev"
+listing:
+  id: listing-en-page
+  contents:
+    - "*/index.qmd"
+  sort: "date desc"
+  type: default
+  categories: true
+  sort-ui: false
+  filter-ui: true
+  fields: [image, date, title, categories, description]
+  page-size: 25
+  feed:
+    title: "ML Notes — English"
+    type: full
+---
+
+```{=html}
+<a href="/en/index.xml" class="rss-link"><i class="bi bi-rss"></i> Subscribe via RSS</a>
+```
+
+::: {#listing-en-page}
+:::
+
+```{=html}
+<script src="/js/listing.js"></script>
+```

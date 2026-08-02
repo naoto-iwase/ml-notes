@@ -1,0 +1,121 @@
+/* Paired with js/cite.js. */
+
+.site-cite-toggle-sidebar {
+  text-decoration: none !important;
+  opacity: 0.7;
+}
+.site-cite-toggle-sidebar:hover { opacity: 1; text-decoration: none !important; }
+
+.site-cite-end-link {
+  margin: 0;
+  text-align: right;
+}
+.site-cite-end-link a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.45em 1em;
+  border: 1px solid var(--bs-border-color, #dee2e6);
+  border-radius: 6px;
+  color: var(--bs-secondary-color, #6c757d);
+  text-decoration: none;
+  font-size: 0.9em;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.site-cite-end-link a:hover {
+  color: var(--bs-body-color);
+  border-color: var(--bs-secondary-color, #adb5bd);
+  background: var(--bs-tertiary-bg, #f6f8fa);
+}
+
+.site-cite-popover {
+  position: fixed;
+  background: var(--bs-body-bg, #fff);
+  color: var(--bs-body-color, #212529);
+  border: 1px solid var(--bs-border-color, #dee2e6);
+  border-radius: 6px;
+  padding: 12px 14px;
+  width: min(520px, calc(100vw - 16px));
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 2000;
+  font-size: 0.9em;
+}
+.site-cite-popover.hidden { display: none; }
+
+.site-cite-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+}
+
+.site-cite-section-label {
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bs-secondary-color, #6c757d);
+  margin-top: 6px;
+}
+
+.site-cite-formatted {
+  margin: 4px 0 10px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.site-cite-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 4px;
+}
+
+.site-cite-copy-btn {
+  background: var(--bs-tertiary-bg, #f0f0f0);
+  border: 1px solid var(--bs-border-color, #dee2e6);
+  border-radius: 4px;
+  padding: 2px 10px;
+  cursor: pointer;
+  font-size: 0.85em;
+  color: inherit;
+}
+.site-cite-copy-btn:hover { filter: brightness(0.95); }
+
+.site-cite-bibtex {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  background: var(--bs-tertiary-bg, #f6f8fa);
+  border: 1px solid var(--bs-border-color, #dee2e6);
+  border-radius: 4px;
+  max-height: 260px;
+  overflow: auto;
+  font-size: 0.85em;
+}
+.site-cite-bibtex code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  white-space: pre;
+}
+
+.quarto-dark .site-cite-popover {
+  background: #2b3e50;
+  color: #ddd;
+  border-color: #3a4f5f;
+}
+.quarto-dark .site-cite-title { border-color: #3a4f5f; }
+.quarto-dark .site-cite-end-link a {
+  border-color: #3a4f5f;
+}
+.quarto-dark .site-cite-end-link a:hover {
+  background: #3a4f5f;
+  border-color: #4a5f6f;
+  color: #ddd;
+}
+.quarto-dark .site-cite-copy-btn,
+.quarto-dark .site-cite-bibtex {
+  background: #3a4f5f;
+  border-color: #4a5f6f;
+  color: #ddd;
+}
+.quarto-dark .site-cite-copy-btn:hover { background: #4a5f6f; filter: none; }

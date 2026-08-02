@@ -1,0 +1,244 @@
+---
+pagetitle: "Deduplication"
+---
+
+# Deduplication
+
+## Overview
+
+Deduplication is a core process in the curation of the Dolma 3 dataset. At the trillion-token scale, efficiently identifying and removing duplicate content improves both training efficiency and data quality. Dolma 3 employs a three-stage deduplication strategy, reducing 38.7B documents down to 9.7B documents (a 75% reduction in document count).
+
+## Goals and Motivation
+
+### Token-Efficient Training
+
+The primary goal of deduplication is to achieve token-efficient training:
+
+- **Reduced compute cost**: Training on the same or similar content multiple times wastes computational resources
+- **Memory efficiency**: Removing duplicate data allows more diverse data to be retained in memory
+- **Shorter training time**: Eliminating redundant data enables more efficient training cycles
+
+### Duplicate Count as a Weak Signal of Quality
+
+The frequency of duplication serves as a weak signal of content quality:
+
+- **High-quality content**: In many cases, it appears only once (original content)
+- **Low-quality content**: Spam, boilerplate text, and templated content tend to be repeated across multiple sites
+- **Web scraping artifacts**: The same content gets copied to multiple domains (mirror sites, etc.)
+
+### Diminishing Returns from Repetition
+
+Training on the same content multiple times follows the law of diminishing returns:
+
+- **1st exposure**: The model learns new patterns and knowledge
+- **2nd exposure**: The additional learning benefit decreases
+- **3rd exposure and beyond**: Almost no additional benefit, with an increasing risk of overfitting
+
+## Three-Stage Deduplication Strategy
+
+Dolma 3 combines three stages, each targeting duplicates at a different granularity.
+
+### Stage 1: Exact Deduplication
+
+**Goal**: Identify and remove documents that are completely identical.
+
+**Method**:
+
+- Compute a text hash (e.g., SHA-256) of the entire document
+- Identify documents whose hashes match exactly as duplicates
+- Global deduplication: performed across all data sources
+
+**Results**:
+
+- **Reduction rate**: 67% of data identified as duplicates
+- **Document count**: Reduced from 38.7B to 12.8B documents
+- **Targets**: Exact copies, mirror sites, and redundant crawler fetches
+
+::: {.callout-note}
+## Efficiency of Exact Deduplication
+
+Exact deduplication is computationally inexpensive, running at high speed even on large-scale datasets thanks to hash-based implementations. The fact that this stage alone can eliminate more than two-thirds of all documents illustrates the high degree of duplication in web data.
+:::
+
+### Stage 2: Fuzzy Deduplication
+
+**Goal**: Identify and remove near-identical documents (e.g., documents differing only in headers or footers).
+
+**Method**: MinHash-based algorithm
+
+MinHash is a technique for efficiently estimating the Jaccard similarity between documents:
+
+1. **Shingling**: Split the document into n-grams (typically 5-grams or 13-grams)
+2. **MinHash signatures**: Generate a fixed-length signature for each document
+3. **LSH (Locality-Sensitive Hashing)**: Efficiently discover document pairs with similar signatures
+4. **Clustering**: Cluster documents whose similarity exceeds a threshold and retain only one per cluster
+
+**Types of duplicates targeted**:
+
+- **Documents copied across different domains**: News articles, blog posts, etc.
+- **Template-based content**: Documents sharing identical headers/footers
+- **Lightly edited content**: Versions differing only in dates or names
+
+**Results**:
+
+- **Reduction rate**: 23% of data identified as duplicates
+- **Document count**: Reduced from 12.8B to 9.8B documents
+
+::: {.callout-tip}
+## Efficiency of MinHash
+
+MinHash avoids exhaustive pairwise comparison between documents (O(n^2) complexity) and instead uses LSH to discover similar documents in near-O(n) time. This makes deduplication practical even for billions of documents.
+:::
+
+### Stage 3: Substring Deduplication
+
+**Goal**: Remove repeated content within individual documents, such as boilerplate text and HTML artifacts.
+
+**Method**: Fuzzy suffix array-based algorithm
+
+A suffix array is a data structure that stores all suffixes of a string in lexicographic order:
+
+1. **Suffix array construction**: Build a suffix array for each document
+2. **Repetition detection**: Identify repeated substrings of 500 bytes or more
+3. **Marking and removal**: Mark repeated portions and exclude them from training data
+
+**Types of duplicates targeted**:
+
+- **Boilerplate text**: Navigation menus, footers, sidebars
+- **HTML artifacts**: Remnants of script tags, style definitions
+- **Repetitive patterns**: Repeated list items, table data
+
+**Results**:
+
+- **Reduction rate**: 14% of text bytes removed
+- **Document count**: Reduced from 9.8B to 9.7B documents (document count largely preserved)
+- **Data size**: Reduced to 36.5T bytes
+
+::: {.callout-important}
+## Importance of Stage 3
+
+Although Stage 3 barely reduces the document count, it significantly improves the quality of each document. Boilerplate text and HTML artifacts contain little useful information for the model to learn, so removing them improves training efficiency.
+:::
+
+## The Duplodocus Tool
+
+To perform deduplication for Dolma 3, a new tool called **Duplodocus** was developed.
+
+### Technical Features
+
+**Native Rust implementation**:
+
+- **High performance**: Achieves execution speed comparable to C/C++ while maintaining memory safety
+- **Parallelism**: Efficient parallelization leveraging Rust's ecosystem (e.g., Rayon)
+- **Memory efficiency**: The ownership system prevents memory leaks and data races
+
+**Large-scale distributed execution**:
+
+- **Scalability**: Capable of processing billions of documents
+- **Distributed hash tables**: Hash tables are distributed across multiple nodes to relax memory constraints
+- **Streaming processing**: Processes data in a streaming fashion without loading it all into memory
+
+**Integrated capabilities**:
+
+- **Hash-based exact deduplication**: Exact deduplication using SHA-256 hashes
+- **MinHash fuzzy deduplication**: Fuzzy deduplication based on Jaccard similarity
+- **Customizable**: Parameters (n-gram size, similarity threshold, etc.) can be flexibly adjusted
+
+### Duplodocus Workflow
+
+Duplodocus applies three stages in sequence. @tbl-duplodocus-workflow summarizes the algorithm, input/output scale, and reduction at each stage.
+
+| Stage | Algorithm | Main operation | Input → Output | Reduction |
+|-------|-----------|----------------|----------------|-----------|
+| Stage 1 | Hash-based exact deduplication | Remove exact duplicates via SHA-256 hashes | 38.7B → 12.8B documents | 67% of documents |
+| Stage 2 | MinHash fuzzy deduplication | Cluster near-duplicates using MinHash signatures + LSH | 12.8B → 9.8B documents | 23% of documents |
+| Stage 3 | Suffix-array substring deduplication | Mark and remove repeated substrings of 500 bytes or more | 9.8B → 9.7B documents | 14% of bytes |
+| Final output | — | — | 9.7B documents, 36.5T bytes | 75% of documents (total) |
+
+: Duplodocus three-stage workflow and per-stage reduction rates {#tbl-duplodocus-workflow}
+
+## Final Results
+
+The three-stage deduplication process achieved the following results.
+
+### Reduction Statistics
+
+| Metric | Initial | Final | Reduction |
+|--------|---------|-------|-----------|
+| Document count | 38.7B | 9.7B | 75% |
+| Data size | - | 36.5T bytes | - |
+
+**Reduction by stage**:
+
+- Stage 1 (Exact): 67% of documents removed
+- Stage 2 (Fuzzy): 23% of remaining documents removed
+- Stage 3 (Substring): 14% of bytes removed
+
+### Foundation for Quality-Aware Upsampling
+
+The deduplicated data serves as the foundation for quality-aware upsampling:
+
+- **Clean data pool**: High-quality documents are selected from the 9.7B deduplicated documents
+- **Improved reliability of quality scores**: Reduced noise that duplicate data introduces into quality classification
+- **Efficient repetition**: Selectively repeating only high-quality documents minimizes overall repetition
+
+Deduplication enabled the following optimizations for the Dolma 3 Mix:
+
+1. **Improved topic classification accuracy**: Reduced noise from duplicate data
+2. **More reliable quality scores**: Enabled more accurate quality evaluation
+3. **More efficient upsampling**: Selective repetition of high-quality data
+
+## Comparison with Other Deduplication Approaches
+
+::: {.callout-note collapse="true"}
+## Deduplication Methods in Other Datasets
+
+**C4 (Colossal Clean Crawled Corpus)**:
+
+- Relies primarily on exact deduplication
+- Limited fuzzy deduplication
+- Result: More near-duplicates may remain
+
+**The Pile**:
+
+- Different deduplication strategies per data source
+- Some sources have no deduplication at all
+- Result: Low consistency across data sources
+
+**RedPajama**:
+
+- Employs MinHash-based fuzzy deduplication
+- Does not perform substring deduplication
+- Result: Boilerplate text within documents remains
+
+**Advantages of Dolma 3**:
+
+- **Comprehensive three-stage approach**: Performs exact, fuzzy, and substring deduplication
+- **Global deduplication**: Applied uniformly across all data sources
+- **Scalability**: Duplodocus enables high-speed execution at the trillion-token scale
+- **Openness**: Tools and pipeline are fully released
+:::
+
+## Summary
+
+Dolma 3's deduplication has the following characteristics:
+
+**Key achievements**:
+
+- **Massive reduction**: From 38.7B documents to 9.7B documents (75% reduction)
+- **Three-stage strategy**: A comprehensive approach combining exact, fuzzy, and substring deduplication
+- **High-performance tool**: Efficient large-scale processing via Duplodocus
+
+**Technical innovations**:
+
+- High performance through a native Rust implementation
+- Scalability through distributed execution
+- Suffix array-based substring deduplication
+
+**Downstream impact**:
+
+- Provides the foundation for quality-aware upsampling
+- Significant improvement in training efficiency
+- Improved model quality
+
+Deduplication is an indispensable process for achieving the quality and efficiency of the Dolma 3 dataset and has contributed significantly to the success of the Olmo 3 models.

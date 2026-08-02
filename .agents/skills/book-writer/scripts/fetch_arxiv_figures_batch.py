@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["requests"]
+# ///
+"""Fetch arXiv e-prints for **multiple IDs in one batch**.
+
+Run this immediately after creating references.bib in Phase 0.5 to extract the
+e-print for every paper cited in the book under `/tmp/arxiv_figures/<id>/`.
+Chapter subagents can later find candidate figures with
+`ls /tmp/arxiv_figures/<id>/`.
+
+Usage:
+    # List IDs directly
+    uv run fetch_arxiv_figures_batch.py 2504.13837 2506.14245 2502.09992
+
+    # Extract IDs from url= fields in references.bib
+    uv run fetch_arxiv_figures_batch.py --bib ja/foo/references.bib
+
+    # Increase parallelism
+    uv run fetch_arxiv_figures_batch.py --bib ja/foo/references.bib --parallel 8
+
+Behavior:
+- Skip any ID whose `/tmp/arxiv_figures/<id>/` directory already exists; do not download it again
+- Record download or extraction failures and continue rather than stopping after one failure
+- Print a summary at the end: N successful, M failed, and K skipped
+"""
+
+from __future__ import annotations
+
+import argparse
+import io
+import re
+import sys
+import tarfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
+import requests
+
+ARXIV_ID_RE = re.compile(r"arxiv\.org/abs/(\d{4}\.\d{4,5})", re.IGNORECASE)
+
+
+def extract_arxiv_ids_from_bib(bib_path: Path) -> list[str]:
+    """Extract arXiv IDs from bib URL lines, deduplicated in occurrence order."""
+    seen: set[str] = set()
+    ids: list[str] = []
+    text = bib_path.read_text(encoding="utf-8")
+    for m in ARXIV_ID_RE.finditer(text):
+        aid = m.group(1)
+        if aid not in seen:
+            seen.add(aid)
+            ids.append(aid)
+    return ids
+
+
+def fetch_one(arxiv_id: str, out_root: Path) -> tuple[str, str, str]:
+    """Fetch one paper and return (arxiv_id, status, detail).
+
+    status: "ok" / "skip" / "fail"
+    """
+    target = out_root / arxiv_id
+    if target.exists() and any(target.iterdir()):
+        return arxiv_id, "skip", f"already at {target}"
+
+    url = f"https://arxiv.org/e-print/{arxiv_id}"
+    try:
+        r = requests.get(url, timeout=60, headers={"User-Agent": "book-writer/0.2"})
+        r.raise_for_status()
+    except Exception as e:
+        return arxiv_id, "fail", f"download error: {e}"
+
+    target.mkdir(parents=True, exist_ok=True)
+    try:
+        with tarfile.open(fileobj=io.BytesIO(r.content), mode="r:*") as tar:
+            tar.extractall(path=target, filter="data")
+        return arxiv_id, "ok", f"{len(r.content):,} bytes → {target}"
+    except tarfile.ReadError:
+        # Handle a single gzip file containing only a .tex file.
+        try:
+            (target / f"{arxiv_id}.tex").write_bytes(r.content)
+            return arxiv_id, "ok", f"{len(r.content):,} bytes (single gzip)"
+        except Exception as e:
+            return arxiv_id, "fail", f"extract error: {e}"
+    except Exception as e:
+        return arxiv_id, "fail", f"extract error: {e}"
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
+    ap.add_argument("arxiv_ids", nargs="*", help="Specify arXiv IDs directly (example: 2504.13837)")
+    ap.add_argument(
+        "--bib",
+        type=Path,
+        default=None,
+        help="Extract and fetch arXiv IDs from url= fields in references.bib",
+    )
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=Path("/tmp/arxiv_figures"),
+        help="Extraction root (default: /tmp/arxiv_figures)",
+    )
+    ap.add_argument(
+        "--parallel",
+        type=int,
+        default=4,
+        help="Number of parallel workers (default: 4)",
+    )
+    args = ap.parse_args()
+
+    ids: list[str] = list(args.arxiv_ids)
+    if args.bib:
+        if not args.bib.exists():
+            print(f"[error] bib not found: {args.bib}", file=sys.stderr)
+            return 2
+        ids.extend(extract_arxiv_ids_from_bib(args.bib))
+
+    # Deduplicate while preserving occurrence order.
+    seen: set[str] = set()
+    unique_ids: list[str] = []
+    for aid in ids:
+        if aid not in seen:
+            seen.add(aid)
+            unique_ids.append(aid)
+
+    if not unique_ids:
+        print("[error] no arxiv ID provided (pass IDs or --bib)", file=sys.stderr)
+        return 2
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    print(f"[batch] {len(unique_ids)} unique IDs, parallel={args.parallel}, out={args.out}")
+
+    results: list[tuple[str, str, str]] = []
+    with ThreadPoolExecutor(max_workers=args.parallel) as ex:
+        futures = {ex.submit(fetch_one, aid, args.out): aid for aid in unique_ids}
+        for fut in as_completed(futures):
+            aid, status, detail = fut.result()
+            sym = {"ok": "✓", "skip": "·", "fail": "✗"}.get(status, "?")
+            print(f"  {sym} {aid}  {detail}")
+            results.append((aid, status, detail))
+
+    ok = sum(1 for _, s, _ in results if s == "ok")
+    skip = sum(1 for _, s, _ in results if s == "skip")
+    fail = sum(1 for _, s, _ in results if s == "fail")
+    print()
+    print(f"[summary] ok={ok}  skip={skip}  fail={fail}  total={len(results)}")
+
+    if fail:
+        print()
+        print("[failed]")
+        for aid, status, detail in results:
+            if status == "fail":
+                print(f"  {aid}: {detail}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

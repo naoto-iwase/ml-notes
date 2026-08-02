@@ -1,0 +1,140 @@
+---
+pagetitle: "Theory and Limits of RLVR"
+---
+
+# Theory and Limits of RLVR
+
+Since DeepSeek-R1, Reinforcement Learning with Verifiable Rewards (RLVR) has become the de facto standard, yet the basic question of **what it is actually doing** to LLMs became a major controversy in 2025–2026. Triggered by Yue et al.'s observation that "RLVR does not move outside the base distribution" [@yue2025rlbeyond], counterarguments and refinements have proceeded in parallel from multiple angles, including evaluation metrics, optimization dynamics, and circuit-level intervention experiments. This chapter organizes the debate along three axes — the conflict between the expansion camp and the reweighting camp, the choice of evaluation metrics, and the mechanism behind what reweighting actually changes — and also surveys the adjacent line of work that re-evaluates the base model itself.
+
+## The Structure of the Debate
+
+::: {.callout-note}
+## The 2025–2026 RLVR Debate
+
+- **Expansion camp**: RLVR genuinely acquires reasoning traces that the base model did not have
+- **Reweighting camp**: RLVR merely redistributes the probability mass over solution paths already present in the base distribution, acquiring no new capability
+- **Metric dependence**: The conclusions of both camps flip easily depending on the choice of K in pass@K and on whether one evaluates only the final answer or the CoT as well
+:::
+
+This conflict is not a mere difference of interpretation. It directly affects every practical decision, from where to invest test-time compute (longer CoT or more independent samples) to the design of downstream verifiers such as PRMs, to the choice of RL recipe. If the reweighting camp is right, inference-side tricks on the base model alone deserve a second look; if the expansion camp is right, continued RL training does yield genuinely new solving skills.
+
+## The Starting Point: Expansion or Reweighting
+
+The debate was ignited by the pass@K analysis of Yue et al. at NeurIPS 2025 Oral [@yue2025rlbeyond]. Drawing K independent samples each from an RLVR fine-tuned model and the base model, and systematically sweeping K in pass@K (the probability that at least one sample is correct), they observed that the RL model surpasses the base for small K but that **the base model overtakes the RL model** once K is large enough. Furthermore, almost all generation traces of the RL model lie in the high-probability region of the base distribution in the sense of perplexity, with hardly any novel reasoning paths. From this observation they proposed the framework that "RLVR is a reweighting that improves sampling efficiency within the base distribution."
+
+![Conceptual illustration of how RLVR affects the reasoning tree of the base model. In Problem A, sampling toward existing correct paths is made more efficient, while in Problem B some correct paths are discarded and reasoning capacity can shrink. Source: [@yue2025rlbeyond]](images/rlvr-yue2025-overview.png){#fig-yue-overview}
+
+@fig-yue-passk is the central piece of evidence in the same paper, showing that the pattern of the base overtaking the RL model at sufficiently large K is reproduced stably across four base models and four benchmarks.
+
+![Result of sweeping pass@K from K = 1 to 1024. For small K, the RL model (red) is above the base (green), but as K grows the base catches up and overtakes in most combinations. Source: [@yue2025rlbeyond]](images/rlvr-yue2025-passk-crossover.png){#fig-yue-passk}
+
+This view was directly contested by the CoT-Pass@K study of Wen et al. [@wen2025cotpass]. Because pass@K gives credit whenever only the final answer is correct, it cannot distinguish between paths that happened to arrive at the correct answer from incorrect reasoning traces and paths that contain a correct reasoning trace. When one switches to CoT-Pass@K, which **gives credit only when both the entire CoT and the final answer are correct**, the crossover that Yue et al. saw disappears and RLVR is above the base across the full range of K. The very fact that the same data leads to opposite conclusions under different metrics suggests that the heart of the debate lies in "how we measure" rather than in "mechanism."
+
+![Contrast between pass@K and CoT-Pass@K. The lower-left block is the paper's claim: RLVR suppresses spurious guesses and promotes correct reasoning paths. In the right-hand plot, the pattern of the base catching up that is seen with pass@K alone turns into RL dominance across all K under CoT-Pass@K. Source: [@wen2025cotpass]](images/rlvr-wen2025-cotpassk.png){#fig-wen-cotpassk}
+
+A view that bridges the two has since been proposed as the Two-Stage Dynamic View [@yue2025twostage]. The behavior of RLVR can be described as a two-stage dynamic with respect to the number of training steps.
+
+- **Exploitation stage** (early): high-probability tokens are further reinforced and the capability boundary **shrinks**
+- **Exploration stage** (late): with sufficiently long training, the boundary genuinely **expands**
+
+Experiments that look only at short training reach the shrinkage conclusion, while those that look at long training reach expansion, so the two camps were observing different cross-sections of the same dynamic. In a similar spirit, Path Not Taken [@yang2025pathnot] characterizes the training dynamic geometrically, proving via its Three-Gate Theory (KL Anchor / Model Geometry / Precision) that RLVR weight updates concentrate **outside** the principal directions of the pretrained model, providing theoretical backing for the reweighting view.
+
+## The Choice of Evaluation Metric
+
+A second axis of the debate is the question of whether "measuring reasoning capability with pass@K" is appropriate at all.
+
+### Limits of pass@K
+
+Pass@k as Diagnostic [@yu2025passkdiag] decomposes the gradient of an RL objective that **directly optimizes** pass@K and shows that it is essentially nothing more than a per-example positive reweighting of pass@1. Moreover, the learning signal vanishes in low-success-rate regions where exploration is most needed. On this basis the authors argue that pass@K should remain as an inference-time diagnostic, while training objectives should be designed separately.
+
+The Breadth-Depth metric [@de2025breadthdepth] goes further, pointing out that for mathematical tasks with discrete answer spaces, pass@K at large K conflates the effect of "simply trying many times" with the reasoning boundary one actually wants to measure. As an alternative, the authors propose **Cover@τ** (the fraction of problems for which at least τ of the completions are correct), and the picture under Cover@τ differs from the RLVR-vs-base crossover seen under pass@K.
+
+@tbl-rlvr-metrics summarizes the characteristics of the main metrics.
+
+| Metric | What it measures | Behavior in RLVR vs base |
+|------|-----------|----------------------|
+| pass@1 | Single-shot accuracy | RL consistently dominates |
+| pass@K (small K) | Probability that one of K is correct | RL dominates |
+| pass@K (large K) | Reachability under many attempts | Base overtakes [@yue2025rlbeyond] |
+| CoT-Pass@K | Probability that the whole trace is correct | RL dominates across all K [@wen2025cotpass] |
+| Cover@τ | Fraction of reproducibly correct answers | Metric-specific picture [@de2025breadthdepth] |
+
+: Main metrics used in RLVR evaluation and their characteristics {#tbl-rlvr-metrics}
+
+Taking seriously the fact that "changing how we measure flips the conclusion," any attempt to summarize the effect of RLVR with a single number is in principle futile. The research on self-consistency and weighted majority voting covered in [Self-Consistency and Weighted Majority Voting](self-consistency.qmd) shares this concern for the same reason — how to bundle accuracy and reproducibility together.
+
+## Unpacking the Mechanism
+
+When we say "RLVR is reweighting," what is being reweighted with respect to what? In 2025–2026 several independent lines pushed into the mechanism.
+
+### Principal Directions and Sparse Updates
+
+Path Not Taken [@yang2025pathnot], as mentioned above, shows that RLVR weight updates concentrate in **low-curvature subspaces** outside the principal directions of the pretrained model. This bias is invariant across datasets and RL recipes. A token-level observation in the same direction comes from Sparse but Critical [@gao2026sparse], which shows that meaningful divergences between the RLVR fine-tuned policy and the base occur at only a tiny number of token positions, and demonstrates that a cross-sampling intervention that swaps the policies at only those critical positions reproduces most of the performance gain. The picture is that RLVR is a **sparse and targeted refinement**.
+
+![Difference between SFT and RL in update locations. (a) SFT climbs straight up the principal direction (a predefined mountain path) and rotates the weights substantially. (b) RL carries a compass that avoids the principal direction, and (c) its update mask concentrates outside the principal-weight region, with a far smaller rotation angle in the top-k subspace than SFT. Source: [@yang2025pathnot]](images/rlvr-yang2025-pathnot-teaser.jpg){#fig-yang-pathnot}
+
+Small Vectors, Big Effects [@sinii2025smallvectors] makes the intervention even lighter, showing that simply inserting per-layer **steering vectors** into the residual stream of the base model and training them with the RL objective reproduces most of the gain of full fine-tuning. The final-layer steering vector acts as a token substitution that biases the first generated token toward "To" or "Step," while the penultimate layer up-weights process words and structural symbols. These transfer to other models in the same family.
+
+### Primitive and Pattern Selection
+
+One answer to the question "then what is being reweighted?" is the **sharpening of existing primitives**. New Skills or Sharper Primitives [@wang2026primitives] uses a synthetic task called Algebrarium (training only on single-step problems and evaluating on multi-step) to show that RLVR sharpens the probability of atomic steps, thereby suppressing the failure probability that compounds exponentially in composite tasks. The picture is that not new skills but the sharpening of already-existing atomic operations is what supports compositional reasoning.
+
+Reshaping Reasoning [@chen2025reshaping] gives a theoretical analysis of RLVR convergence on a simplified question–reasoning–answer model and shows that RLVR does not create new reasoning patterns but rather **acts as a pattern selector that picks the highest-success-rate pattern from among existing ones**. Two regimes are derived: models with strong initial capability converge rapidly while weak ones converge slowly. On the Learning Dynamics of RLVR at the Edge of Competence [@huang2026edge] treats the same problem for compositional reasoning on Transformers and theorizes a relay regime in which a natural "easy-to-hard" curriculum emerges in difficulty-mixed data, together with grokking-like phase transitions that appear when there is a discontinuity in difficulty.
+
+### The Risk of Memorization Shortcuts
+
+A particularly strong counterexample within the mechanism research is the Spurious Rewards Paradox [@anon2026spurious]. On models such as Qwen2.5, RL with random or even incorrect rewards can sometimes lead to substantial gains on downstream tasks. The authors analyze this puzzle via path patching and the logit lens, and discover an Anchor–Adapter circuit in which a **Functional Anchor** in middle layers L18–20 calls up memorized solutions from pretraining and a **Structural Adapter** at L21+ surfaces them. Part of the performance gain of RLVR may not be genuine reasoning enhancement but rather the activation of memorization shortcuts derived from contaminated data.
+
+Consistent with this observation, Post-Training as Reweighting [@li2025consistency] formalizes the view that RLVR, outcome reward models, and process reward models all **do not expand** the tree-like set of reasoning paths but only reweight existing paths, casting it as a Multi-task Tree-structured Markov Chain. The division of labor is organized as "pretraining expands the tree, post-training reweights the CoT."
+
+@tbl-rlvr-mechanism lines up the main mechanism hypotheses.
+
+| Hypothesis | Central observation | Representative paper |
+|------|----------|----------|
+| Off-principal small updates | Weights move outside the principal directions of the pretrained model | [@yang2025pathnot] |
+| Sparse token-level intervention | The policy changes only at a small number of critical positions | [@gao2026sparse] |
+| Steering bias | Lightweight per-layer vectors reproduce performance | [@sinii2025smallvectors] |
+| Primitive sharpening | Sharpening of atomic-step probabilities | [@wang2026primitives] |
+| Pattern selection | Selecting the best among existing patterns | [@chen2025reshaping] |
+| Memorization shortcut | Middle-layer circuits invoke memorized solutions | [@anon2026spurious] |
+
+: Main hypotheses about what RLVR "reweights" {#tbl-rlvr-mechanism}
+
+These hypotheses are not mutually exclusive and likely view the same phenomenon at different resolutions. Considering that middle-layer circuits such as the Functional Anchor are part of the weights updated outside the principal direction, and that this in turn concentrates at a few critical positions when viewed in the downstream token distribution, a consistent picture emerges.
+
+## Lines Returning to the Base Model
+
+If RLVR is no more than reweighting, then manipulating the base model itself at inference time should achieve an equivalent effect — a line of work driven by this idea is proceeding in parallel.
+
+Reasoning with Sampling [@karan2025reasonsample] shows that an inference-only **power sampling** (a Metropolis–Hastings-based method that sharpens the likelihood of the base model) requiring no training, verifier, or dataset achieves reasoning performance comparable to or above RLVR on MATH500, HumanEval, and GPQA. As a side benefit, the diversity collapse frequently observed in RL post-training does not occur.
+
+Can GRPO Transcend [@ni2025grpotranscend] theoretically explains the inconsistent out-of-distribution (OOD) generalization of GRPO — it works on math but not on medicine — and proves that GRPO is a conservative reweighting scheme bounded to the base distribution and cannot discover novel solutions. The paper redefines GRPO not as a "universal reasoning enhancer" but as a "sharpener of pretraining biases."
+
+RL vs Distillation [@kim2025rlvsdistill] provides a careful comparison between RLVR and distillation. RLVR raises accuracy (pass@1) but not capability (pass@K), while distillation raises capability only when new knowledge is brought in. The observation that distilling only patterns falls into the same trade-off as RLVR offers a clue for organizing the division of labor among "base model + inference tricks," "RLVR," and "distillation."
+
+## Other Related Papers
+
+@tbl-rlvr-other organizes papers that were not extensively featured in the main text of this chapter but should be noted for understanding the debate.
+
+| Paper | Angle |
+|------|------|
+| Gradient Gap [@suk2025gradient] | Analyzes the optimization dynamics of RLVR at both the trajectory and token levels and derives convergence thresholds on the step size |
+| Edge of Competence [@huang2026edge] | Theorizes the implicit curriculum and phase transitions that arise in compositional reasoning on Transformers |
+| Two-Stage Dynamic View [@yue2025twostage] | Unifies shrinkage and expansion through a two-stage exploitation → exploration view with respect to training steps |
+| Inverse Tree Freezing [@anon2025complexnet] | Explains two-stage learning curves, the V-shaped response length, and catastrophic forgetting via self-organization of a semantic complex network |
+| Interplay of PT/MT/RL [@zhang2025interplay] | Separates the contributions of pre-training, mid-training, and RL on synthetic tasks and extracts the conditions under which RL produces a genuine capability gain |
+
+: Other RLVR-related papers covered in this chapter {#tbl-rlvr-other}
+
+In particular, the condition shown by Interplay [@zhang2025interplay] that "RL produces genuine gains only when pre-training leaves sufficient headroom and the RL data targets the edge of competence" is consistent with the implicit curriculum of Edge of Competence [@huang2026edge] and connects to the two-stage dynamic [@yue2025twostage]. Taken together, the conflict between the reweighting camp and the expansion camp is converging on the conclusion that **the answer switches dynamically as a function of training stage and the difficulty distribution of the problems**.
+
+## Chapter Summary
+
+The state of the art in 2025–2026 on the question of what RLVR is doing can be summarized in the following four points.
+
+- **Reweighting is becoming the mainstream view**. Starting from Yue et al.'s observation [@yue2025rlbeyond], Path Not Taken [@yang2025pathnot], Sparse but Critical [@gao2026sparse], Pattern Selection [@chen2025reshaping], GRPO Transcend [@ni2025grpotranscend], and Consistency [@li2025consistency] independently reached the conclusion of "redistribution of probability mass within the base distribution"
+- **The choice of evaluation metric dominates the conclusion**. pass@K and CoT-Pass@K [@wen2025cotpass], Cover@τ [@de2025breadthdepth] draw different conclusions from the same data and show that "no single metric can summarize it"
+- **A dynamic view is the key to reconciliation**. The Two-Stage Dynamic View [@yue2025twostage] and Interplay [@zhang2025interplay] show that the effectiveness of RL is a function of training stage and problem difficulty, suggesting that the claims of the expansion and reweighting camps may be different cross-sections of the same dynamic
+- **A re-evaluation of the base model is proceeding in parallel**. Reasoning with Sampling [@karan2025reasonsample] reaches RLVR-comparable performance using inference-only operations, leaving room for routes that do not go through RL
+
+These are closely intertwined with the **other signals on the training side** (GRPO and reward design, PRMs) and the **signals on the inference side** (self-consistency, confidence, test-time compute scaling) treated in subsequent chapters. For example, recent remarks on the limitations of PRMs resonate precisely with the "resolution of reweighting" seen in this chapter, and the rise of self-consistency and prefix-based reranking systems likewise stems from the same question of how to extract the correct path from within the base distribution.

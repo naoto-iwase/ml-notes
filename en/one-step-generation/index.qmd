@@ -1,0 +1,14 @@
+---
+title: "One-Step Generation"
+description: "The frontier of single-step generative models (from Flow Matching to Drifting Models)"
+date: "2026-02-11"
+author:
+  name: "Naoto Iwase"
+  url: "https://iwase.dev"
+date-modified: last-modified
+categories: [Deep Learning, Generative Models]
+image: "images/one-step-generation.png"
+toc: false
+---
+
+Between 2025 and 2026, methods that overcome the multi-step inference of diffusion models and Flow Matching to **generate high-quality images with a single network evaluation (1-NFE)** have been rapidly advancing. This series curates four papers driving this field, tracing the technical evolution from extensions of Flow Matching to entirely new paradigms.

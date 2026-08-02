@@ -1,0 +1,250 @@
+---
+pagetitle: "AR-to-DLM Adaptation"
+---
+
+# AR-to-DLM Adaptation: Building DLMs from Autoregressive Pretrained Models
+
+The naive route to building a Diffusion Language Model (DLM) is to **pretrain from scratch** with a masked diffusion objective. LLaDA-8B [@nie2025llada] is the canonical example: it carried out its own 2.3T-token pretraining and reached performance on par with Autoregressive (AR) Large Language Models (LLMs). At the same time, the world is already full of well-trained AR LLM weights, and it is natural to ask whether **those weights can be reused as-is and converted into DLMs**. This chapter surveys that **adaptation approach** — concretely DiffuGPT / DiffuLLaMA [@gong2025diffullama], Dream-7B [@ye2025dream7b], and the image-diffusion-origin models D-DiT [@li2025ddit] / Muddit [@shi2025muddit] — following the structure of §3.1 of the survey paper [@li2025dlmsurvey].
+
+## Why Adaptation
+
+The biggest message of LLaDA-8B was the fact itself that masked DLMs follow scaling laws comparable to AR LLMs as performance grows. The choice of a generation procedure that progressively fills `[MASK]` is no longer an "experimental toy" but stands as a choice on par with AR at production scale. However, to demonstrate this, LLaDA used over 2T tokens and paid a compute cost comparable to AR LLM pretraining.
+
+This raises the natural idea: "Since 1T-10T tokens worth of linguistic knowledge has already been distilled into AR LLM pretraining, why not reuse those weights and then switch to a masked diffusion objective?" The architectures of AR LLMs and masked DLMs share the Transformer backbone, and essentially differ in only three points:
+
+- **Attention mask**: AR uses a lower-triangular (causal) mask, DLM uses an all-directional (bidirectional) mask
+- **Training task**: AR is next-token prediction, DLM is masked-token prediction
+- **Generation procedure**: AR proceeds sequentially left to right, DLM unmasks in parallel based on confidence
+
+Of these three, the loss function and the sampling strategy are inference-time concerns and just need to be swapped at training time. The remaining causal → bidirectional change of attention mask is also nothing more than swapping the `mask` parameter in the Transformer's forward pass. In other words, **the pretraining knowledge of AR can plausibly be carried over to a masked DLM by a surprisingly simple route** — that is the starting point of the adaptation line.
+
+DiffuLLaMA in fact starts from LLaMA2-7B [@gong2025diffullama] and, with additional training amounting to only about 2% of the original pretraining tokens, achieves performance exceeding the AR baseline. Dream-7B is reported to surpass LLaDA-8B / LLaMA3-8B on many benchmarks via bootstrapping from Qwen2.5-7B. **Obtaining a practical DLM at 1-2 orders of magnitude lower cost than from-scratch** is the biggest advantage of adaptation.
+
+## The Objective Function Is Borrowed Directly from MDLM
+
+A key observation about the adaptation line is that **the loss function is borrowed as-is from from-scratch Masked Diffusion Language Models (MDLM) [@sahoo2024mdlm]**. That is,
+
+$$
+\mathcal{L}_\text{adapt} = \mathbb{E}_{t \sim \mathcal{U}(0,1)} \, \mathbb{E}_{x_t \sim q(\cdot \mid x_0)} \left[ \frac{1}{t} \sum_{i=1}^{L} \mathbf{1}[x_t^i = \texttt{[MASK]}] \, \log p_\theta(x_0^i \mid x_t) \right]
+$$ {#eq-adapt-loss}
+
+(@eq-adapt-loss) is identical to the MDLM objective [@sahoo2024mdlm], and effectively all models on the adaptation line (DiffuGPT / DiffuLLaMA / Dream-7B) share this formula. The only differences are the initialization weights and the number of tokens used for additional training.
+
+For details, refer to the MDLM chapter; in brief:
+
+- A forward process that, in continuous time $t \in [0,1]$, independently absorbs each token to `[MASK]` with probability $t$
+- A reduction from the Evidence Lower Bound (ELBO) to a $1/t$-weighted masked cross-entropy
+- A sampling loop at discrete time steps at inference, or confidence-based unmasking
+
+[→ More:]{.detail-link} [MDLM: Masked Diffusion Language Models](mdlm.qmd)
+
+This fact matters: **adaptation is not research that "invents a new objective" but research that "applies an existing objective under a different initialization."** The theoretical novelty is modest, but the practical impact is large — it opens a route to deriving DLMs naturally from the existing AR LLM ecosystem (Llama / Qwen / GPT, etc.).
+
+## Implementation Changes Required to Switch from AR to DLM
+
+The substance of adaptation is surprisingly simple. The concrete changes required boil down to the following five points.
+
+1. **Switching the attention mask**: Remove the lower-triangular causal mask and switch to bidirectional attention from all positions to all positions, including `[MASK]` positions. On the Transformer implementation side, this is often just a matter of setting `attention_mask` to `None` (or to all-ones)
+2. **Bidirectionalizing the Rotary Position Embedding (RoPE)**: Many modern LLMs use RoPE. In AR, "the past" is all that is seen, so only the left direction of RoPE was meaningful; in DLM, RoPE must be applied so that both left and right relative positions are utilized. The RoPE formula itself need not change, but it becomes meaningful in both directions through the way attention combines positions
+3. **Inheriting token embeddings and the vocabulary**: The existing token embeddings and Language Model (LM) head are reused as is. The "word representations" learned by the AR LLM work just as well in the masked DLM
+4. **Adding the `[MASK]` token and initializing its embedding**: Since AR LLM vocabularies typically do not include `[MASK]`, a `[MASK]` token must be newly added and its embedding initialized. DiffuLLaMA, for example, initializes it with the average of the embeddings of existing special tokens (`<unk>` and so on)
+5. **Restricting the loss to masked positions**: Cross-entropy is computed only at `[MASK]` positions, and the loss at observed positions is set to zero. Unlike AR's next-token loss, loss is not generated at every position
+
+That is all on the implementation side. The Transformer backbone itself (attention mechanism, MLP, LayerNorm, residual connections) is **not modified at all**. This is the basis for "reusing AR LLM weights as-is."
+
+::: {.callout-note}
+## Remnants of the Causal Mask
+
+Conversely, the layers of the Transformer still contain "parameters optimized under training with a causal mask," and we are running those bidirectionally. It is not theoretically obvious how a post-hoc mask change affects learned representations, but empirically a small amount of additional training is enough for them to adapt. See the open challenges at the end of this chapter for more.
+:::
+
+## DiffuGPT / DiffuLLaMA: Direct Adaptation from AR LLMs
+
+DiffuGPT and DiffuLLaMA [@gong2025diffullama] are the benchmark of modern adaptation research that builds masked DLMs starting from AR LLMs. Published at ICLR 2025, the paper systematically validates the effectiveness of adaptation across scales from 127M (GPT-2 size) to 7B (LLaMA2 size).
+
+### Training Recipe
+
+The main contribution of the paper is the empirical demonstration that **"DLM-ification can be done with a surprisingly small number of additional training tokens."** Concretely, adaptation completes with the following training budgets.
+
+| Model | Origin model | Parameter scale | Additional training tokens | Ratio to original pretrain |
+|--------|-----------|---------------|------------------|-------------|
+| DiffuGPT-S | GPT-2 (124M) | 124M | ~6B tokens | ~2% |
+| DiffuGPT-M | GPT-2-medium (355M) | 355M | ~6B tokens | ~2% |
+| DiffuLLaMA | LLaMA2-7B | 7B | ~65B tokens | ~3% |
+
+: Adaptation budgets of DiffuGPT / DiffuLLaMA {#tbl-diffullama-budget}
+
+What matters here is that "about 2-3% of the tokens the original AR LLM used for pretraining" is enough. LLaMA2-7B's pretraining is on the order of 2T tokens ($2 \times 10^{12}$), of which 3% is about 60-70B tokens. Compared to LLaDA's from-scratch training with 2.3T tokens, this is **more than a 30× reduction in cost**.
+
+### What the Experiments Show
+
+The experiments in the paper show that the adapted model has the following properties.
+
+- **Surpasses the AR baseline on mathematical reasoning (GSM8K)**: DiffuLLaMA-7B records a score on GSM8K exceeding that of LLaMA2-7B itself. This suggests that Chain-of-Thought-style reasoning works in masked diffusion as well
+- **In-context learning is inherited**: Few-shot abilities acquired under AR are preserved after DLM-ification
+- **GPT-2-based DiffuGPT also improves perplexity**: Even on the classical language modeling metric, bidirectional attention can lead to outperforming AR in some cases
+
+::: {.callout-tip}
+## A View as a Scaled-Up BERT
+It is easy to understand DiffuLLaMA as a "natural scale-up of BERT." BERT was a bidirectional masked language model at the 110M-340M scale, but its generation ability was limited. The MDLM framework adds a continuous-time generalization "vary the mask rate over $t \in [0,1]$" to BERT's masked LM training; lifting that to the 7B scale yields a natural generative model — and DiffuLLaMA can be read as having empirically demonstrated this claim.
+:::
+
+### Bidirectionality Can Be "Acquired After the Fact"
+
+The philosophically most important observation of DiffuLLaMA is that **a Transformer trained under a causal mask in AR becomes a practical bidirectional model just by fine-tuning afterward with bidirectional attention**. Training that "looks only at the past and predicts the next" and training that "looks at the whole and fills the gaps" appear different on the surface, but the Transformer's internal representation is not as tightly bound to direction as one might think.
+
+This is suggestive when thinking about the relationship between AR LLMs and DLMs. Their architectural difference is nearly zero, and the difference in training objectives reduces to the loss-computation positions and the attention mask. **A unified view emerges: "AR and DLM are different training regimes for the same Transformer."**
+
+## Dream-7B: Bootstrapping from Qwen2.5
+
+Dream-7B [@ye2025dream7b] is a model released in 2025 by HKU NLP (the NLP group at the University of Hong Kong), a masked DLM bootstrapped from Qwen2.5-7B [@li2025dlmsurvey]. It is reported to surpass LLaDA-8B / LLaMA3-8B on many benchmarks.
+
+### Training Setup
+
+According to the public blog post, the setup is as follows.
+
+- **Origin model**: Qwen2.5-7B (pretrained AR LLM, trained on 18T tokens)
+- **Additional training tokens**: ~580B tokens
+- **Objective**: Masked cross-entropy equivalent to MDLM
+- **Comparison targets**: LLaDA-8B was trained from scratch on 2.3T tokens, LLaMA3-8B was trained on 15T tokens as an AR model
+
+The 580B-token scale corresponds to about 3% of Qwen2.5-7B's pretraining budget, consistent with the DiffuLLaMA ratio. The rule of thumb **"DLM-ification completes with 2-3% of the original AR LLM's pretraining budget"** is now becoming a de facto standard in adaptation research.
+
+### A Caveat on the Release
+
+A point to note about Dream-7B is that **at present there is no official paper, and the source is only HKU NLP's blog post** [@ye2025dream7b]. Full benchmark tables and ablations are public, but it has not undergone peer-reviewed verification. We treat it in this book as an important data point on the adaptation line, but readers should keep in mind that it is "reported on a blog" when citing it.
+
+::: {.callout-warning}
+## Caveat on the Source
+
+Dream-7B has only been released as an HKU NLP blog post, and the paper remains unpublished [@ye2025dream7b]. The benchmark numbers are based on the authors' claims, and independent third-party verification is limited.
+:::
+
+## Adaptation from Image Diffusion Models: D-DiT and Muddit
+
+The direction of adaptation is not limited to "starting from AR LLMs." There is also the reverse-direction attempt **starting from an image diffusion model and adding a text branch to build a multimodal DLM**. Representative examples are D-DiT [@li2025ddit] and Muddit [@shi2025muddit].
+
+### MM-DiT as the Starting Point
+
+Both start from the Multi-Modal Diffusion Transformer (MM-DiT) architecture of the Stable Diffusion 3 (SD3) family. MM-DiT is a design that joins the output of a CLIP-style text encoder with image latents via joint attention; **already at the stage of being trained for text-conditioned image generation, the internal representation is strongly aligned with text**. That is, even for models trained solely for image generation, the latents have a "structure consistent with language" already baked in — that is the starting observation.
+
+### D-DiT: Adding a DLM Branch to SD3
+
+D-DiT [@li2025ddit] starts from SD3's MM-DiT backbone and, by adding **discrete masked diffusion** on the text side, builds a unified diffusion model that handles both image generation and language modeling in a single model.
+
+- **Image side**: Inherits the existing continuous latent diffusion as is
+- **Text side**: Newly adds masked diffusion over token sequences
+- **Shared backbone**: Reuses MM-DiT's text/image joint attention directly
+
+This realizes both image-to-text (image captioning) and text-to-image (text-to-image) in a single denoising loop. Presented at CVPR 2025.
+
+### Muddit: A Lightweight Derivative from Meissonic
+
+Muddit [@shi2025muddit] starts from Meissonic (a model in the discrete masked image generation lineage) and builds a multimodal DLM by **attaching a lightweight text decoder after the fact**. Meissonic already adopts discrete masked diffusion on the image side, so adding the text side is structurally natural.
+
+Whereas D-DiT starts from a continuous side as in SD3, Muddit derives from a discrete-side image model and thus has the advantage of **sharing "the same discrete masked diffusion" framework between image and text**.
+
+### A Direction Opposite to Vision-Language Models (VLMs)
+
+These works occupy a conceptually interesting position. **The standard approach of VLMs is "borrow the knowledge of a pretrained LLM and attach vision to it"** (e.g., LLaVA, Qwen2-VL), but D-DiT / Muddit move in the **opposite direction of "borrow the knowledge of a pretrained image diffusion model and attach language to it"**. This is feasible only because MM-DiT acquires a "language-aligned" internal representation through text-image joint training, and it indirectly indicates the quality of the language representation that image diffusion models contain internally.
+
+[→ More:]{.detail-link} [Continuous vs Discrete Diffusion: Bridging the Two](continuous-discrete-bridge.qmd)
+
+## Comparison Table
+
+The adaptation-line models introduced so far are summarized in a single table.
+
+| Model | Origin model | Additional tokens | Scale | Main result | Loss |
+|--------|-----------|--------------|------|---------|---------|
+| DiffuGPT-S | GPT-2 (124M) | ~6B | 124M | LM perplexity improvement | MDLM ELBO |
+| DiffuGPT-M | GPT-2-medium | ~6B | 355M | LM perplexity improvement | MDLM ELBO |
+| DiffuLLaMA | LLaMA2-7B | ~65B | 7B | Surpasses AR on GSM8K | MDLM ELBO |
+| Dream-7B | Qwen2.5-7B | ~580B | 7B | Surpasses LLaDA-8B / LLaMA3-8B | MDLM ELBO |
+| D-DiT | SD3 MM-DiT | not disclosed | ~2B | Unified diffusion of image + text | MDLM ELBO (text) + DDPM (image) |
+| Muddit | Meissonic | not disclosed | ~1B | Lightweight multimodal DLM | Shared discrete masked diffusion |
+| (Reference) LLaDA-8B | from-scratch | 2.3T | 8B | Scales on par with AR | MDLM ELBO |
+
+: Comparison of adaptation-line DLMs {#tbl-adaptation}
+
+Points to keep in mind when reading @tbl-adaptation:
+
+- **Orders of magnitude difference in additional tokens**: The adaptation line completes with 1/30 to 1/300 of the additional tokens used by from-scratch (LLaDA)
+- **Choice of origin model**: Two families exist — AR-LLM-origin (DiffuGPT family) and image-diffusion-origin (D-DiT family)
+- **Commonality of the objective**: On the text side, all share the MDLM ELBO; there is no new mathematical contribution
+
+## Comparison with From-Scratch
+
+The adaptation line and the from-scratch line (LLaDA-8B, etc.) are in a trade-off relationship. The characteristics of each are summarized.
+
+### Advantages of Adaptation
+
+- **Training cost**: About 2-3% of the original AR LLM's pretraining budget. A 1-2 order-of-magnitude reduction in GPU-hours
+- **Compatibility with AR at inference**: Aligning the weight format makes it easy to leverage knowledge of inference hardware / infrastructure built for AR LLMs (vLLM, TGI, etc.)
+- **Connection to the AR ecosystem**: Corresponding DLM versions can be derived from every variant of the Llama / Qwen / GPT families (base / chat / code-specialized, etc.)
+- **Incremental validation**: Because AR baselines and DLM versions can be directly compared from the same origin model, the control group for ablation studies is clear
+
+### Disadvantages of Adaptation
+
+- **AR-induced bias**: Because representations optimized under a causal mask are repurposed bidirectionally, some bias may remain. For example, attention patterns shaped under the "look only at the past to predict" regime may not fully shed under bidirectional attention
+- **Bidirectionality optimization is limited**: From-scratch trains bidirectional representations from the start, whereas adaptation is "after-the-fact," raising the concern that representation-space optimization may end up incomplete
+- **Vocabulary constraints**: Because the original AR LLM's vocabulary is reused, `[MASK]` must be added afterward, and its embedding cannot be trained as thoroughly as the other tokens
+
+### Data Efficiency: DLMs Are Data-Hungry but Compute-Rich
+
+The end of §3.1 of the survey paper [@li2025dlmsurvey] cites the latest scaling-law studies and summarizes DLM characteristics as follows.
+
+- DLMs are **substantially more data-hungry** than AR (require more data for the same compute)
+- On the other hand, they are **strong at multi-epoch training** (performance keeps improving even when the same data is reused for many epochs)
+
+This property is conjectured to be especially effective in the adaptation line. **Because the AR LLM's pretraining data itself can be reused in a multi-epoch fashion**, there is no need to gather additional data. Behind the fact that DiffuLLaMA and Dream-7B succeed at the small cost of "2-3% of the original pretraining budget," this multi-epoch tolerance is likely at play.
+
+::: {.callout-note}
+## Compute vs Data Trade-off
+
+The Chinchilla rule for AR LLMs recommends "scale compute and data 1:1." For DLMs this ratio may differ, and "running over the same data for longer" may be optimal. See §3.1 of the survey [@li2025dlmsurvey] for details.
+:::
+
+[→ More:]{.detail-link} [Open Problems in the DLM Field](open-problems.qmd)
+
+## Related: The LLaDA-MoE Lineage
+
+Independent of adaptation but related, we also touch on **LLaDA-MoE** [@zhu2025lladamoe] as a large-scale DLM work. It incorporates a Mixture-of-Experts (MoE) architecture into the LLaDA lineage and is reported to have trained on 20T tokens and reached performance on par with Qwen2.5-3B-Instruct.
+
+MoE is a technique already established in the AR LLM world via Mixtral / DeepSeek / Qwen2-MoE and so on, and the emergence of its DLM version is symbolic of "DLM entering the phase of absorbing AR techniques." Whereas the adaptation line reuses "the weights of a pretrained AR model," the MoE line transplants "an architectural choice developed under AR." The two are complementary, and it would not be surprising if a hybrid strategy of "pretrain an MoE backbone under AR and then adapt it to a DLM" eventually emerges.
+
+## Open Challenges
+
+The adaptation approach leaves several unresolved problems.
+
+### What Is the Optimal Amount of Additional Training
+
+DiffuLLaMA settles at ~2% of the original pretraining budget and Dream-7B at ~3% — empirically close values — but **how the optimum is determined in principle is unknown**. Increasing the additional tokens improves DLM performance, but at some point it becomes indistinguishable from from-scratch (i.e., the advantage of AR pretraining fades). No work has systematically charted the **"trade-off curve between initialization and additional training."**
+
+### Gradual Transition of the Attention Mask
+
+Current adaptation adopts a "one-shot" transition that "switches from a causal mask to a bidirectional mask at some point." However, a **gradual transition** (e.g., closer to causal early in training, gradually increasing the weight of the bidirectional mask) might shed the AR-induced bias more smoothly. Such curricula have been proposed, but systematic evaluation is limited.
+
+### Quantifying the Induced Bias from AR Weights
+
+There is little work that quantitatively isolates "which abilities suffer and which excel" in adaptation-derived DLMs compared to from-scratch DLMs. Intuitively, one can hypothesize:
+
+- **AR-origin DLMs**: Potentially strong at left-to-right generation (natural-language prose generation, code generation)
+- **From-scratch DLMs**: Potentially strong at order-independent infilling and symmetric gap-filling
+
+but clear empirical support for this is still lacking.
+
+### Differences in Long-Form Performance
+
+How does the **long-form performance** of adaptation-derived DLMs compare to from-scratch DLMs? AR LLMs are strong at long-form autoregressive generation, and whether this property is preserved after DLM-ification needs to be validated. Relatedly, comparison with long-context DLM work such as LongLLaDA [@liu2025longllada] and UltraLLaDA [@he2025ultrallada] is also an open issue.
+
+### Inheritance of Multilinguality and Specialized Abilities Such as Code
+
+How much of the multilingual ability and code-generation ability (trained on GitHub data) acquired during AR LLM pretraining remains after DLM-ification is also an interesting question. DiffuCoder [@gong2025diffucoder] is one exploration in this direction, but systematic work starting from adaptation is yet to come.
+
+## Summary
+
+Adaptation from AR LLMs is an **important line that ensures cost efficiency and practicality** in DLM research. While LLaDA-8B proved that "DLMs are viable even from scratch," DiffuLLaMA / Dream-7B demonstrated that **"existing AR LLM assets can be turned into DLMs at low cost."** The two are complementary rather than opposed, and real-world DLM development has entered a phase where **"research outcomes born from-scratch and practical models born from adaptation run in parallel."**
+
+Image-diffusion-origin adaptations like D-DiT / Muddit provide the distinctive viewpoint of "flowing image-side pretraining assets into the language side," opposite to VLMs, and stand out as their own evolutionary path for multimodal DLMs.
+
+Theoretically, no new objective is introduced — everything stands on top of MDLM's masked cross-entropy loss — but in terms of **pushing DLMs toward practicality at the levels of implementation and training strategy**, these works are important milestones in the development of modern DLMs.

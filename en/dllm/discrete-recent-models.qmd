@@ -1,0 +1,369 @@
+---
+pagetitle: "Recent Discrete DLMs"
+---
+
+# Recent Discrete DLMs: Latest Developments in Discrete Diffusion Language Models
+
+D3PM (Discrete Denoising Diffusion Probabilistic Models) [@austin2021d3pm], SEDD (Score Entropy Discrete Diffusion) [@lou2024sedd], MDLM (Masked Diffusion Language Model) [@sahoo2024mdlm], and LLaDA (Large Language Diffusion with mAsking) [@nie2025llada] have already been covered in dedicated chapters as the core of this book. These papers played their respective roles as "the foundational mathematics of discrete diffusion," "an alternative formulation using the concrete score," "a concise objective function based on the absorbing transition + masked cross-entropy (CE)," and "the first full-scale 8B Diffusion Language Model (DLM)."
+
+However, since then, papers have appeared in rapid succession that (i) re-derive and simplify the MDLM formulation from a different angle, (ii) reexamine alternative formulations beyond absorbing, and (iii) build on LLaDA toward long-context, MoE (Mixture-of-Experts), and commercial-class large-scale deployments. This chapter organizes these works around §2.3 of the survey by Li et al. [@li2025dlmsurvey] and consolidates the "what came next" of modern discrete DLMs into a single map.
+
+## Overall Picture
+
+The main lines of development can be divided into three axes.
+
+```{mermaid}
+%%| label: fig-recent-discrete-genealogy
+%%| fig-cap: "Genealogy of discrete DLMs after D3PM. This chapter covers the papers in the yellow box."
+
+flowchart TD
+    D3PM["D3PM (2021)<br/>foundations of discrete diffusion"]
+    SEDD["SEDD (2024)<br/>concrete score"]
+    DBERT["DiffusionBERT (2023)<br/>BERT x diffusion"]
+    MDLM["MDLM (2024)<br/>absorbing + masked CE"]
+    MD4["MD4 (2024)<br/>continuous-time CE"]
+    RDM["RDM (2024)<br/>weighted CE / flexible decoding"]
+    RADD["RADD (2024)<br/>factorization of concrete score"]
+    DFM["DFM (2024)<br/>discrete flow matching"]
+    DDPD["DDPD (2024)<br/>planner-denoiser separation"]
+    MGDM["MGDM (2024)<br/>token reweighting"]
+    GIDD["GIDD (2025)<br/>mask + uniform interpolation"]
+    LLaDA["LLaDA (2025)<br/>8B from-scratch"]
+    DLLaMA["DiffuLLaMA (2025)<br/>AR-7B -> DLM"]
+    Dream["Dream-7B (2025)<br/>Qwen2.5 -> DLM"]
+    LongLLaDA["LongLLaDA (2025)<br/>NTK RoPE extrapolation"]
+    Ultra["UltraLLaDA (2025)<br/>128K post-training"]
+    MoE["LLaDA-MoE (2025)<br/>sparse MoE, 20T tokens"]
+    Seed["Seed Diffusion (2025)<br/>commercial-class open-source"]
+
+    D3PM --> SEDD
+    D3PM --> MDLM
+    D3PM --> DBERT
+    MDLM --> MD4
+    MDLM --> RDM
+    MDLM --> RADD
+    D3PM --> DFM
+    MDLM --> DDPD
+    MDLM --> MGDM
+    MDLM --> GIDD
+    MDLM --> LLaDA
+    LLaDA --> DLLaMA
+    LLaDA --> Dream
+    LLaDA --> LongLLaDA
+    LongLLaDA --> Ultra
+    LLaDA --> MoE
+    LLaDA --> Seed
+```
+
+To summarize, the developments covered in this chapter can be grouped along three axes.
+
+- **MDLM-aligned refinements**: lines that, within the same "absorbing + masked CE" framework, re-derive the objective or refine the schedule (RDM, MD4, DiffusionBERT)
+- **Alternative formulations**: lines that reexamine options other than absorbing (DFM, RADD, DDPD, MGDM, GIDD)
+- **Scale-up**: lines starting from LLaDA that pursue larger scale, longer context, MoE, and commercial deployment (DiffuLLaMA, Dream, LongLLaDA, UltraLLaDA, LLaDA-MoE, Seed Diffusion)
+
+These axes are not independent; they influence each other. For example, the training objective of LLaDA is the weighted masked CE that RDM, MD4, and MDLM independently arrived at, and the MoE backbone sits on top of that same objective.
+
+[→ More:]{.detail-link} [MDLM: Masked Diffusion Language Models](mdlm.qmd)
+
+[→ More:]{.detail-link} [D3PM and SEDD: Alternative Formulations of Discrete Diffusion](d3pm-sedd.qmd)
+
+## MDLM-Aligned Refinements
+
+Within the family that adopts absolute masking (the absorbing transition where a token never returns once it becomes `[MASK]`), there are multiple formulations equivalent to MDLM or that precede it. **In fact, MDLM, MD4, and RDM are three works that independently arrived at the same "weighted masked CE," and they are now regarded as essentially equivalent formulations.**
+
+### RDM: Simplification to Weighted CE
+
+RDM (Reparameterized Discrete diffusion Models) [@zheng2024rdm] showed in 2023, earlier than MDLM, that reparameterizing the reverse process of discrete diffusion reduces the objective to a **weighted cross-entropy**. The structure is that the reverse posterior is rewritten as a mixture of "the probability of filling a masked token with $x_0$" and "the probability of remaining `[MASK]`," and then the ELBO (Evidence Lower Bound) can be optimized simply by applying a time-dependent weight to the cross-entropy of $x_0$ prediction.
+
+RDM's contributions can be summarized in the following two points.
+
+- It replaced the training objective from "a sum of KL (Kullback-Leibler) terms of the ELBO" with "weighted CE," making the implementation simpler
+- It enabled decoding-time schedule choices (greedy / stochastic / arbitrary order) to be treated separately from the theory
+
+The latter in particular forms the theoretical basis for LLaDA's low-confidence remasking and semi-autoregressive sampling. The separation that "minimizing the ELBO" and "choosing a sampling strategy" are problems on different layers became the standard from RDM onward.
+
+### MD4: Continuous-Time Variational Objective
+
+MD4 (Simplified and Generalized Masked Diffusion) [@shi2024simplified] independently, in the same year as MDLM, reformulated masked diffusion concisely as a **continuous-time variational objective**. Considering masking with probability $t$ at each time $t \in [0,1]$, MD4 showed that the continuous-time-limit ELBO can be written as a weighted integral of masked CE:
+
+$$
+\mathcal{L}_\text{MD4} = \mathbb{E}_{t \sim \mathcal{U}(0,1)} \, \mathbb{E}_{x_t} \left[ \frac{\alpha'_t}{1 - \alpha_t} \sum_i \mathbf{1}[x_t^i = \texttt{[MASK]}] \log p_\theta(x_0^i \mid x_t) \right]
+$$
+
+Here $\alpha_t$ is an arbitrary monotonic schedule. With the linear schedule $\alpha_t = 1 - t$, we have $\alpha'_t / (1 - \alpha_t) = 1/t$, which matches MDLM's $1/t$ weight.
+
+MD4 is broader than MDLM in the following two respects.
+
+- It handles arbitrary noise schedules (cosine, polynomial, etc.) in a unified way
+- It naturally extends to generalized masking (designs that mask a subset of the vocabulary, state-dependent masking, etc.)
+
+In practice, the same model can be trained with any of the MDLM, MD4, or RDM implementations, and the three are now often collectively called the **"MDLM-family"**. LLaDA, Dream, and DiffuLLaMA all adopt this family's objective function.
+
+### DiffusionBERT: Bridging to BERT Pretraining
+
+DiffusionBERT [@he2023diffusionbert] is an approach that uses BERT's pretrained weights as initialization for masked diffusion training. The technical core is a mask schedule called the **spindle noise schedule**, which takes token informativeness into account.
+
+Standard masked diffusion masks each position with uniform probability, but DiffusionBERT varies the mask probability according to the token's information content (estimated by unigram frequency, TF-IDF, etc.). Specifically,
+
+- low-information tokens (e.g., stop words) are fixed early (less likely to be masked)
+- high-information tokens (proper nouns, low-frequency words) are fixed later
+
+a design that more closely resembles how humans allocate attention when reading.
+
+DiffusionBERT is on the 110M scale, but in terms of **reusing existing BERT weights**, it is positioned as a precursor to the AR-to-DLM adaptation line (DiffuLLaMA, Dream). It is worth referencing as the first paper to explicitly demonstrate a natural connection between pretrained MLMs (Masked Language Models) and masked diffusion.
+
+## Alternative Formulations
+
+While the MDLM-family established "absorbing transition + masked CE" as the standard, papers that reexamine options other than absolute masking have developed in parallel. Below we cover five that are featured in the survey in particular.
+
+### DFM: Discrete Flow Matching
+
+DFM (Discrete Flow Matching) [@gat2024dfm] is a framework that extends Flow Matching, originally for continuous data, to discrete variables. Whereas continuous Flow Matching "learns a flow along a probability path from a source distribution to a target distribution," DFM learns a discrete counterpart called the **probability velocity**.
+
+DFM's forward process takes the following form.
+
+$$
+p_t(x_t \mid x_0, x_1) = (1 - t) \delta_{x_0}(x_t) + t \delta_{x_1}(x_t)
+$$
+
+Here $x_0$ is the source (typically a `[MASK]` sequence or a uniform distribution), and $x_1$ is the target data. At each time $t$, the structure is to choose "stay at $x_0$ or move to $x_1$" via a Bernoulli draw. The learning target is the probability velocity, the instantaneous transition rate at time $t$, which is the discrete analog of the vector field on the continuous side.
+
+DFM's contributions are the following two points.
+
+- It allows tools developed on the continuous side of Flow Matching (rectified flow, OT-based paths, etc.) to be brought into the discrete setting
+- It provides a general framework that unifies absorbing and uniform
+
+In implementation scale, DFM was trained at 1.7B parameters on 2.5T tokens, demonstrating that the gap with AR LLMs can be substantially closed. Unlike the MDLM-family, it does not restrict the source distribution to `[MASK]`, so it serves as **an option when one wants to leave open a path that is not absolute masking**.
+
+### RADD: Factorization of the Concrete Score
+
+RADD (Reparameterized Absorbing Discrete Diffusion) [@ou2024radd] is a paper that applies SEDD's concrete-score formulation to the absorbing transition and then analytically factorizes the structure of the score. The central result is the following theorem.
+
+**The concrete score $s_\theta(x_t)_y = p(y) / p(x_t)$ in absorbing diffusion can be factorized into a time-independent conditional probability $p(y \mid x_t^{\text{unmasked}})$ and an analytically computable time-dependent scalar $c(t)$.**
+
+$$
+s_\theta(x_t, t)_y = c(t) \cdot p(y \mid x_t^{\text{unmasked}})
+$$
+
+The implications of this factorization are significant. Since the time dependence is concentrated in a scalar, the neural network only needs to learn the time-independent function of "predicting the value at a masked position from the unmasked context." This is the same structure as MDLM's $x_0$-prediction and AR's next-token prediction, and it forms a framework that **unifies absorbing diffusion, any-order AR, and MDLM**.
+
+RADD further shows the following.
+
+- The training objective of absorbing discrete diffusion and that of any-order AR are equivalent under appropriate weighting
+- SEDD's score entropy loss and MDLM's masked CE loss share the same optimum in the absorbing setting
+
+This result is also important in practice: "the weighted CE of the MDLM-family is computing SEDD's score analog under the hood." RADD makes explicit that **the difference between learning the concrete score and predicting $x_0$ is only a surface notational difference**.
+
+### DDPD: Separation of Planner and Denoiser
+
+DDPD (Discrete Diffusion with Planned Denoising) [@liu2024ddpd] is an approach that separates the generation process into two models: a **planner** and a **denoiser**. In the MDLM-family, a single model handles the strategy of "looking at all `[MASK]` positions and fixing the top $k$ by confidence," but DDPD divides this responsibility.
+
+- **Planner**: looking at the current sequence $x_t$, predicts **which position is the most corrupted** (the one to refine next)
+- **Denoiser**: predicts the concrete token value for the position chosen by the planner
+
+One step of the sampling loop can be written in the following pseudocode.
+
+```python
+# x: current sequence (some [MASK], some already fixed)
+for t in range(T, 0, -1):
+    # 1. The planner picks the "most corrupted positions"
+    corruption_scores = planner(x)
+    target_positions = topk(corruption_scores, k_t)
+
+    # 2. The denoiser produces predictions for those positions
+    logits = denoiser(x)
+    x[target_positions] = sample(softmax(logits[target_positions]))
+```
+
+The advantages of DDPD can be summarized as follows.
+
+- "Where to fix" and "what to fix it to" can be optimized independently
+- Even for positions already unmasked, if the planner judges them to be highly corrupted, an operation equivalent to remasking is possible (a generalization of low-confidence remasking)
+- The refinement strength can be adjusted at inference time simply by changing the planner's temperature
+
+Whereas LLaDA's low-confidence remasking embedded an implicit planner that "selects positions from the same model's confidence," it becomes clearer to view DDPD as separating that out into an **explicit model**.
+
+### MGDM: Addressing Subgoal Imbalance
+
+MGDM (Mask-Guided Discrete Diffusion, also called Multi-Granularity Diffusion Modeling in the paper) [@ye2024mgdm] was proposed to address the **subgoal imbalance** that becomes apparent in complex reasoning tasks.
+
+The problem awareness is as follows. In reasoning tasks such as math and programming, the tokens to be generated mix "trivial connectives" with "decisive computation results," and training that masks both uniformly dilutes the learning signal for the latter. AR LLMs mitigate this problem by taking loss at all positions via teacher forcing, but DLMs compute loss only at masked positions at each step, so learning difficult subgoals tends to be unstable.
+
+MGDM's solution is **token-level reweighting**, which dynamically adjusts the loss weight according to each token's prediction difficulty. By assigning larger weights to difficult tokens (positions the model cannot confidently predict), it mitigates the subgoal imbalance.
+
+MGDM's contributions can be summarized as follows.
+
+- It empirically identified a weakness of DLMs in complex reasoning (math, puzzles, etc.)
+- It demonstrated a clear improvement over standard MDLM training via token-level reweighting
+- It provides the foundation for subsequent reasoning-oriented research such as Diffusion-of-Thought [@ye2024dot] and d1 [@zhao2025d1]
+
+### GIDD: Interpolation of Mask and Uniform
+
+GIDD (Generalized Interpolating Discrete Diffusion) [@vonrutte2025gidd] was proposed to solve the **fundamental weakness of masked diffusion that "it cannot correct errors"**.
+
+The generation process of the MDLM-family is a one-way operation of "filling `[MASK]` with non-`[MASK]`," and there is no legitimate means in the formulation for later correcting a position that has been unmasked. LLaDA's low-confidence remasking is a heuristic that fills this gap on the implementation side, but its consistency with the training distribution is not theoretically guaranteed.
+
+GIDD's forward process is defined by an **interpolation of masking and uniform noise**.
+
+$$
+q(x_t \mid x_0) = (1 - \beta_t - \gamma_t) \delta_{x_0} + \beta_t \delta_\texttt{[MASK]} + \gamma_t \, \text{Uniform}(V)
+$$
+
+Here $\beta_t$ is the rate of transition to mask and $\gamma_t$ is the rate of transition to uniform. The key idea of GIDD is that **including uniform noise (transitions to incorrect tokens) in the learning signal at training time** lets the model naturally make decisions at inference such as "currently at token $y$, but this is wrong and should be corrected to $y'$."
+
+The implications of GIDD are as follows.
+
+- Self-correction capability is built into the formulation
+- It unifies D3PM's uniform transition and absorbing transition as a continuous interpolation along the schedule
+- Operations other than "filling `[MASK]`" (rewriting existing tokens) become legitimately defined reverse steps at inference
+
+Empirically, GIDD outperforms the MDLM-family especially on long-form generation and tasks involving complex edits. As a representative example of a **"design that compensates for the weaknesses of absolute masking,"** it is likely to become a reference baseline going forward.
+
+### Summary of Alternative Formulations
+
+| Method | Source distribution | Learning target | Main functional difference |
+|---|---|---|---|
+| MDLM-family | `[MASK]` only | $x_0$-prediction CE | Absorbing-based (standard) |
+| DFM | Arbitrary (mask or uniform) | Probability velocity | Tools of flow matching |
+| RADD | `[MASK]` only | Time-independent factor of the concrete score | Unification of absorbing and any-order AR |
+| DDPD | `[MASK]` only | Separate planner + denoiser | Explicit modeling of "where to fix" |
+| MGDM | `[MASK]` only | $x_0$-prediction + token reweighting | Addressing subgoal imbalance in reasoning tasks |
+| GIDD | `[MASK]` + uniform | $x_0$-prediction CE (including uniform) | Self-correction built into the formulation |
+
+: Comparison of alternative formulations {#tbl-alternatives}
+
+Looking at @tbl-alternatives, one can see that **the value of alternative formulations lies less in "outperforming MDLM" than in "adding functionality MDLM does not have"**. RADD adds theoretical unification, DDPD adds explicit planning, MGDM adds reasoning performance, and GIDD adds self-correction.
+
+## LLaDA-Origin Scale-Up
+
+Once LLaDA-8B showed that "DLMs can scale on par with AR LLMs," 2025 saw derivative work along all axes — scale, long context, MoE, and commercial deployment — fall into place. These share the MDLM-family objective while differentiating themselves through their training starting point and architecture choices.
+
+### DiffuLLaMA / Dream-7B: Adaptation from AR
+
+DiffuLLaMA [@gong2025diffullama] (along with DiffuGPT from the same paper) proposed an adaptation method that **reuses pretrained AR LLM weights, specifically LLaMA-7B, as masked diffusion weights**. By replacing the AR model's causal mask with bidirectional attention and continual pretraining with a masked CE loss, it significantly reduces the compute required for from-scratch training.
+
+Dream-7B [@ye2025dream7b] is a model that applies the same adaptation strategy to **Qwen2.5-7B**, and with only 580B tokens of additional training it achieved performance on par with or better than LLaDA-8B (2.3T tokens, from-scratch). This sends a strong message: "you do not need trillions of tokens of from-scratch training every time to make a DLM."
+
+The details of both are left to a separate chapter, but in the context of this chapter the following points suffice.
+
+- Adaptation lines **use the MDLM objective as is** (no new mathematical contribution)
+- Pretrained AR weights serve as a good initialization for masked diffusion training
+- The data required for continual pretraining is 1/5 to 1/10 of from-scratch
+
+[→ More:]{.detail-link} [AR-to-DLM Adaptation](ar-to-dllm-adaptation.qmd)
+
+### LongLLaDA: Analysis and Extrapolation of Long-Context Capability
+
+LongLLaDA [@liu2025longllada] is the first systematic analysis of DLMs' long-context capability. While the extrapolation behavior of RoPE (Rotary Position Embedding) has been extensively studied for AR LLMs, this had been untouched for DLMs.
+
+LongLLaDA's main findings are as follows.
+
+- DLMs **maintain stable perplexity** even when context is extrapolated directly (it is preserved even in regions where AR degrades exponentially)
+- They also exhibit stable behavior on retrieval tasks (e.g., needle-in-a-haystack)
+- **NTK (Neural Tangent Kernel)-based RoPE extrapolation** established for AR also works for DLMs
+
+Particularly important is the demonstration that **training-free RoPE extrapolation works on DLMs as is**. This suggests that knowhow from AR can be transferred directly to DLMs, and became the foothold for UltraLLaDA's later post-training scaling.
+
+### UltraLLaDA: Post-Training Scaling to 128K Context
+
+UltraLLaDA [@he2025ultrallada] goes beyond LongLLaDA's training-free extrapolation and achieves a 128K context window by combining **diffusion-aware NTK RoPE scaling** with lightweight long-context post-training.
+
+UltraLLaDA's technical choices are as follows.
+
+- Measures the limits of training-free extrapolation (quality degrades at several K to tens of K)
+- Adjusts NTK scaling coefficients to account for the mask distribution specific to diffusion training
+- Lightly fine-tunes on long-context post-training data (full training is unnecessary)
+
+As a result, on both retrieval and perplexity it substantially exceeds training-free extrapolation, showing that **DLMs can possess long-context capability on par with AR LLMs**.
+
+### LLaDA-MoE: Efficiency via Sparse MoE
+
+LLaDA-MoE [@zhu2025lladamoe] is **the first paper to integrate sparse Mixture-of-Experts (MoE) into a DLM**. With a configuration of 7B total parameters and 1.4B active parameters at inference, it was trained from scratch on a large-scale **20T-token** dataset.
+
+The significance of MoE integration can be organized as follows.
+
+- DLMs run a forward pass over all positions at each step, so reducing active parameters is more important than for AR
+- The configuration of 7B total with 1.4B active substantially lowers inference cost
+- On benchmarks, it is in the same range as Qwen2.5-3B-Instruct (knowledge, coding, reasoning)
+
+LLaDA-MoE demonstrated that **the MDLM objective combines straightforwardly with an MoE backbone**. MoE is likely to become the standard configuration for future large-scale DLMs.
+
+### Seed Diffusion: Commercial-Class Open-Source DLM
+
+Seed Diffusion [@song2025seeddiffusion] is a large-scale DLM by the ByteDance Seed team, released as an open-source model with commercial-class inference speed and performance. Detailed specifications are deferred to the paper, but the significance in this chapter's context is as follows.
+
+- Combines commercial-grade high-speed inference with open-source release
+- Demonstrates that MDLM-family training at large scale scales beyond lab-level efforts
+- Positioned in the lineage of "commercial DLMs" alongside Mercury [@labs2025mercury] and Gemini Diffusion [@deepmind2024geminidiffusion]
+
+With these large-scale open-source releases, **the DLM ecosystem has reached a level that can keep pace with the Llama / Qwen line of AR LLMs** as of the second half of 2025.
+
+## Comparison of Major Models
+
+The discussion so far is summarized in a single table. We restructured Table 1 of the survey [@li2025dlmsurvey] focusing on this chapter's context.
+
+| Model | Year | Starting point | Parameters | Training tokens | Main contribution |
+|---|---|---|---|---|---|
+| DiffusionBERT [@he2023diffusionbert] | 2023 | BERT-110M | 110M | 16B | BERT weight reuse, spindle schedule |
+| RDM [@zheng2024rdm] | 2024 | from-scratch | ~170M | medium | weighted CE, flexible decoding |
+| MD4 [@shi2024simplified] | 2024 | from-scratch | ~170M | medium | continuous-time variational objective |
+| MDLM [@sahoo2024mdlm] | 2024 | from-scratch | 110M | 622B | Rao-Blackwellized weighted masked CE |
+| DFM [@gat2024dfm] | 2024 | from-scratch | 1.7B | 2.5T | discrete flow matching |
+| RADD [@ou2024radd] | 2024 | from-scratch | ~170M | medium | time-independent factorization of concrete score |
+| DDPD [@liu2024ddpd] | 2024 | from-scratch | ~200M | medium | planner-denoiser separation |
+| MGDM [@ye2024mgdm] | 2024 | from-scratch | ~200M | medium | token-level reweighting for reasoning |
+| LLaDA [@nie2025llada] | 2025 | from-scratch | 1B / 8B | 2.3T | first full-scale 8B DLM |
+| DiffuLLaMA [@gong2025diffullama] | 2025 | LLaMA-7B adapt | 7B | 65B | AR-to-DLM adaptation |
+| Dream-7B [@ye2025dream7b] | 2025 | Qwen2.5-7B adapt | 7B | 580B | adaptation from Qwen2.5 |
+| GIDD [@vonrutte2025gidd] | 2025 | from-scratch | ~170M | medium | mask + uniform interpolation, self-correction |
+| LongLLaDA [@liu2025longllada] | 2025 | LLaDA-8B | 8B | 2.3T | training-free NTK RoPE extrapolation |
+| UltraLLaDA [@he2025ultrallada] | 2025 | LLaDA-8B | 8B | 2.3T + alpha | 128K context post-training |
+| LLaDA-MoE [@zhu2025lladamoe] | 2025 | from-scratch | 7B (1.4B active) | 20T | sparse MoE integration |
+| Seed Diffusion [@song2025seeddiffusion] | 2025 | from-scratch | large | large | commercial-class open-source, fast inference |
+
+: Major discrete DLMs after D3PM / SEDD {#tbl-recent-discrete}
+
+The structure visible in @tbl-recent-discrete is summarized in the next section.
+
+## Converging Directions
+
+The developments seen so far are superficially diverse but have several points of convergence.
+
+### 1. Masked Diffusion (Absorbing) Is the De Facto Standard
+
+The alternative formulations (DFM, GIDD) each have their own contributions, but **the MDLM-family is dominant in terms of training, scaling, and implementation ease**. RADD provided theoretical backing for this generality and showed that "absorbing, any-order AR, and the MDLM-family share the same optimum." This is strong evidence that "absolute masking is not an incidental choice, but a sufficiently universal one."
+
+### 2. Division of Labor in Scaling-Up Techniques
+
+At 8B-and-above scales, four axes are developing in parallel: from-scratch training, adaptation from AR, MoE integration, and long-context post-training. Typical examples of each are as follows.
+
+- **from-scratch**: LLaDA-8B (2.3T tokens), LLaDA-MoE (20T tokens)
+- **AR adaptation**: DiffuLLaMA, Dream-7B
+- **MoE**: LLaDA-MoE
+- **long-context post-training**: UltraLLaDA (128K)
+
+These are not mutually exclusive and can be combined (for example, a long-context MoE in the vein of LLaDA-MoE + UltraLLaDA is likely to appear at the next stage).
+
+### 3. Alternative Formulations Derive Value from "Adding Functionality" Rather Than "Outperforming"
+
+DFM, DDPD, MGDM, and GIDD derive value not so much by outperforming the MDLM-family but by **adding functionality MDLM does not have**.
+
+- DFM: freedom in the source distribution
+- DDPD: explicit planner (refinement control)
+- MGDM: reasoning performance
+- GIDD: self-correction
+
+This is structurally similar to how features such as "base model + chain-of-thought prompting + tool use" have been stacked up around AR LLMs, and it suggests that **even for DLMs, the choice of base formulation remains an axis for "functional differentiation"**.
+
+### 4. The Emergence of Commercial-Class Open-Source
+
+With the arrival in 2025 of large-scale, high-speed-inference DLMs such as Mercury, Seed Diffusion, and Gemini Diffusion, **DLMs have moved beyond the laboratory prototype phase to be positioned as a practical alternative to AR LLMs**. Their existence marks a turning point at which subsequent research shifts focus from "can it scale" to "what can be done at scale."
+
+## Links to Related Chapters
+
+Here we collect links to the prerequisite chapters this chapter builds on, as well as to chapters that go into more detail on topics mentioned here.
+
+- Core formulation: [MDLM: Masked Diffusion Language Models](mdlm.qmd)
+- The first 8B-scale model: [LLaDA: Large-Scale Masked DLM and Sampling](llada.qmd)
+- A different line of discrete diffusion: [D3PM and SEDD: Alternative Formulations of Discrete Diffusion](d3pm-sedd.qmd)
+- Adaptation from AR to DLM: [AR-to-DLM Adaptation](ar-to-dllm-adaptation.qmd)

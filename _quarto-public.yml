@@ -1,0 +1,412 @@
+website:
+  repo-url: https://github.com/naoto-iwase/ml-notes
+  repo-branch: main
+  repo-actions: [edit, source, issue]
+  sidebar:
+    - id: olmo-3-ja
+      title: "ML Notes"
+      style: "docked"
+      collapse-level: 3
+      contents:
+        - section: "Olmo 3"
+          href: ja/olmo-3/index.qmd
+          contents:
+            - text: "概要"
+              href: ja/olmo-3/overview.qmd
+            - section: "事前学習"
+              contents:
+                - text: "Dolma 3"
+                  href: ja/olmo-3/dolma3-dataset.qmd
+                - text: "OlmoBaseEval"
+                  href: ja/olmo-3/olmobaseeval.qmd
+                - text: "Midtraining"
+                  href: ja/olmo-3/midtraining.qmd
+                - text: "長文脈拡張"
+                  href: ja/olmo-3/long-context-extension.qmd
+                - text: "重複排除"
+                  href: ja/olmo-3/deduplication.qmd
+                - text: "olmOCR"
+                  href: ja/olmo-3/olmocr-science-pdfs.qmd
+                - text: "データミキシング"
+                  href: ja/olmo-3/data-mixing.qmd
+            - section: "事後学習"
+              contents:
+                - text: "Dolci"
+                  href: ja/olmo-3/dolci-dataset.qmd
+                - text: "Delta Learning"
+                  href: ja/olmo-3/delta-learning.qmd
+                - text: "OlmoRL / GRPO"
+                  href: ja/olmo-3/olmorl-grpo.qmd
+
+    - id: olmo-3-en
+      title: "ML Notes"
+      style: "docked"
+      collapse-level: 3
+      contents:
+        - section: "Olmo 3"
+          href: en/olmo-3/index.qmd
+          contents:
+            - text: "Overview"
+              href: en/olmo-3/overview.qmd
+            - section: "Base Model Training"
+              contents:
+                - text: "Dolma 3"
+                  href: en/olmo-3/dolma3-dataset.qmd
+                - text: "OlmoBaseEval"
+                  href: en/olmo-3/olmobaseeval.qmd
+                - text: "Midtraining"
+                  href: en/olmo-3/midtraining.qmd
+                - text: "Long-Context Extension"
+                  href: en/olmo-3/long-context-extension.qmd
+                - text: "Deduplication"
+                  href: en/olmo-3/deduplication.qmd
+                - text: "olmOCR"
+                  href: en/olmo-3/olmocr-science-pdfs.qmd
+                - text: "Data Mixing"
+                  href: en/olmo-3/data-mixing.qmd
+            - section: "Post-training"
+              contents:
+                - text: "Dolci"
+                  href: en/olmo-3/dolci-dataset.qmd
+                - text: "Delta Learning"
+                  href: en/olmo-3/delta-learning.qmd
+                - text: "OlmoRL / GRPO"
+                  href: en/olmo-3/olmorl-grpo.qmd
+
+    - id: molmo2-ja
+      title: "ML Notes"
+      style: "docked"
+      collapse-level: 3
+      contents:
+        - section: "Molmo2"
+          href: ja/molmo2/index.qmd
+          contents:
+            - text: "概要"
+              href: ja/molmo2/overview.qmd
+            - text: "Dense Video Captioning"
+              href: ja/molmo2/dense-video-captioning.qmd
+            - text: "Video Grounding"
+              href: ja/molmo2/video-grounding.qmd
+            - text: "Multi-Image Understanding"
+              href: ja/molmo2/multi-image-understanding.qmd
+            - text: "Vision-Language Connector"
+              href: ja/molmo2/vision-language-connector.qmd
+            - text: "長文脈学習"
+              href: ja/molmo2/long-context-training.qmd
+            - text: "トークン重み付け"
+              href: ja/molmo2/token-weighting.qmd
+            - text: "Packing & Message Trees"
+              href: ja/molmo2/packing-message-trees.qmd
+
+    - id: molmo2-en
+      title: "ML Notes"
+      style: "docked"
+      collapse-level: 3
+      contents:
+        - section: "Molmo2"
+          href: en/molmo2/index.qmd
+          contents:
+            - text: "Overview"
+              href: en/molmo2/overview.qmd
+            - text: "Dense Video Captioning"
+              href: en/molmo2/dense-video-captioning.qmd
+            - text: "Video Grounding"
+              href: en/molmo2/video-grounding.qmd
+            - text: "Multi-Image Understanding"
+              href: en/molmo2/multi-image-understanding.qmd
+            - text: "Vision-Language Connector"
+              href: en/molmo2/vision-language-connector.qmd
+            - text: "Long-Context Training"
+              href: en/molmo2/long-context-training.qmd
+            - text: "Token Weighting"
+              href: en/molmo2/token-weighting.qmd
+            - text: "Packing & Message Trees"
+              href: en/molmo2/packing-message-trees.qmd
+
+    - id: one-step-generation-ja
+      title: "ML Notes"
+      style: "docked"
+      collapse-level: 3
+      contents:
+        - section: "One-Step Generation"
+          href: ja/one-step-generation/index.qmd
+          contents:
+            - text: "概要"
+              href: ja/one-step-generation/overview.qmd
+            - text: "MeanFlow"
+              href: ja/one-step-generation/mean-flow.qmd
+            - text: "Transition Matching"
+              href: ja/one-step-generation/transition-matching.qmd
+            - text: "Terminal Velocity Matching"
+              href: ja/one-step-generation/terminal-velocity-matching.qmd
+            - text: "Drifting Models"
+              href: ja/one-step-generation/drifting-models.qmd
+
+    - id: one-step-generation-en
+      title: "ML Notes"
+      style: "docked"
+      collapse-level: 3
+      contents:
+        - section: "One-Step Generation"
+          href: en/one-step-generation/index.qmd
+          contents:
+            - text: "Overview"
+              href: en/one-step-generation/overview.qmd
+            - text: "MeanFlow"
+              href: en/one-step-generation/mean-flow.qmd
+            - text: "Transition Matching"
+              href: en/one-step-generation/transition-matching.qmd
+            - text: "Terminal Velocity Matching"
+              href: en/one-step-generation/terminal-velocity-matching.qmd
+            - text: "Drifting Models"
+              href: en/one-step-generation/drifting-models.qmd
+
+    - id: reliable-reasoning-ja
+      title: "ML Notes"
+      style: "docked"
+      collapse-level: 3
+      contents:
+        - section: "Reliable Reasoning"
+          href: ja/reliable-reasoning/index.qmd
+          contents:
+            - text: "概要"
+              href: ja/reliable-reasoning/overview.qmd
+            - section: "訓練側の信号"
+              contents:
+                - text: "RLVR の理論と限界"
+                  href: ja/reliable-reasoning/rlvr-theory.qmd
+                - text: "GRPO と Reward 設計"
+                  href: ja/reliable-reasoning/grpo-and-reward.qmd
+                - text: "Process Reward Models"
+                  href: ja/reliable-reasoning/process-reward-model.qmd
+            - section: "推論側の信号"
+              contents:
+                - text: "Self-Consistency と重み付き多数決"
+                  href: ja/reliable-reasoning/self-consistency.qmd
+                - text: "Confidence と Uncertainty"
+                  href: ja/reliable-reasoning/confidence-and-uncertainty.qmd
+                - text: "Test-Time Compute Scaling"
+                  href: ja/reliable-reasoning/test-time-scaling.qmd
+            - section: "構造的アプローチ"
+              contents:
+                - text: "Tree Search と MCTS"
+                  href: ja/reliable-reasoning/tree-search.qmd
+                - text: "Reasoning 構造の分析"
+                  href: ja/reliable-reasoning/reasoning-structure.qmd
+                - text: "Reasoning in Diffusion LLMs"
+                  href: ja/reliable-reasoning/diffusion-llm.qmd
+
+    - id: reliable-reasoning-en
+      title: "ML Notes"
+      style: "docked"
+      collapse-level: 3
+      contents:
+        - section: "Reliable Reasoning"
+          href: en/reliable-reasoning/index.qmd
+          contents:
+            - text: "Overview"
+              href: en/reliable-reasoning/overview.qmd
+            - section: "Training-side Signals"
+              contents:
+                - text: "Theory and Limits of RLVR"
+                  href: en/reliable-reasoning/rlvr-theory.qmd
+                - text: "GRPO and Reward Design"
+                  href: en/reliable-reasoning/grpo-and-reward.qmd
+                - text: "Process Reward Models"
+                  href: en/reliable-reasoning/process-reward-model.qmd
+            - section: "Inference-side Signals"
+              contents:
+                - text: "Self-Consistency and Weighted Majority Voting"
+                  href: en/reliable-reasoning/self-consistency.qmd
+                - text: "Confidence and Uncertainty"
+                  href: en/reliable-reasoning/confidence-and-uncertainty.qmd
+                - text: "Test-Time Compute Scaling"
+                  href: en/reliable-reasoning/test-time-scaling.qmd
+            - section: "Structural Approaches"
+              contents:
+                - text: "Tree Search and MCTS"
+                  href: en/reliable-reasoning/tree-search.qmd
+                - text: "Reasoning Structure Analysis"
+                  href: en/reliable-reasoning/reasoning-structure.qmd
+                - text: "Reasoning in Diffusion LLMs"
+                  href: en/reliable-reasoning/diffusion-llm.qmd
+
+    - id: recursive-reasoning-ja
+      title: "ML Notes"
+      style: "docked"
+      collapse-level: 3
+      contents:
+        - section: "Small Recursive Reasoning Models"
+          href: ja/recursive-reasoning/index.qmd
+          contents:
+            - text: "概要"
+              href: ja/recursive-reasoning/overview.qmd
+            - section: "主要モデル"
+              contents:
+                - text: "HRM"
+                  href: ja/recursive-reasoning/hrm.qmd
+                - text: "TRM"
+                  href: ja/recursive-reasoning/trm.qmd
+                - text: "PTRM"
+                  href: ja/recursive-reasoning/ptrm.qmd
+                - text: "GRAM"
+                  href: ja/recursive-reasoning/gram.qmd
+                - text: "LDT"
+                  href: ja/recursive-reasoning/ldt.qmd
+            - text: "Depth recurrence の系譜"
+              href: ja/recursive-reasoning/depth-recurrence.qmd
+            - text: "Latent reasoning の分類"
+              href: ja/recursive-reasoning/latent-reasoning.qmd
+            - text: "Depth vs Token Scaling"
+              href: ja/recursive-reasoning/scaling.qmd
+            - text: "ARC-AGI と小規模モデル"
+              href: ja/recursive-reasoning/arc-agi.qmd
+            - text: "実装ガイド"
+              href: ja/recursive-reasoning/implementation.qmd
+            - text: "未解決問題"
+              href: ja/recursive-reasoning/open-problems.qmd
+
+    - id: recursive-reasoning-en
+      title: "ML Notes"
+      style: "docked"
+      collapse-level: 3
+      contents:
+        - section: "Small Recursive Reasoning Models"
+          href: en/recursive-reasoning/index.qmd
+          contents:
+            - text: "Overview"
+              href: en/recursive-reasoning/overview.qmd
+            - section: "Main Models"
+              contents:
+                - text: "HRM"
+                  href: en/recursive-reasoning/hrm.qmd
+                - text: "TRM"
+                  href: en/recursive-reasoning/trm.qmd
+                - text: "PTRM"
+                  href: en/recursive-reasoning/ptrm.qmd
+                - text: "GRAM"
+                  href: en/recursive-reasoning/gram.qmd
+                - text: "LDT"
+                  href: en/recursive-reasoning/ldt.qmd
+            - text: "Depth Recurrence Lineage"
+              href: en/recursive-reasoning/depth-recurrence.qmd
+            - text: "Latent Reasoning"
+              href: en/recursive-reasoning/latent-reasoning.qmd
+            - text: "Depth vs Token Scaling"
+              href: en/recursive-reasoning/scaling.qmd
+            - text: "ARC-AGI and Small Models"
+              href: en/recursive-reasoning/arc-agi.qmd
+            - text: "Implementation Guide"
+              href: en/recursive-reasoning/implementation.qmd
+            - text: "Open Problems"
+              href: en/recursive-reasoning/open-problems.qmd
+
+    - id: dllm-ja
+      title: "ML Notes"
+      style: "docked"
+      collapse-level: 3
+      contents:
+        - section: "Diffusion Language Models"
+          href: ja/dllm/index.qmd
+          contents:
+            - text: "概要"
+              href: ja/dllm/overview.qmd
+            - section: "定式化と基盤"
+              contents:
+                - text: "MDLM"
+                  href: ja/dllm/mdlm.qmd
+                - text: "LLaDA"
+                  href: ja/dllm/llada.qmd
+                - text: "連続 vs 離散"
+                  href: ja/dllm/continuous-discrete-bridge.qmd
+                - text: "D3PM and SEDD"
+                  href: ja/dllm/d3pm-sedd.qmd
+                - text: "Embedding-Space Diffusion"
+                  href: ja/dllm/embedding-space-diffusion.qmd
+                - text: "MaskGIT"
+                  href: ja/dllm/maskgit.qmd
+            - section: "スケールと派生"
+              contents:
+                - text: "AR-to-DLM Adaptation"
+                  href: ja/dllm/ar-to-dllm-adaptation.qmd
+                - text: "Recent Discrete DLMs"
+                  href: ja/dllm/discrete-recent-models.qmd
+                - text: "Block Diffusion"
+                  href: ja/dllm/block-diffusion.qmd
+                - text: "Hybrid AR-Diffusion"
+                  href: ja/dllm/hybrid-ar-diffusion.qmd
+            - section: "推論と介入"
+              contents:
+                - text: "Inference Acceleration"
+                  href: ja/dllm/inference-acceleration.qmd
+                - text: "Guidance"
+                  href: ja/dllm/guidance.qmd
+            - section: "事後学習と応用"
+              contents:
+                - text: "Post-Training (RL)"
+                  href: ja/dllm/post-training-rl.qmd
+                - text: "Multimodal DLM"
+                  href: ja/dllm/multimodal-dllm.qmd
+                - text: "Applications"
+                  href: ja/dllm/applications.qmd
+            - section: "俯瞰と展望"
+              contents:
+                - text: "Survey: Li et al. 2025"
+                  href: ja/dllm/survey-li2025.qmd
+                - text: "未解決問題"
+                  href: ja/dllm/open-problems.qmd
+
+    - id: dllm-en
+      title: "ML Notes"
+      style: "docked"
+      collapse-level: 3
+      contents:
+        - section: "Diffusion Language Models"
+          href: en/dllm/index.qmd
+          contents:
+            - text: "Overview"
+              href: en/dllm/overview.qmd
+            - section: "Formulation and Foundations"
+              contents:
+                - text: "MDLM"
+                  href: en/dllm/mdlm.qmd
+                - text: "LLaDA"
+                  href: en/dllm/llada.qmd
+                - text: "Continuous vs Discrete"
+                  href: en/dllm/continuous-discrete-bridge.qmd
+                - text: "D3PM and SEDD"
+                  href: en/dllm/d3pm-sedd.qmd
+                - text: "Embedding-Space Diffusion"
+                  href: en/dllm/embedding-space-diffusion.qmd
+                - text: "MaskGIT"
+                  href: en/dllm/maskgit.qmd
+            - section: "Scaling and Variants"
+              contents:
+                - text: "AR-to-DLM Adaptation"
+                  href: en/dllm/ar-to-dllm-adaptation.qmd
+                - text: "Recent Discrete DLMs"
+                  href: en/dllm/discrete-recent-models.qmd
+                - text: "Block Diffusion"
+                  href: en/dllm/block-diffusion.qmd
+                - text: "Hybrid AR-Diffusion"
+                  href: en/dllm/hybrid-ar-diffusion.qmd
+            - section: "Inference and Intervention"
+              contents:
+                - text: "Inference Acceleration"
+                  href: en/dllm/inference-acceleration.qmd
+                - text: "Guidance"
+                  href: en/dllm/guidance.qmd
+            - section: "Post-Training and Applications"
+              contents:
+                - text: "Post-Training (RL)"
+                  href: en/dllm/post-training-rl.qmd
+                - text: "Multimodal DLM"
+                  href: en/dllm/multimodal-dllm.qmd
+                - text: "Applications"
+                  href: en/dllm/applications.qmd
+            - section: "Survey and Open Problems"
+              contents:
+                - text: "Survey: Li et al. 2025"
+                  href: en/dllm/survey-li2025.qmd
+                - text: "Open Problems"
+                  href: en/dllm/open-problems.qmd

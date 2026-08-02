@@ -1,0 +1,272 @@
+---
+pagetitle: "MeanFlow"
+---
+
+# MeanFlow
+
+Flow Matching [@lipman2023flowmatching] は高品質な画像生成を実現した一方で、推論時に数十〜数百回の常微分方程式（Ordinary Differential Equation, ODE）ソルバーステップを必要とする。MeanFlow [@geng2025meanflow]（Geng, Deng, Bai, Kolter, He; CMU, MIT; 2025年5月）は、**平均速度（mean velocity）**という新しい量を導入し、蒸留なし・事前学習なしのスクラッチ訓練で 1 ステップ生成を実現する手法である。
+
+## 背景と動機 {#sec-background}
+
+### Flow Matching の限界
+
+Flow Matching は、ノイズ分布 $p_1$ からデータ分布 $p_0$ への連続変換を速度場 $v_\theta(z_t, t)$ で学習する。サンプリングは ODE を数値的に解くことで行われるため、高品質な生成には 50〜250 回のネットワーク評価（NFE: Number of Function Evaluations）が必要となる。これはリアルタイム応用やエッジデバイスでの展開において大きなボトルネックである。
+
+### 先行研究: 蒸留と Consistency Models
+
+1 ステップ生成を実現する既存のアプローチは、大きく 2 つに分類される:
+
+- **蒸留（Distillation）**: 多ステップの教師モデルから知識を転移する。Progressive Distillation [@salimans2022progressive] や ADD（Adversarial Diffusion Distillation）[@sauer2023add] などが代表的である。しかし、事前に訓練済みの高品質な教師モデルが必要であり、訓練パイプラインが複雑化する
+- **Consistency Models**: Song et al. [@song2023consistency] が提案した手法で、同一 ODE 軌道上の異なる時刻の点が同一のデータ点にマッピングされるという「一貫性（consistency）」を直接学習する。蒸留不要のバリアント（Consistency Training）も存在するが、安定した訓練にはニューラルネットワークのアーキテクチャに制約を課す必要がある
+
+MeanFlow はこれらとは異なるアプローチを取る。**数学的な恒等式（identity）**を活用することで、ニューラルネットワークへの構造的制約を課さずに、1 ステップ生成に必要な量を直接学習する。
+
+## 瞬間速度 vs 平均速度 {#sec-velocities}
+
+MeanFlow の核心は、従来の Flow Matching が学習する「瞬間速度」に加えて、「平均速度」という新しい量を導入する点にある。
+
+### 瞬間速度（Instantaneous Velocity）
+
+Flow Matching が学習する速度場 $v(z_t, t)$ は、ODE 軌道上の点 $z_t$ における瞬間的な速度である:
+
+$$
+v(z_t, t) = \frac{dz_t}{dt}
+$$ {#eq-instantaneous}
+
+これは時刻 $t$ における無限小の変化率を表す。精密なサンプリングには、この速度場に沿って多数の微小ステップで積分する必要がある。
+
+### 平均速度（Mean Velocity）
+
+MeanFlow が導入する平均速度 $u(z_t, r, t)$ は、時刻 $t$ から $r$ までの**変位を時間間隔で割った量**として定義される:
+
+$$
+u(z_t, r, t) = \frac{z_r - z_t}{r - t} = \frac{1}{r - t} \int_t^r v(z_s, s) \, ds
+$$ {#eq-mean-velocity}
+
+ここで $z_r$ は、$z_t$ から ODE を時刻 $r$ まで積分して得られる点である。平均速度は区間 $[t, r]$ 全体にわたる瞬間速度の平均であり、軌道の「大まかな方向」を表す。
+
+### 1 ステップサンプリングへの直接利用
+
+平均速度の定義から、次の関係が直ちに得られる:
+
+$$
+z_r = z_t + (r - t) \cdot u(z_t, r, t)
+$$
+
+特に $t = 1$（ノイズ）、$r = 0$（データ）とすると:
+
+$$
+z_0 = z_1 + (0 - 1) \cdot u(z_1, 0, 1) = z_1 - u_\theta(z_1, 0, 1)
+$$ {#eq-one-step}
+
+つまり、平均速度 $u_\theta(z_1, 0, 1)$ を正確に学習できれば、ノイズ $z_1$ から 1 回のネットワーク評価でデータ $z_0$ を直接生成できる。これは ODE の全軌道を 1 ステップで近似することに相当する。
+
+![平均速度 $u(z, r, t)$ の幾何学的描像。左: 軌道上の点 $t$ から終端 $r$ への変位を区間幅で割ったものが平均速度であり、瞬間速度 $v$（青矢印）の区間平均となる。右: 異なる $t$ から見た平均速度ベクトル（橙矢印）はいずれも軌道上の終端点 $r$ を指す。出典: [@geng2025meanflow]](images/mean-flow-overview.png){#fig-mean-velocity}
+
+@fig-mean-velocity が示す通り、平均速度は軌道の局所的な傾きではなく、その点から終端への「区間全体の方向」を表す量である。
+
+![粒子レベルでの Flow Matching（左）と MeanFlow（右）の対比。Flow Matching では瞬間速度 $v(z_t, t)$ に従う多数の細かい軌道でノイズからデータへ変換するのに対し、MeanFlow は平均速度を 1 つのベクトルとして直接サンプルを移動させる。出典: [@geng2025meanflow]](images/mean-flow-flows.png){#fig-flows-comparison}
+
+## MeanFlow Identity {#sec-identity}
+
+平均速度を学習する際の最大の課題は、@eq-mean-velocity の定義に ODE の積分が含まれる点である。ナイーブには、訓練の各ステップで ODE を解いてターゲットを計算する必要があり、計算コストが膨大になる。MeanFlow Identity はこの課題を解決する鍵となる恒等式である。
+
+### 恒等式の導出
+
+平均速度の定義 $u(z_t, r, t) = \frac{z_r - z_t}{r - t}$ の両辺を $t$ で微分する。$z_r$ は $t$ に依存しない（$z_r$ は ODE 軌道上の固定点）一方、$z_t$ は $t$ に依存するため:
+
+$$
+\frac{\partial}{\partial t} u(z_t, r, t) = \frac{\partial}{\partial t} \left( \frac{z_r - z_t}{r - t} \right)
+$$
+
+分子と分母をそれぞれ微分すると:
+
+$$
+\frac{\partial u}{\partial t} = \frac{-v(z_t, t)(r - t) - (z_r - z_t)(-1)}{(r - t)^2} = \frac{-v(z_t, t)}{r - t} + \frac{u(z_t, r, t)}{r - t}
+$$
+
+整理すると **MeanFlow Identity** が得られる:
+
+$$
+u(z_t, r, t) = v(z_t, t) - (t - r) \frac{\partial}{\partial t} u(z_t, r, t)
+$$ {#eq-meanflow-identity}
+
+### 恒等式の意味
+
+@eq-meanflow-identity は、平均速度 $u$、瞬間速度 $v$、および $u$ の時間微分の間の**局所的な関係**を表している。重要な点は以下の通りである:
+
+- **積分が不要**: $u$ の定義には $t$ から $r$ までの積分が含まれるが、この恒等式は任意の時刻 $t$ で局所的に成立する。したがって、ODE を解く必要がない
+- **自己整合性**: $u_\theta$ がこの恒等式を満たすように訓練すれば、結果として $u_\theta$ は正しい平均速度に収束する
+- **一貫性の自然な導出**: Consistency Models では一貫性条件をニューラルネットワークの構造に組み込む必要があったが、MeanFlow では数学的構造から自然に一貫性が導かれる。恒等式を満たす関数は自動的に一貫した写像を定義する
+
+::: {.callout-tip collapse="true"}
+## 全微分と偏微分の区別
+
+@eq-meanflow-identity における $\frac{\partial}{\partial t} u(z_t, r, t)$ は、$z_t$ が $t$ に依存することを考慮した**全微分**である。具体的には:
+
+$$
+\frac{d}{dt} u(z_t, r, t) = \frac{\partial u}{\partial z} \cdot v(z_t, t) + \frac{\partial u}{\partial t}
+$$
+
+ここで第 1 項は $z_t$ の変化を通じた間接的な寄与、第 2 項は $t$ の直接的な寄与である。訓練アルゴリズムでは、この全微分を JVP（Jacobian-Vector Product）で効率的に計算する。
+:::
+
+## 訓練アルゴリズム {#sec-training}
+
+MeanFlow の訓練は、恒等式 @eq-meanflow-identity を損失関数として利用する。
+
+### ターゲットの構成
+
+MeanFlow Identity を $u_\theta$ に適用すると、ターゲットは以下のように構成される:
+
+$$
+u_{\text{tgt}} = v_t - (t - r) \cdot \frac{d}{dt} u_\theta(z_t, r, t)
+$$ {#eq-target}
+
+ここで $v_t = v_\theta(z_t, t)$ は事前に訓練された（または同時に訓練される）Flow Matching モデルの出力であり、第 2 項の全微分は:
+
+$$
+\frac{d}{dt} u_\theta(z_t, r, t) = \frac{\partial u_\theta}{\partial z} \cdot v_t + \frac{\partial u_\theta}{\partial t}
+$$
+
+と展開される。
+
+### JVP による効率的な微分計算
+
+全微分の計算には $u_\theta$ の Jacobian $\frac{\partial u_\theta}{\partial z}$ が必要であるが、Jacobian 全体を計算するのは高次元入力に対して非現実的である。MeanFlow では **JVP（Jacobian-Vector Product）** を活用する:
+
+$$
+\frac{\partial u_\theta}{\partial z} \cdot v_t
+$$
+
+JVP はフォワードモード自動微分で効率的に計算でき、$u_\theta$ の 1 回のフォワードパスとほぼ同じコストで済む。PyTorch では `torch.func.jvp` として実装されている。
+
+### Stop-Gradient の使用
+
+ターゲット @eq-target は $u_\theta$ 自身を含むため、ナイーブに訓練するとターゲットがパラメータ更新に伴い変動し、訓練が不安定化する。この問題に対処するため、ターゲット計算時に **stop-gradient** を適用する:
+
+$$
+\mathcal{L} = \mathbb{E}_{z_t, r, t} \left[ \| u_\theta(z_t, r, t) - \text{sg}(u_{\text{tgt}}) \|^2 \right]
+$$
+
+ここで $\text{sg}(\cdot)$ は勾配の逆伝播を遮断する操作である。これにより、ターゲットは現在のパラメータで固定された値として扱われ、訓練が安定化する。
+
+### 訓練パイプラインの概要
+
+| ステップ | 処理内容 | 備考 |
+|:--------:|----------|------|
+| 1 | $z_t, r, t$ をサンプリング | |
+| 2 | $v_t = v_\theta(z_t, t)$ を計算 | FM forward |
+| 3 | $u_\theta(z_t, r, t)$ を計算 | MF forward |
+| 4 | JVP で $\frac{d}{dt} u_\theta$ を計算 | JVP forward |
+| 5 | $u_{\text{tgt}} = v_t - (t - r) \cdot \frac{d}{dt} u_\theta$ を構成 | |
+| 6 | $\mathcal{L} = \| u_\theta - \text{sg}(u_{\text{tgt}}) \|^2$ | |
+| 7 | $u_\theta$ のみを通じて逆伝播 | |
+
+: MeanFlow の訓練パイプライン。各ステップで必要なフォワードパスの種類を備考に示す。 {#tbl-training-pipeline}
+
+### 訓練コスト
+
+MeanFlow の訓練には、Flow Matching モデルのフォワードパスに加えて、平均速度ネットワーク $u_\theta$ のフォワードパスと JVP の計算が必要である。著者らの報告によれば、訓練のオーバーヘッドは **約 20%** に留まる。これは $u_\theta$ と $v_\theta$ がパラメータを共有する設計（$u_\theta$ は $v_\theta$ に追加の時刻入力 $r$ を導入しただけの構造）を採用しているためである。
+
+## Classifier-Free Guidance の統合 {#sec-cfg}
+
+条件付き画像生成では、**Classifier-Free Guidance（CFG）** がサンプル品質の向上に不可欠な技術である。従来の多ステップサンプリングでは、各ステップで条件付きと条件なしの予測を線形補間する:
+
+$$
+\tilde{v}(z_t, t, c) = v(z_t, t, \varnothing) + w \cdot \bigl(v(z_t, t, c) - v(z_t, t, \varnothing)\bigr)
+$$
+
+ここで $c$ は条件（クラスラベルなど）、$\varnothing$ は条件なし、$w$ はガイダンススケールである。
+
+### MeanFlow における CFG の統合
+
+MeanFlow は、CFG を**推論時のトリックではなく、ground-truth の速度場の性質**として扱う。具体的には、CFG 適用後の速度場 $\tilde{v}$ を「真の速度場」とみなし、その平均速度を学習する:
+
+$$
+\tilde{u}(z_t, r, t) = \frac{1}{r - t} \int_t^r \tilde{v}(z_s, s, c) \, ds
+$$
+
+この定式化により、MeanFlow Identity はガイダンス付き速度場に対してもそのまま成立する。訓練時に CFG を組み込むことで、推論時には **1-NFE でガイダンス付きサンプリング**が可能となる。従来の 1 ステップ手法では CFG の統合が困難であったが、MeanFlow はこの問題を自然に解決する。
+
+## 実験結果 {#sec-experiments}
+
+### ImageNet 256×256
+
+MeanFlow の主要な実験結果は、ImageNet 256×256 クラス条件付き画像生成で得られている。評価指標は Fréchet Inception Distance（FID）である。
+
+| モデル | パラメータ数 | NFE | FID↓ |
+|--------|-------------|-----|------|
+| MeanFlow-B/2 | 130M | 1 | 11.07 |
+| MeanFlow-L/2 | 458M | 1 | 5.21 |
+| MeanFlow-XL/2 | 675M | 1 | **3.43** |
+| MeanFlow-XL/2 | 675M | 2 | **2.20** |
+
+: MeanFlow の ImageNet 256×256 での FID スコア。Diffusion Transformer（DiT）[@peebles2023dit] アーキテクチャのサイズバリアント（B/2, L/2, XL/2）を使用。 {#tbl-meanflow-results}
+
+### モデルサイズによるスケーリング
+
+@tbl-meanflow-results が示す通り、モデルサイズの増大に伴い FID が一貫して改善される。B/2（130M パラメータ）の FID 11.07 から XL/2（675M パラメータ）の FID 3.43 まで、約 3.2 倍のスケーリングで FID が約 3 分の 1 に改善されている。これは MeanFlow が大規模モデルの恩恵を十分に受けることを示している。
+
+![モデルサイズと訓練エポック数に対する 1-NFE FID のスケーリング。B/2 → M/2 → L/2 → XL/2 とモデルを大きくするにつれ、また訓練を進めるにつれ FID が単調に改善する。出典: [@geng2025meanflow]](images/mean-flow-fid.png){#fig-meanflow-scaling}
+
+### 2-NFE での改善
+
+MeanFlow は 1-NFE だけでなく、2-NFE（2 ステップ）でも使用できる。中間時刻 $t_{\text{mid}}$ を導入し、$z_1 \to z_{t_{\text{mid}}} \to z_0$ と 2 段階で生成する。2-NFE では **FID 2.20** を達成しており、これは 250 ステップの DiT（FID 2.27）を上回る品質である。
+
+### アブレーション結果の要約
+
+著者らは以下のアブレーションを報告している:
+
+- **$r$ のサンプリング範囲**: $r = 0$ に固定するよりも $r \in [0, t)$ からランダムにサンプリングする方が有効。これは訓練信号の多様性を増し、平均速度の推定精度を向上させる
+- **JVP vs 有限差分**: JVP による正確な微分計算が有限差分近似よりも優れる
+- **CFG スケール**: 訓練時の CFG スケールとして $w = 1.5$ が最適。推論時の CFG スケールとは独立に設定可能
+
+## 他手法との比較 {#sec-comparison}
+
+::: {.callout-note collapse="true"}
+## Consistency Models との違い
+
+Consistency Models [@song2023consistency] は、同一 ODE 軌道上の点を同一の出力にマッピングする「一貫性関数（consistency function）」を学習する。その一貫性を保証するために、ニューラルネットワークのアーキテクチャに**境界条件**を組み込む必要がある（例: $f(z_0, 0) = z_0$）。
+
+MeanFlow はアーキテクチャへの制約を課さない。一貫性は MeanFlow Identity（@eq-meanflow-identity）という数学的構造から自然に導かれる。この違いにより:
+
+- MeanFlow は標準的な DiT アーキテクチャをそのまま使用可能
+- Consistency Models で問題となる訓練の不安定性が大幅に軽減される
+- MeanFlow は Flow Matching モデルとパラメータを共有できるため、追加のメモリコストが小さい
+:::
+
+::: {.callout-note collapse="true"}
+## Shortcut Models との比較
+
+Shortcut Models [@frans2024shortcut] は、Flow Matching に追加の「ステップサイズ」入力を導入し、任意のステップ数でサンプリング可能なモデルを訓練する。しかし、ImageNet 256×256 での 1-NFE 性能は **FID 10.60** に留まっており、MeanFlow の FID 3.43 と大きな差がある。
+
+この性能差の主な原因は、Shortcut Models が平均速度の近似に必要な理論的保証を欠いている点にある。MeanFlow Identity は平均速度の学習を数学的に正当化し、訓練の収束を保証する。
+:::
+
+::: {.callout-note collapse="true"}
+## 後続研究への影響
+
+MeanFlow は、平均速度と瞬間速度の関係を活用する枠組みを確立し、後続の研究に大きな影響を与えた:
+
+- **Terminal Velocity Matching（TVM）**: MeanFlow が開始時刻 $r$ で微分するのに対し、TVM は終端時刻 $t$ で微分する。この「双対的」なアプローチにより、2-Wasserstein 距離の明示的な上界が得られ、理論的な保証が強化される。TVM は 1-NFE で FID 3.29 と MeanFlow をわずかに上回る
+
+
+  [→ 詳細:]{.detail-link} [Terminal Velocity Matching](terminal-velocity-matching.qmd)
+
+- **Drifting Models**: MeanFlow とは根本的に異なるパラダイムを提案する。推論時の反復ではなく、訓練中に分布を進化させることで 1-NFE FID 1.54 を達成した。ただし、MeanFlow の枠組み（平均速度の概念）が 1 ステップ生成の可能性を示したことが、この方向の研究を加速させた
+
+
+  [→ 詳細:]{.detail-link} [Drifting Models](drifting-models.qmd)
+:::
+
+## まとめ
+
+MeanFlow は、「平均速度」という概念と「MeanFlow Identity」という恒等式を組み合わせることで、蒸留や事前学習に依存しない 1 ステップ画像生成を実現した。その主要な貢献は以下の通りである:
+
+- **平均速度の導入**: ODE 軌道全体の情報を 1 つのベクトルに集約する量を定義
+- **MeanFlow Identity**: 積分を計算せずに平均速度を学習可能にする数学的構造
+- **CFG の自然な統合**: ガイダンスを速度場の性質として扱い、1-NFE でのガイダンス付き生成を実現
+- **スケーラビリティ**: 標準的な DiT アーキテクチャを使用し、モデルサイズに対して良好なスケーリングを示す
+
+MeanFlow は、Flow Matching から 1 ステップ生成への自然な拡張として位置づけられ、後続の Terminal Velocity Matching や Drifting Models への道を開いた。

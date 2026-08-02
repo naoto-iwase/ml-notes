@@ -1,0 +1,408 @@
+---
+pagetitle: "連続 vs 離散"
+---
+
+# 連続 vs 離散
+
+画像生成で発展した **連続拡散モデル**（Denoising Diffusion Probabilistic Models（DDPM）[@ho2020ddpm], Score-Based Models [@song2021scorebased], VP-SDE 等）と、言語向けに発展した **離散拡散モデル**（Masked Diffusion Language Model（MDLM）[@sahoo2024mdlm] に代表される masked / absorbing diffusion）は、構造的には強く対応するが、数学的対象は異なる。本章では両者の対応関係を整理し、「連続側の知識をどこまで離散側に持ち込めるか」「どこからは翻訳が必要か」を明確にする。
+
+## 結論
+
+最初に結論を示しておく。連続拡散と離散拡散（masked / absorbing 型）の関係は次のように要約できる。
+
+**強く対応する部分**:
+
+- forward でノイズを加え reverse で除く構造
+- 変分下限（Evidence Lower Bound, ELBO）から損失を導出する流れ
+- 信号雑音比（Signal-to-Noise Ratio, SNR）-like な重み付けによる損失の簡略化
+- guidance（classifier-free guidance）の枠組み
+
+**対応しない部分**:
+
+- スコア関数 $\nabla_x \log p(x)$ —— 離散変数では素直に定義できない
+- 確率微分方程式（Stochastic Differential Equation, SDE）/ 常微分方程式（Ordinary Differential Equation, ODE）の probability flow —— 連続変数前提の数学
+- Variance Exploding（VE）/ Variance Preserving（VP）（分散爆発 / 分散保存）の区別 —— absorbing 過程では分散の概念が直接対応しない
+
+連続拡散の知識を「型」として持っておくと MDLM の式が一発で読める。ただし、離散側ではスコアではなく **$x_0$-prediction の cross-entropy** で同じ目的を達成している、と理解するのが正しい翻訳である。
+
+::: {.callout-tip}
+## 一言で言うと
+
+「連続拡散の知識を MDLM の式の型として使え。ただしスコア中心の見方は持ち込みすぎないこと」
+:::
+
+## 対応表
+
+両者の主要概念を対応させると次の表になる。
+
+| 概念 | 連続拡散 | MDLM (masked / absorbing discrete diffusion) |
+|---|---|---|
+| 状態空間 | $\mathbf{x} \in \mathbb{R}^d$ | トークン列 $x \in \mathcal{V}^L$ (離散) |
+| 時刻 | $t \in [0, T]$ (連続) | $t \in [0, 1]$ (連続) |
+| Forward 過程 | VP-SDE: $d\mathbf{x}_t = -\tfrac{1}{2}\beta(t)\mathbf{x}_t\,dt + \sqrt{\beta(t)}\,d\mathbf{w}_t$ | 各トークンを独立に rate $t$ で `[MASK]` に吸収 |
+| 周辺分布 | $\mathbf{x}_t = \sqrt{\bar\alpha_t}\mathbf{x}_0 + \sqrt{1-\bar\alpha_t}\boldsymbol{\epsilon}$ | $x_t^i = \texttt{[MASK]}$ w.p. $t$, else $x_0^i$ |
+| 信号比 | $\text{SNR}(t) = \bar\alpha_t / (1-\bar\alpha_t)$ | $\text{SNR}(t) \propto (1-t)/t$ |
+| 学習目的 | DSM: $\mathbb{E}[\lambda(t)\|\mathbf{s}_\theta(\mathbf{x}_t,t) - \nabla\log p(\mathbf{x}_t\mid \mathbf{x}_0)\|^2]$ | 重み $1/t$ の masked CE |
+| パラメタ化 | $\epsilon$-pred / $\mathbf{x}_0$-pred / score-pred | $x_0$-prediction |
+| Reverse 過程 | 逆時間 SDE もしくは probability flow ODE | 離散時間の denoising loop |
+| 高速化 | Denoising Diffusion Implicit Models（DDIM）(決定論的 ODE) | semi-AR sampling, ブロック並列 unmask |
+| Guidance | Classifier / Classifier-Free Guidance | Classifier-Free Guidance はそのまま流用可 |
+| 潜在化 | Latent Diffusion Model（LDM）(Stable Diffusion) | Diffusion Language Model（DLLM）では非標準（未確立） |
+
+: 連続拡散と離散拡散（MDLM）の概念対応 {#tbl-correspondence}
+
+@tbl-correspondence からわかるのは、**forward の置き方が違うだけで、残りの骨格は同じ流れ**ということである。連続側ではガウシアンノイズで状態を壊し、離散側では `[MASK]` 吸収状態で情報を消す。どちらも「情報を段階的に消す → 逆向きに復元する」という枠組みは共有している。
+
+両過程の構造的対応をフローで見ると @fig-correspondence のようになる。
+
+```{mermaid}
+%%| label: fig-correspondence
+%%| fig-cap: "連続拡散と離散拡散の構造的対応"
+
+flowchart TB
+    subgraph Continuous["連続拡散 (DDPM / VP-SDE)"]
+        C0["x_0 (クリーン画像)"] --> C1["x_t = √α_t x_0 + √(1-α_t) ε"]
+        C1 --> C2["x_T ~ N(0, I) (純ノイズ)"]
+        C2 -.reverse SDE / ODE.-> C0
+    end
+
+    subgraph Discrete["離散拡散 (MDLM)"]
+        D0["x_0 (クリーン系列)"] --> D1["x_t: 各位置を確率 t でMASK"]
+        D1 --> D2["x_1: 全位置がMASK"]
+        D2 -.denoising loop.-> D0
+    end
+
+    Continuous -.同じ ELBO 構造.-> Discrete
+```
+
+## Forward 過程の対応を詳しく
+
+両者の forward は数学的対象が違うが、「情報を段階的に消す」という設計思想は完全に一致する。ここで対応関係を式レベルで見ておく。
+
+連続拡散（VP-SDE）の forward は、
+
+$$
+d\mathbf{x}_t = -\tfrac{1}{2}\beta(t) \mathbf{x}_t \, dt + \sqrt{\beta(t)} \, d\mathbf{w}_t
+$$
+
+であり、これを離散化した DDPM の遷移は
+
+$$
+q(\mathbf{x}_t \mid \mathbf{x}_{t-1}) = \mathcal{N}(\mathbf{x}_t; \sqrt{1-\beta_t} \mathbf{x}_{t-1}, \beta_t \mathbf{I})
+$$
+
+となる。任意時刻の周辺分布は閉じた形 $\mathbf{x}_t = \sqrt{\bar\alpha_t}\mathbf{x}_0 + \sqrt{1-\bar\alpha_t}\boldsymbol{\epsilon}$ で書ける。
+
+一方 MDLM の forward は、各トークンが独立に確率 $t$ で `[MASK]` に置換される、というだけの設定である。
+
+$$
+q(x_t^i \mid x_0^i) = \begin{cases} \delta_{x_0^i} & \text{w.p. } 1 - t \\ \delta_{\texttt{[MASK]}} & \text{w.p. } t \end{cases}
+$$
+
+両者に共通するのは:
+
+- **$t=0$ で完全なデータ、$t=1$（または $T$）で完全な情報破壊状態**
+- **任意時刻の周辺分布が閉じた形で書ける**（学習時にステップを 1 つサンプリングするだけで済む）
+- **forward は学習可能パラメータを持たない固定過程**
+
+特に「閉じた形で書ける」性質は、両者で訓練が効率的になる本質的な理由である。連続側ではガウシアンの再パラメタ化、離散側では各位置の独立性、と道具は違うが、目的は同じである。
+
+## 強く対応する 4 点
+
+ここでは @tbl-correspondence の中でも特に重要な「強い対応」を 4 つに絞って詳しく見る。
+
+### ELBO から単純化された損失への導出構造
+
+連続拡散では、ELBO を SNR（信号対雑音比）で書き直すと **Denoising Score Matching（DSM、重み付き L2）** に化けることが知られている[@kingma2021vdm]。具体的には、ELBO の各タイムステップの項が打ち消し合い、最終的に
+
+$$
+\mathcal{L}_{\text{cont}} = \mathbb{E}_{t, \mathbf{x}_0, \boldsymbol{\epsilon}} \left[ w(t) \, \| \boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t) - \boldsymbol{\epsilon} \|^2 \right]
+$$
+
+という、ノイズ予測の重み付き二乗誤差に帰着する。
+
+MDLM では同じ ELBO の **離散版** が **重み $1/t$ の masked cross-entropy** に化ける。
+
+$$
+\mathcal{L}_{\text{MDLM}} = \mathbb{E}_{t, x_t} \left[ \frac{1}{t} \sum_i \mathbf{1}[x_t^i = \texttt{[MASK]}] \, \log p_\theta(x_0^i \mid x_t) \right]
+$$
+
+重み $1/t$ は SNR-based 重みの離散版に相当する。$t \to 0$（ほぼマスクなし、SNR 大）では損失が大きく重み付けされ、$t \to 1$（ほぼ全マスク、SNR 小）では軽くなる、という挙動も連続側と平行している。
+
+ここからの教訓は、「ELBO の項の打ち消し合いから、パラメタ化次第で綺麗な損失になる」という **連続側の感覚は MDLM にそのまま効く** ということである。「なぜこんなに簡潔な式に落ちるのか」という驚きは、連続拡散を一度通った人にとっては既視感の範疇にある。
+
+### SNR による「異なる定式化の統一」
+
+連続側では Score-Based Models（VE）と DDPM（VP）を **SNR で統一** できることが知られている。両者は forward の書き方こそ違うが、$\text{SNR}(t)$ という単一の量を通して見ると同じ家族として扱える[@kingma2021vdm]。
+
+同じ思想で、離散側でも以下を「forward の SNR スケジュールの違い」として並列に見ることができる。
+
+- **D3PM の uniform transition**: マスクではなく、ランダムな別トークンに置換
+- **MDLM の absorbing transition**: `[MASK]` 状態に吸収
+- **SEDD の continuous-time discrete score**: 連続時間で確率比を学習
+
+これらは forward の置き方（どこに情報を逃がすか、どの速度で）で違いがあるだけで、骨格は同じである。連続拡散で SBM と DDPM を一段抽象化して眺める視点が役に立つのと同じく、離散拡散でも一段上の視点を取ると俯瞰しやすい。
+
+### $x_0$-prediction parametrization
+
+連続拡散では、
+
+- $\epsilon$ を予測する（noise prediction）
+- $\mathbf{x}_0$ を予測する（data prediction）
+- score $\nabla \log p$ を予測する（score prediction）
+
+の 3 つが **重み付け次第で等価** だと知られている。実装上は $\epsilon$-prediction が広く使われ、$\mathbf{x}_0$-prediction はサンプリング時の解釈性で利点を持つ、といった使い分けがある。
+
+MDLM はこの 3 つのうち、**$x_0$-prediction を離散で素直にやったもの** と読める。マスクされた位置に対して「マスクされる前の正解トークンは何か」を予測する。$\epsilon$ や score に相当する量を考えず、$x_0$ だけに集中している。
+
+これにより、損失は cross-entropy という、言語モデルで最も馴染みのある損失に化ける。連続側で $\mathbf{x}_0$-pred のパラメタ化を取った場合の感覚を持っている読者には、MDLM は自然に映る。
+
+### 推論ループの形
+
+reverse 過程の見た目も両者は強く対応する。
+
+| 連続拡散 (DDPM) | 離散拡散 (MDLM) |
+|---|---|
+| $\mathbf{x}_T \to \mathbf{x}_{T-1} \to \cdots \to \mathbf{x}_0$ | 全 `[MASK]` $\to$ 一部 unmask $\to \cdots \to$ 全 unmask |
+| score / noise prediction で進める | $x_0$-prediction で進める |
+| ステップ数 $T$ が品質 vs 計算量のハイパラ | 同じ |
+| 決定論的 (DDIM) vs 確率的 | 決定論的 (greedy unmask) vs 確率的 (stochastic) |
+
+: 推論ループの形の対応 {#tbl-inference-loop}
+
+@tbl-inference-loop の通り、ステップ数を増やせば品質が上がるが計算量も増える、というトレードオフ構造は両者で共有される。決定論的に進めるか確率的に進めるかの選択肢があり、決定論的にすると速く・品質劣化が抑えられるという経験則も共通する。
+
+## 対応しない / 翻訳が必要な部分
+
+ここからは、連続拡散の知識をそのまま離散側に持ち込もうとすると失敗する箇所を見る。
+
+### スコア関数は離散で素直に定義できない
+
+連続拡散の中核には **スコア関数** $\nabla_\mathbf{x} \log p(\mathbf{x})$ がある。これは「現在のデータ点をどちらに動かすと密度が上がるか」を表すベクトル場で、サンプリングの reverse SDE / ODE は本質的にこのスコアを使って書ける。
+
+しかし、離散変数では $\nabla_x$ という概念がそもそも無意味である。$x$ がトークン ID（カテゴリカル変数）のとき、「微分」は定義できない。
+
+この問題への対応の仕方で、離散拡散モデルは大きく分岐する。
+
+- **MDLM の選択**: スコアを諦め、$x_0$-prediction の cross-entropy で書く（簡潔、実用的）
+- **SEDD の選択**: 確率比 $p(y)/p(x)$ を学習 ——「concrete score」と呼ばれる ratio matching
+
+MDLM が「BERT のランダムマスク予測」に化けるのは、**スコア関数を回避した結果** として直接的に出てくる帰結である。これは連続側にはない自由度であり、「離散だからこそ簡潔になる」とも言える。
+
+::: {.callout-note}
+## SEDD と concrete score
+
+SEDD は離散変数でもスコアに相当する量を定義しようとする試みで、確率比を学習する。連続側のスコアに近い数学的構造を持つが、実装と学習は MDLM より複雑になる。MDLM は逆方向に振り切って「スコアを使わない」を選んだ。両者の比較は [D3PM と SEDD: 離散拡散の別の選択肢](d3pm-sedd.qmd) を参照。
+:::
+
+### SDE / 確率フロー ODE は連続変数の話
+
+連続拡散の reverse 過程は、**逆時間 SDE**（Anderson 1982）または **probability flow ODE**（Song+ 2021）として書ける。これらは forward を SDE で書いたときの数学的双対であり、サンプリングアルゴリズム（Euler-Maruyama、Heun 法など）も SDE/ODE 数値解法から借りてくる。
+
+一方、離散の absorbing 過程は **連続時間マルコフ連鎖（continuous-time Markov chain, CTMC）** であり、SDE ではなくジャンプ過程である。状態が離散ジャンプで遷移する。Anderson 1982 の逆時間 SDE はそのまま使えない。
+
+代替として、**離散の reverse rate を直接書き下す** ことになる。D3PM（§3）や MDLM（§2）では、forward の遷移行列に対する Bayes ルールから reverse の遷移確率を導く形を取る。これは数式の見た目こそ違うが、「forward を反転するための数学が存在する」という構造は同じである。
+
+連続拡散の SDE/ODE 章はそのままでは離散に効かない。読者としては、**「forward を反転するための math がある」という存在感覚** だけ持っていけばよく、具体的な公式は離散版で別途追う必要がある。
+
+### VE / VP の区別は持ち越せない
+
+連続拡散には **VE (Variance Exploding)** と **VP (Variance Preserving)** という重要な分類軸がある。
+
+- **VE**: $\mathbf{x}_t = \mathbf{x}_0 + \sigma(t) \boldsymbol{\epsilon}$、分散が時刻と共に爆発
+- **VP**: $\mathbf{x}_t = \sqrt{\bar\alpha_t}\mathbf{x}_0 + \sqrt{1-\bar\alpha_t}\boldsymbol{\epsilon}$、分散が一定範囲に保たれる
+
+しかし、absorbing 過程には「分散が増える / 保たれる」という軸はない。すべての離散 absorbing は「情報が一方向に消える」系列だからである。
+
+離散側で意味のある分類軸はむしろ、**どの非吸収状態に確率が逃げるか** である。
+
+- **uniform**: 全トークンに等確率で遷移（D3PM の一選択）
+- **absorbing**: 特別な `[MASK]` 状態に吸収（MDLM の選択）
+- **Gaussian-like**: 埋め込み空間でガウシアン的に拡散（discretized Gaussian, D3PM の別選択）
+
+連続側の VE/VP 軸を捨て、**「どこに情報を逃がすか」という別の軸** に翻訳して読む、というのが正しい接続の仕方である。
+
+| 連続側の概念 | 離散側の対応 | 接続の種類 |
+|---|---|---|
+| スコア関数 $\nabla_x \log p(x)$ | $x_0$-prediction CE（MDLM）または 確率比（SEDD） | 翻訳が必要 |
+| SDE / probability flow ODE | CTMC（ジャンプ過程） | 翻訳が必要 |
+| VE / VP | uniform / absorbing / discretized Gaussian | 翻訳が必要 |
+| SNR スケジュール | SNR $\propto (1-t)/t$ | そのまま使える |
+| ELBO | ELBO | そのまま使える |
+| Classifier-Free Guidance | Classifier-Free Guidance | そのまま使える |
+
+: 連続側の概念を離散側へ翻訳する際の対応 {#tbl-translation}
+
+@tbl-translation の上 3 行（スコア、SDE/ODE、VE/VP）は「翻訳が必要」、下 3 行（SNR、ELBO、CFG）は「そのまま使える」という整理になる。
+
+## サンプリング高速化の対応
+
+連続拡散と離散拡散はどちらも、「ステップ数を減らして高速化したい」という共通の動機を持つ。両者で発展した工夫は、表面的には別物に見えるが、共通する原理がある。
+
+### 連続側: DDIM と probability flow ODE
+
+連続側の代表的な高速化は **DDIM**（Song+ 2020）と **probability flow ODE**（Song+ 2021）である。
+
+- **DDIM**: 同じ forward 周辺分布を保ったまま、reverse をパラメトリックに変形して決定論的な遷移を可能にする。10〜50 ステップでも高品質な生成ができる
+- **probability flow ODE**: SDE と同じ周辺分布を持つ ODE。決定論的な軌跡を持ち、ODE ソルバの加速技術（DPM-Solver 等）が使える
+
+どちらも「確率的なノイズ注入を取り除いて軌跡を決定論的にすると、少ないステップでも追跡できる」という洞察に基づく。
+
+### 離散側: semi-AR sampling とブロック並列 unmask
+
+離散側の代表的な高速化は次の通りである。
+
+- **Greedy / confidence-based unmask**: 各ステップで信頼度上位 $k$ 個を確定する。MaskGIT 由来の戦略
+- **Semi-AR sampling**: 系列をブロックに分け、ブロック内は並列に unmask、ブロック間は左から右へ進める
+- **Low-confidence remasking**: 一度 unmask した位置でも、信頼度が低ければ再マスクして書き直す
+
+これらは見た目こそ連続側の DDIM と異なるが、「確定的に最も自信のある部分から固めていく」という戦略は共通している。連続側の DDIM が「ノイズを取り除いて滑らかな軌跡を引く」のに対し、離散側の greedy unmask は「最も自信のあるトークンから固定していく」という、それぞれの数学的対象に応じた決定論化である。
+
+| 軸 | 連続側の高速化 | 離散側の高速化 |
+|---|---|---|
+| 決定論化 | DDIM, probability flow ODE | greedy unmask, top-$k$ confidence |
+| 並列化 | バッチ次元の並列 | 系列内の位置並列 (ブロック内) |
+| 蒸留 | progressive distillation | step distillation (DLLM 版) |
+| ソルバ | DPM-Solver, Heun | semi-AR スケジューラ |
+
+: 高速化テクニックの対応 {#tbl-sampling-speedup}
+
+@tbl-sampling-speedup の通り、両者は「同じ問題（ステップ数削減）に対して、自分の数学的対象に応じた道具で対応している」と整理できる。
+
+## Guidance は両者で共通
+
+Classifier-Free Guidance (CFG) は連続拡散で確立された手法だが、**離散拡散にもそのまま流用できる**。
+
+連続側では、条件あり予測 $\boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t, c)$ と条件なし予測 $\boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t, \emptyset)$ を $w$ で外挿する。
+
+$$
+\tilde{\boldsymbol{\epsilon}} = (1 + w) \boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t, c) - w \boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t, \emptyset)
+$$
+
+離散側でも同じ枠組みが効く。$x_0$ の予測確率（logits）に対して条件あり / 条件なしの外挿を行えばよい。
+
+$$
+\log \tilde{p}(x_0 \mid x_t) = (1 + w) \log p_\theta(x_0 \mid x_t, c) - w \log p_\theta(x_0 \mid x_t, \emptyset)
+$$
+
+これは logit-space の guidance であり、AR LLM の logit bias 系の手法とも自然につながる。連続拡散で guidance を理解した人は、その感覚をそのまま離散側に持ち込んで構わない。
+
+::: {.callout-note collapse="true"}
+## Classifier Guidance の翻訳
+
+Classifier Guidance（外部分類器の勾配を使う方式）は、連続側では分類器の勾配 $\nabla_\mathbf{x} \log p(c \mid \mathbf{x}_t)$ を score に足す形だった。離散側では勾配が定義できないため素直には翻訳できないが、分類器のスコアを logit に足す代替形が考えられている。実用的には CFG の方がシンプルで、離散側でも CFG が主流である。
+:::
+
+## 潜在空間化（latent diffusion）の状況
+
+連続拡散の実用上の大ブレイクスルーの一つに、**Latent Diffusion Model (LDM)** がある。Stable Diffusion で広く知られる手法で、ピクセル空間ではなく VAE が学習した潜在空間で拡散を回すことで、計算コストを大幅に削減できる。
+
+DLLM 側ではこの「潜在化」が、現時点で **標準的な手法として確立されていない**。理由はいくつか考えられる。
+
+- トークン列はすでに離散で「圧縮された」表現であり、さらに潜在化する動機が薄い
+- 言語の意味は組み合わせ的で、潜在空間で滑らかな補間が画像ほど機能しない可能性
+- AR LLM の世界では潜在化が主流でなく、研究の比較対象が乏しい
+
+潜在空間で拡散を回す DLLM の研究は存在するが（潜在埋め込みでの拡散など）、画像側の LDM のように決定的な勝利を収めた構図にはまだ至っていない。
+
+::: {.callout-note}
+## 連続 vs 離散の潜在化
+
+連続拡散側の LDM が「ピクセル空間 → 潜在空間」というステップで成立したのに対し、DLLM は最初から離散トークン空間で動いており、追加の「潜在化」を要請しない設計になっている。これは欠点ではなく、目的が違うことの帰結である。
+:::
+
+## 実用上の推奨（読み方ガイド）
+
+連続拡散の知識を持っている読者が DLLM 文献に入る際、効率的な読み方は次の順序である。
+
+1. **連続拡散の標準的な定式化を 1 度通す**: DDPM、DSM、SNR 統一視点まで（VDM 論文を読むのが効率的）
+2. **SDE/ODE 章は深追いせず**、score matching と guidance を重点的に押さえる
+3. **Sander Dieleman のブログ** "Diffusion language models" で離散/連続の橋渡しを掴む
+4. **MDLM** に入る。連続の知識は「型」として使い、離散では別の道具（$x_0$-prediction CE）で同じ目的を達成している、と理解する
+
+この順序で読むと、MDLM の論文を見たときに「ELBO の項が打ち消し合って簡潔になる」「SNR-like な重みが出てくる」「$x_0$-prediction の cross-entropy になる」といった現象が、すべて既知の連続側のパターンの離散版として腑に落ちる。
+
+逆に、連続拡散を経由せずに MDLM だけ読むと「なぜ重み $1/t$ なのか」「なぜ ELBO がこんなに綺麗に簡略化されるのか」が天下り的に見える可能性がある。連続側の感覚は、離散側の式を「驚かずに読む」ための足場として価値がある。
+
+::: {.callout-tip}
+## 読み方の要約
+
+連続側で「ELBO → DSM の簡略化」を一度通っておくと、MDLM の「ELBO → 重み付き masked CE」が同じ現象の離散版だと一発で見える。スコア / SDE / VE-VP は離散には持ち込めないので、そこは別の道具に置き換える。
+:::
+
+## Sander Dieleman のブログ記事の推薦
+
+DeepMind の研究者 Sander Dieleman のブログ ([sander.ai](https://sander.ai/)) は、**拡散モデル全般の数理感覚** を最も効率よく身につけられる単一ソースである。論文の数式を追う前に、これらの記事で「何をやっているのか」のメタな見取り図を掴むと、その後の論文読解が格段に速くなる。
+
+DLLM に効く順に挙げると次の通りである。
+
+- **"Diffusion language models"**: 離散拡散と AR の関係、言語に拡散が意味あるかの哲学を整理。本書のテーマと最も近い記事
+- **"Diffusion is spectral autoregression"**: 拡散と AR は対極ではなく地続きという見方。連続側の話だが、離散の DLLM と AR の関係を考える上でも示唆的
+- **"The geometry of diffusion guidance"**: 連続拡散の guidance の幾何的理解。離散にも援用できる直観を提供する
+
+これらは論文ではなくブログ記事だが、拡散モデルの「型」を効率よく仕入れるという目的には論文より優れている場合が多い。
+
+## よくある誤解
+
+連続拡散から DLLM に入る際、特に陥りやすい誤解を 3 つ挙げる。
+
+### 誤解 1: 「MDLM は離散版 DDPM そのもの」
+
+部分的には正しいが、**スコア関数の扱いが本質的に違う**。DDPM はスコアマッチングと等価な定式化を持つが、MDLM はスコアを使わずに $x_0$-prediction の CE で書く。MDLM を「離散版 DDPM」と呼ぶときは、forward 構造と ELBO 構造が対応する、というレベルでの話に留めるべきである。
+
+### 誤解 2: 「DDIM をそのまま MDLM に持ち込める」
+
+決定論的サンプリングの思想は共通だが、DDIM の具体的な式（$\eta=0$ の ODE 形）は連続変数前提である。離散側で「決定論化」と言う場合、greedy unmask や top-$k$ confidence の選択を意味する。アルゴリズムとしては別物であり、コードレベルで移植はできない。
+
+### 誤解 3: 「SDE / ODE の理論が離散側にも自動的に効く」
+
+逆時間 SDE（Anderson 1982）も probability flow ODE も連続変数の数学である。離散側の reverse は CTMC の forward から導かれる別の数学であり、SDE/ODE の各種定理（収束性、加速法）を自動的に流用することはできない。離散版の対応定理が必要になる。
+
+## 別の見方: 拡散と AR の連続性
+
+Sander Dieleman の "Diffusion is spectral autoregression" は、連続拡散と AR を **対極ではなく地続き** とみなす見方を提示している。連続拡散の forward は周波数領域で見ると「高周波数から低周波数へ情報を消していく過程」であり、これはある種の「空間的 AR」と解釈できる、というものである。
+
+この見方は DLLM にも示唆を与える。
+
+- AR LLM: 左から右へトークンを 1 個ずつ確定（時間軸の AR）
+- DLLM: 系列全体を持ちながら、確信度の高い位置から徐々に確定（確信度軸の AR）
+
+両者を「何を軸に AR するか」の違いと見ると、DLLM は AR LLM の親戚として位置づけられる。連続拡散と画像 AR モデルの関係に対応する構図が、離散側にもある。
+
+```{mermaid}
+%%| label: fig-ar-diffusion-spectrum
+%%| fig-cap: "AR と拡散の連続性: 何を軸に AR するか"
+
+flowchart LR
+    A["AR LLM<br/>軸: 時間 (左→右)"] --> B["DLLM<br/>軸: 確信度 (高→低)"]
+    B --> C["Continuous Diffusion<br/>軸: SNR (高→低)"]
+    C --> D["Spectral AR<br/>軸: 周波数 (高→低)"]
+```
+
+@fig-ar-diffusion-spectrum のように並べると、AR と拡散は「何を軸に逐次的に決めていくか」の違いとして連続的に見える。
+
+## まとめ
+
+連続拡散と離散拡散（MDLM 系）は、**構造的には強く対応するが、数学的対象が違う**。
+
+- ELBO → 簡略化された損失、という導出構造は共通
+- SNR による定式化の統一視点は共通
+- $x_0$-prediction parametrization と推論ループの形は共通
+- guidance の枠組みは共通
+
+一方、
+
+- スコア関数は離散で素直に定義できない → MDLM は $x_0$-prediction CE で回避
+- SDE / ODE は連続変数前提 → 離散側は CTMC（ジャンプ過程）
+- VE / VP の区別は持ち越せない → 離散側は「どこに情報を逃がすか」が分類軸
+
+連続拡散の知識は「型」として持っておく価値が大きい。ただし、スコア中心の見方に固執すると離散側の簡潔さを見落とす。離散側の MDLM は、**スコアを諦めることで cross-entropy という言語モデル本来の損失に到達した**、と読むのが最も自然である。
+
+## 関連章へのリンク
+
+- [MDLM: Masked Diffusion Language Models](mdlm.qmd) で離散側の定式化を確認する
+- [D3PM と SEDD: 離散拡散の別の選択肢](d3pm-sedd.qmd) で別系統の離散拡散を見る
+- [LLaDA: 大規模 Masked DLM とサンプリング](llada.qmd) で実装スケールでの様子を見る
+
+Sander Dieleman のブログ記事 [@dieleman2025diffusionlm; @dieleman2024spectral; @dieleman2023guidance] は、本章で扱った話題の補助線として有用である。
+

@@ -1,0 +1,223 @@
+---
+pagetitle: "Data Mixing"
+---
+
+# Data Mixing
+
+## Overview
+
+Data Mixing is a technique for combining multiple data sources at optimal ratios to maximize model performance. In Dolma 3, two innovative methods---Token-constrained Mixing and Quality-aware Upsampling---were introduced to compose a 6T-token training mix from a 9T-token data pool. These methods achieve an optimal data allocation under a fixed token budget.
+
+## Purpose of Data Mixing
+
+### Token Budget Constraints
+
+Model training is subject to a token budget constraint:
+
+- **Computational cost**: The number of tokens available for training is limited by computational resources
+- **Need for optimal allocation**: Within a limited budget, the proportion of each data source must be decided
+- **Balancing diversity and quality**: High-quality data must be prioritized while maintaining data diversity
+
+### Determining the Optimal Mix Ratio
+
+When composing a 6T-token training mix from a 9T-token data pool, the following factors are considered:
+
+- **Data source characteristics**: Features unique to each source---web text, academic PDFs, code, math, etc.
+- **Topic balance**: Optimal allocation across topics such as STEM, software development, and general knowledge
+- **Quality considerations**: Preferential selection of high-quality documents
+
+## Token-Constrained Mixing
+
+Token-constrained Mixing is a method for determining the optimal data mix under a token budget constraint.
+
+### Swarm-Based Methods
+
+Many small proxy models are trained, and the optimal mix is estimated from their results:
+
+**Procedure**:
+
+1. **Swarm construction**: Train many small proxy models with different mixing ratios
+2. **Per-task regression**: Each proxy model maps mixing weights to task performance
+3. **Mix optimization**: Find the mixing that minimizes average task BPB (bits-per-byte)
+
+**Advantages**:
+
+- **Computational efficiency**: Experiments with small-scale models allow estimating the optimal mix before training a large-scale model
+- **Parallelism**: Multiple proxy models can be trained in parallel
+- **Iterative refinement**: The mix can be improved incrementally based on results
+
+::: {.callout-note}
+## Scale of the Swarm
+
+In Dolma 3, many 1B-parameter models were trained to evaluate performance under different mixing ratios. These proxy models were trained at 5x Chinchilla (five times the standard number of tokens) to accurately measure the effect of data mixes.
+:::
+
+### Conditional Mixing
+
+A conditional mixing procedure is adopted to accommodate continuous improvements to data sources:
+
+**Features**:
+
+- **Flexibility**: When data sources are updated, the entire mix does not need to be recomputed
+- **Modularity**: Individual data sources can be improved independently
+- **Scalability**: New data sources can be added easily
+
+**Adapting to the development cycle**:
+
+- Continuous improvement of data sources
+- Incremental introduction of new data sources
+- Dynamic adjustment of mix ratios
+
+## Quality-Aware Upsampling
+
+Quality-aware Upsampling is a method that selectively reintroduces high-quality documents into a deduplicated clean dataset.
+
+### Selective Introduction of Duplicates
+
+High-quality documents are selectively restored from data removed during deduplication:
+
+**Approach**:
+
+- **Deduplication as the foundation**: First, build a clean dataset by removing all duplicates
+- **Quality assessment**: Compute a quality score for each document
+- **Selective upsampling**: Selectively repeat high-quality documents
+
+**Effects**:
+
+- **Improved quality**: Increasing the proportion of high-quality data improves model performance
+- **Efficient repetition**: Repetition is concentrated on high-quality data while minimizing overall repetition
+- **Token efficiency**: The limited token budget is preferentially allocated to high-quality data
+
+::: {.callout-tip}
+## Quality-Aware Upsampling Strategy
+
+Among documents removed during deduplication, some are high quality. By selectively restoring these, quality degradation from deduplication is prevented while the overall quality of the dataset is improved.
+:::
+
+## Classification by Topic and Quality
+
+In Dolma 3, web text is classified along both topic and quality axes to achieve fine-grained mixing.
+
+### 24-Topic Classification with WebOrganizer
+
+WebOrganizer is a tool that classifies web text into 24 major topics:
+
+**Major topics (examples)**:
+
+- Science, Math, and Technology
+- Software Development
+- Arts and Entertainment
+- Business and Finance
+- Health and Medicine
+- Education
+- News and Current Events
+- 17 additional topics
+
+**Benefits of classification**:
+
+- **Per-topic weighting**: Assign optimal weights to each topic
+- **STEM reinforcement**: Preferentially allocate Science, Math, and Technology topics
+- **Balanced mix**: Adjust to avoid overrepresentation of any single topic
+
+### fastText Quality Classifier
+
+Within each topic, documents are further classified by quality score:
+
+**Quality classification**:
+
+- **20 quality tiers**: Each topic is divided into 20 quality tiers
+- **fastText-based classifier**: Fast and accurate quality estimation
+- **Objective quality metric**: Consistent quality assessment across documents
+
+### 480 Subsets
+
+24 topics x 20 quality tiers = 480 subsets:
+
+**Fine-grained mixing**:
+
+- **Per-subset weights**: Individual weights are assigned to each subset
+- **Quality and topic alignment**: High-quality data in important topics is prioritized
+- **Flexible tuning**: Data allocation optimization at fine granularity
+
+After splitting each topic into 20 tiers, the repetition factor is varied per quality tier, as shown in @fig-quality-aware-upsampling. Low-quality tiers are kept near 1x, while top tiers are exponentially repeated up to 7x. This way, the average upper bound stays at 1x while only the high-quality subsets appear more often during training.
+
+![Comparison of Quality-aware upsampling and Flat upsampling. The horizontal axis is the quality percentile and the vertical axis is the upsampling factor. The flat scheme raises the top 25% uniformly to 4.5x, while quality-aware upsampling increases continuously and weights the top tier up to 7x. Source: Olmo 3 Technical Report (arXiv:2512.13961)](images/quality-aware-upsampling.png){#fig-quality-aware-upsampling}
+
+## Mixing Strategy Results
+
+Token-constrained Mixing and Quality-aware Upsampling determined the optimal ratios of data sources.
+
+### Per-Topic Weights (Figure 9a)
+
+In the topic distribution of web text, the following trends are observed:
+
+**Upweighted topics**:
+
+- **Science, Math, and Technology**: STEM domains are significantly upweighted
+- **Software Development**: Programming and software development are reinforced
+- **Education**: Educational content is emphasized
+
+**Downweighted topics**:
+
+- Entertainment-related topics
+- General news and social media content
+
+**Results**:
+
+- Training a 1B-parameter model at 5x Chinchilla achieved an average improvement of 0.056 BPB
+- Performance degradation was observed on only 13 out of 54 tasks, with a maximum degradation of 0.035 BPB
+
+### Comparison with DCLM Baseline (Figure 9b)
+
+Compared to the DCLM (DataComp for Language Models) Baseline, the following improvements were confirmed:
+
+**Improvements**:
+
+- **STEM tasks**: Substantial performance gains on science, math, and technology tasks
+- **Coding tasks**: Improved programming ability
+- **General knowledge**: Performance improvements on a wide range of knowledge tasks
+
+**Trade-offs**:
+
+- Slight performance degradation on some tasks
+- Overall, performance gains on important tasks are prioritized
+
+::: {.callout-important}
+## Impact of Data Mixing
+
+Optimization of data mixing has a significant impact on model performance. By prioritizing STEM domains, performance on scientific and technical tasks improves, forming a core strength of Olmo 3.
+:::
+
+### Programming Language Distribution in Stack-Edu
+
+An optimal mix of programming languages was also determined for code data:
+
+**Upweighted languages**:
+
+- **Python**: Highest weight (importance in machine learning and data science)
+- **JavaScript/TypeScript**: Primary languages for web development
+- **C++/Rust**: Systems programming languages
+
+**Downweighted languages**:
+
+- Java: Relatively lower weight (high proportion of verbose code)
+- Markdown: Documentation files are limited
+
+**Results**:
+
+- Improvements achieved on nearly all coding benchmarks
+- Particularly notable improvements on Python-centric tasks
+
+## Summary
+
+Data Mixing is a critical process that determines the quality of Dolma 3. Two innovative methods---Token-constrained Mixing and Quality-aware Upsampling---achieve an optimal data allocation under a fixed token budget.
+
+**Key features**:
+
+- **Token-constrained Mixing**: Optimization via swarm-based methods
+- **Quality-aware Upsampling**: Selective reintroduction of high-quality data
+- **480 subsets**: Fine-grained classification by topic and quality
+- **Conditional Mixing**: Accommodates continuous improvement of data sources
+- **Demonstrated improvement**: Average improvement of 0.056 BPB compared to the DCLM Baseline
+
+These methods make Dolma 3 the foundation supporting the high performance of the Olmo 3 Base model.

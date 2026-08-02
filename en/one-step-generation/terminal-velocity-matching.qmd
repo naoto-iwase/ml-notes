@@ -1,0 +1,306 @@
+---
+pagetitle: "Terminal Velocity Matching"
+---
+
+# Terminal Velocity Matching: Distribution-Level Guarantees via Terminal-Time Regularization
+
+Terminal Velocity Matching (TVM) [@zhou2025tvm] is a method that generalizes Flow Matching and models transitions between any two diffusion timesteps. While MeanFlow [@geng2025meanflow] differentiates with respect to the start time $t$, TVM differentiates with respect to the terminal time $s$, thereby deriving an explicit upper bound on the 2-Wasserstein distance between the generated distribution and the data distribution. This theoretical guarantee is a contribution unique to TVM that MeanFlow does not possess, and in practice, controlling the Lipschitz continuity of the architecture leads to improved training stability.
+
+## Background and Motivation {#sec-tvm-background}
+
+### From Flow Matching to Displacement Maps
+
+Standard Flow Matching learns an instantaneous velocity field $v(z_t, t)$ and performs sampling by solving an ordinary differential equation (ODE) with multiple steps. When aiming for one-step generation, the entire ODE trajectory must be approximated with a single network evaluation, which becomes difficult when the trajectory has high curvature.
+
+MeanFlow addressed this problem by introducing the "average velocity." The average velocity is the displacement from time $t$ to time $0$ divided by the time interval, and is trained through a differential condition with respect to the start time $t$ (the MeanFlow Identity).
+
+TVM further generalizes this idea by introducing a **displacement map** $f(x_t, t, s)$. This directly models the displacement from the state $x_t$ at time $t$ to the state $x_s$ at time $s$, handling arbitrary pairs of $t$ and $s$.
+
+### Differentiating with Respect to Start Time vs Terminal Time
+
+The fundamental difference between MeanFlow and TVM lies in the direction of differentiation.
+
+- **MeanFlow**: Differentiates with respect to the start time $t$ to derive the MeanFlow Identity
+- **TVM**: Differentiates with respect to the terminal time $s$ to derive the Terminal Velocity condition
+
+This difference is not merely a technical choice---it directly impacts theoretical guarantees. Differentiation with respect to the terminal time requires the displacement map to match the correct velocity field at the terminal point, which enables derivation of upper bounds on distribution-level error. Such bounds cannot be directly obtained from differentiation with respect to the start time.
+
+## Theoretical Framework {#sec-tvm-theory}
+
+### Definition of the Displacement Map
+
+Let $\phi^{t \to s}(x_t)$ denote the solution of the probability flow ODE. This is the result of flowing the point $x_t$ at time $t$ to time $s$. The displacement map $f^{t \to s}(x_t)$ is defined as:
+
+$$
+f^{t \to s}(x_t) = \phi^{t \to s}(x_t) - x_t
+$$ {#eq-displacement-map}
+
+That is, the displacement map represents the net displacement along the ODE trajectory.
+
+### Scaled Parameterization
+
+The displacement map is parameterized using a neural network $F_\theta$ as follows:
+
+$$
+f_\theta(x_t, t, s) = (s - t) \cdot F_\theta(x_t, t, s)
+$$ {#eq-scaled-parameterization}
+
+This scaling reflects the natural boundary condition that the displacement should approach $0$ as $s \to t$. Since $F_\theta$ only needs to produce bounded outputs, learning is stabilized.
+
+### Terminal Velocity Condition
+
+The core of TVM is the differential condition with respect to the terminal time $s$. The derivative of the displacement map with respect to the terminal time $s$ must match the velocity field $v(x_s, s)$:
+
+$$
+\frac{\partial f^{t \to s}(x_t)}{\partial s}\bigg|_{x_s = x_t + f^{t \to s}(x_t)} = v(x_s, s)
+$$ {#eq-terminal-velocity}
+
+This condition guarantees that the displacement map connects to the correct instantaneous velocity at the terminal point. Intuitively, it is based on the insight that "if the terminal velocity is correct, the accuracy of the entire trajectory can be controlled."
+
+![Geometric interpretation of TVM. Left: the ground-truth ODE trajectory (blue curve) connects $x_0$ and $x_1$, with tangent velocities $u(x_t, t)$, $u(x_s, s)$ at sample points. Right: the learned one-step model approximates the trajectory by a straight chord $x_t + f_\theta(x_t, t, s)$, and the terminal velocity condition $\frac{d}{ds}f_\theta(x_t, t, s) = F_\theta(x_t, t, t)$ forces the chord to match the true velocity at $x_s$. Source: [@zhou2025tvm]](images/tvm-method.png){#fig-tvm-method}
+
+@fig-tvm-method makes the role of the terminal velocity condition explicit: the one-step model commits to a straight displacement, but the differential condition at the terminal end aligns this straight approximation with the curved ground-truth trajectory locally near $s$.
+
+### Loss Function
+
+The TVM loss function is composed as the sum of two terms:
+
+$$
+\mathcal{L}_{\text{TVM}} = \underbrace{\mathbb{E}_{t,s}\left[\lambda_{\text{TV}}(s) \left\|\frac{\partial f_\theta}{\partial s}(x_t, t, s) - v_\theta(x_t + f_\theta(x_t, t, s), s)\right\|^2\right]}_{\text{Terminal Velocity Term}} + \underbrace{\mathbb{E}_{t}\left[\lambda_{\text{FM}}(t) \left\|v_\theta(x_t, t) - u(x_t | x_0)\right\|^2\right]}_{\text{Flow Matching Term}}
+$$ {#eq-tvm-loss}
+
+The **Terminal Velocity Term** minimizes the condition from @eq-terminal-velocity, encouraging the terminal derivative of the displacement map to match the velocity field. The **Flow Matching Term** is the standard Flow Matching loss, guaranteeing the accuracy of the velocity field itself. $\lambda_{\text{TV}}(s)$ and $\lambda_{\text{FM}}(t)$ are the respective weighting functions.
+
+## Upper Bound on Wasserstein Distance {#sec-tvm-wasserstein}
+
+The most important theoretical contribution of TVM is a theorem that provides an explicit upper bound on the 2-Wasserstein distance between the generated distribution and the data distribution.
+
+### Main Theorem
+
+Let $f_\theta^{t \to 0}$ be the learned displacement map (mapping from time $t$ to $0$), $p_t$ be the distribution at time $t$, and $p_0$ be the data distribution. When $f_\theta$ is Lipschitz continuous with respect to $x$, the following holds:
+
+$$
+W_2^2\!\left(f_\theta^{t \to 0} \# \, p_t,\; p_0\right) \leq \int \lambda(s)\, \mathcal{L}_{\text{TVM}}(s)\, ds + C
+$$ {#eq-wasserstein-bound}
+
+Here, $f_\theta^{t \to 0} \# \, p_t$ is the pushforward distribution of $p_t$ through the displacement map, $\lambda(s)$ is a weighting function, and $C$ is a constant.
+
+### Implications and Importance
+
+This theorem is important for the following reasons:
+
+- **Direct relationship between training loss and generation quality**: Minimizing the TVM loss guarantees that the generated distribution approaches the data distribution
+- **Distribution-level guarantees**: It controls the closeness of entire distributions, not individual samples
+- **A guarantee that MeanFlow lacks**: A similar upper bound has not been derived from MeanFlow's formulation
+
+### Necessity of Lipschitz Continuity
+
+Lipschitz continuity of $f_\theta$ is essential for @eq-wasserstein-bound to hold. Without guaranteed Lipschitz continuity, small input changes to the displacement map can cause excessively large output variations, potentially making the upper bound diverge to infinity. This condition is not merely a theoretical assumption---it directly imposes constraints on the architectural design in implementation (see @sec-tvm-architecture).
+
+## Architecture Modifications {#sec-tvm-architecture}
+
+### Problems with Standard DiT
+
+The Lipschitz continuity required for the Wasserstein upper bound is not satisfied by standard DiT (Diffusion Transformer) [@peebles2023dit] architectures. Specifically, the following two components violate Lipschitz continuity:
+
+- **LayerNorm**: Gradients can explode in regions where the input norm is small
+- **Scaled Dot-Product Attention**: The exponential behavior of softmax can cause small input changes to produce large output variations
+
+### Semi-Lipschitz Control
+
+Instead of imposing full Lipschitz constraints (such as spectral normalization), TVM adopts a relaxed control called **Semi-Lipschitz**. This is not a theoretically rigorous control of the Lipschitz constant, but rather a design that provides sufficient stability in practice.
+
+**Replacement with RMSNorm**:
+
+- LayerNorm is replaced with RMSNorm (Root Mean Square Normalization)
+- Since RMSNorm does not subtract the mean, gradient explosion in regions with small input norm is mitigated
+- The Lipschitz constant becomes controllable
+
+**QK-normalization**:
+
+- Normalization is applied to the queries (Q) and keys (K) in Self-Attention
+- The scale of inner products is controlled, stabilizing softmax outputs
+- As a result, the Lipschitz continuity of Attention is improved
+
+### Custom Flash Attention Kernel
+
+Computing the Terminal Velocity Term (@eq-tvm-loss) requires a Jacobian-Vector Product (JVP) with respect to the terminal time $s$ of the displacement map. With standard automatic differentiation, computing JVP through Attention layers is memory-inefficient.
+
+TVM develops a **custom Flash Attention kernel** that fuses JVP computation with the Attention forward pass. This achieves:
+
+- Reduced memory usage (no need to store intermediate activations)
+- Improved computational speed (acceleration through kernel fusion)
+- **Up to 65% speedup** (compared to standard automatic differentiation)
+
+| Standard DiT | TVM-Modified DiT | Effect |
+|---|---|---|
+| LayerNorm | RMSNorm | Mitigates gradient explosion, controls Lipschitz constant |
+| Dot-Product Attention | QK-Normalized Attention | Improves Lipschitz continuity of Attention |
+| Standard Autograd | Fused Flash Attention (JVP) | Reduces memory, up to 65% speedup |
+
+: Architecture modifications for Semi-Lipschitz control {#tbl-arch-modifications}
+
+## Classifier-Free Guidance Integration {#sec-tvm-cfg}
+
+### CFG Challenges
+
+Classifier-Free Guidance (CFG) is a standard technique for improving conditional generation quality, but integrating it with one-step generation models presents unique challenges. Standard CFG uses a linear combination of conditional and unconditional predictions:
+
+$$
+\tilde{v}(x_t, t, c) = v(x_t, t) + w \cdot \left(v(x_t, t, c) - v(x_t, t)\right)
+$$
+
+Here, $w$ is the CFG scale and $c$ is the condition (e.g., class label). A larger $w$ increases fidelity to the condition but reduces diversity.
+
+### Scaled CFG Parameterization
+
+TVM adopts a parameterization that incorporates the CFG scale $w$ into the displacement map scaling. While standard CFG is applied to the velocity field, TVM's CFG operates on the entire displacement map.
+
+### Gradient Weighting for Stability
+
+When the CFG scale $w$ is large, the gradients of the Terminal Velocity Term can become unstable. TVM addresses this by introducing **$1/w^2$ gradient weighting**:
+
+$$
+\lambda_{\text{TV}}(s, w) = \frac{1}{w^2} \cdot \lambda_{\text{TV}}(s)
+$$ {#eq-cfg-weighting}
+
+This weighting controls the gradient scale even at high CFG scales, stabilizing training. Intuitively, as the CFG scale increases, the absolute value of displacements grows larger, so errors in the terminal derivative are also amplified. The $1/w^2$ weight counteracts this amplification.
+
+### Random CFG Sampling
+
+During training, the CFG scale $w$ is randomly sampled for each mini-batch. This allows the model to learn simultaneously for various CFG scales, enabling the selection of any $w$ at inference time. Experiments confirm that this yields better generalization than training with a fixed $w$.
+
+## Experimental Results {#sec-tvm-experiments}
+
+### ImageNet 256x256
+
+Results are reported with the Fréchet Inception Distance (FID) and Number of Function Evaluations (NFE).
+
+| Setting | NFE | FID | Notes |
+|---------|-----|-----|-------|
+| TVM ($w=2$) | 1 | 3.29 | Best result at 1-NFE |
+| TVM ($w=1.5$) | 2 | 2.47 | - |
+| TVM ($w=1.3$) | 4 | 1.99 | Best result at 4-NFE |
+| DiT (FM) | 250 | 2.27 | Baseline |
+
+: FID scores on ImageNet 256x256 {#tbl-tvm-imagenet256}
+
+It achieves FID 3.29 at 1-NFE, surpassing MeanFlow's 3.43. Even more noteworthy is the FID 1.99 at 4-NFE, which significantly outperforms the 250-NFE DiT (FID 2.27).
+
+### ImageNet 512x512
+
+| Setting | NFE | FID |
+|---------|-----|-----|
+| TVM ($w=2$) | 1 | 4.32 |
+| TVM ($w=1.3$) | 4 | 2.94 |
+
+: FID scores on ImageNet 512x512 {#tbl-tvm-imagenet512}
+
+TVM performs effectively even at higher resolutions, achieving FID 4.32 at 1-NFE and FID 2.94 at 4-NFE.
+
+![1-NFE FID as a function of training steps under two CFG scales. With $w=2$, FID falls quickly at small training budgets but soon plateaus; with $w=1.5$, the curve starts higher but keeps improving past 100k steps to reach a much lower FID. The crossover empirically motivates the random-CFG-sampling training scheme described in @sec-tvm-cfg. Source: [@zhou2025tvm]](images/tvm-fid-curve.png){#fig-tvm-fid-curve width=60%}
+
+@fig-tvm-fid-curve illustrates one of the central practical findings of TVM: the optimal CFG scale depends on the training budget. Models converge fastest at high CFG but reach a lower final FID at lower CFG.
+
+### Ablations
+
+Ablation experiments were conducted on the key hyperparameters that affect TVM's performance.
+
+**Time sampling**:
+
+- The sampling strategy for $(t, s)$ pairs during training significantly impacts performance
+- Concentrating $s$ near $t$ is effective, while distant $(t, s)$ pairs provide weak learning signals
+
+**EMA rate (exponential moving average decay rate)**:
+
+- The EMA rate of the target network is sensitive to performance
+- An EMA rate that is too high causes slow target updates, training based on outdated information
+- An EMA rate that is too low makes the target unstable
+
+**Scaling**:
+
+- The scaling $(s-t)$ from @eq-scaled-parameterization is important, and training becomes unstable without it
+- The scaling automatically makes displacements smaller for short time intervals, easing learning
+
+## Comparison with MeanFlow
+
+::: {.callout-note collapse="true"}
+## Theoretical and Practical Differences from MeanFlow
+
+TVM and MeanFlow both extend Flow Matching to achieve one-step generation, but they have several fundamental differences.
+
+**Direction of differentiation**:
+
+- **MeanFlow**: Uses a differential condition with respect to the start time $t$ of the displacement map (MeanFlow Identity). It takes the form $\frac{\partial}{\partial t}\left[\frac{f(x_t, t)}{t}\right]$, controlling the rate of change of the average velocity.
+- **TVM**: Uses a differential condition with respect to the terminal time $s$ of the displacement map (Terminal Velocity). It takes the form $\frac{\partial f}{\partial s}(x_t, t, s)$, controlling the velocity at the terminal point.
+
+**Gradient stability under CFG**:
+
+- **MeanFlow**: When the CFG scale $w$ is large, differentiation at the start time can become unstable. In particular, gradient divergence near $t \to 0$ has been reported.
+- **TVM**: The $1/w^2$ gradient weighting (@eq-cfg-weighting) enables stable training even at high CFG scales. This weighting is naturally derived from the terminal-time differentiation structure.
+
+**Presence of Wasserstein upper bound**:
+
+- **MeanFlow**: No explicit upper bound on the distance between the generated and data distributions has been derived. Even when the training loss is small, closeness at the distribution level is not theoretically guaranteed.
+- **TVM**: @eq-wasserstein-bound establishes a direct relationship between the training loss and Wasserstein distance. However, this upper bound depends on the Lipschitz continuity assumption.
+
+**Performance comparison** (ImageNet 256x256, 1-NFE):
+
+- MeanFlow: FID 3.43
+- TVM: FID 3.29
+
+TVM outperforms MeanFlow, though the difference is relatively small. The true strengths of TVM lie in its performance improvements with few steps (4-NFE: FID 1.99) and the existence of theoretical guarantees.
+
+[→ Details:]{.detail-link} [MeanFlow](mean-flow.qmd)
+:::
+
+## Training-Inference Trade-off
+
+::: {.callout-important collapse="true"}
+## Trade-off Between High CFG Scale and NFE
+
+TVM's experimental results reveal an interesting trade-off between CFG scale and NFE.
+
+**High CFG ($w=2$)**:
+
+- Achieves the best FID (3.29) at 1-NFE
+- However, increasing to 2-NFE can **worsen** the FID
+
+**Low CFG ($w=1.3$)**:
+
+- FID is higher (quality is worse) at 1-NFE
+- However, achieves the best FID (1.99) at 4-NFE
+
+This phenomenon suggests **model capacity limitations**. At high CFG scales, the model is trained to make "strong" corrections in a single step, but this correction remains a coarse approximation. Adding a second step applies a further correction on top of the coarse first-step correction, which can actually reduce accuracy.
+
+In contrast, at low CFG scales, the corrections at each step are gentle, so accuracy monotonically improves as the number of steps increases.
+
+| CFG Scale | 1-NFE | Best NFE | Trend |
+|---|---|---|---|
+| High ($w=2$) | FID 3.29 (best) | 1-NFE | Degrades with more NFE |
+| Medium ($w=1.5$) | Moderate | 2-NFE (FID 2.47) | Improves with more NFE |
+| Low ($w=1.3$) | Low quality | 4-NFE (FID 1.99, overall best) | Greatly improves with more NFE |
+
+: Trade-off between CFG scale and NFE. The optimal CFG decreases as NFE increases. {#tbl-cfg-nfe-tradeoff}
+
+**Practical guidelines**:
+
+- **Real-time applications** (1-NFE required): Choose $w=2$
+- **High-quality generation** (a few steps acceptable): Choose $w=1.3$ with 4-NFE
+- **Balanced**: Choose $w=1.5$ with 2-NFE
+:::
+
+## Summary
+
+Terminal Velocity Matching is a method that generalizes Flow Matching and achieves strong theoretical guarantees by imposing differential conditions at the terminal time.
+
+**Key contributions**:
+
+- **Wasserstein upper bound**: Establishes an explicit relationship between training loss and generation quality
+- **Semi-Lipschitz architecture**: Stabilization through RMSNorm and QK-normalization
+- **Custom Flash Attention**: Up to 65% speedup through JVP-fused kernels
+- **CFG integration**: Stable training via $1/w^2$ weighting and random CFG sampling
+- **State-of-the-art performance**: FID 3.29 (1-NFE) and FID 1.99 (4-NFE) on ImageNet 256x256
+
+TVM's theoretical framework provides a mathematical answer to the fundamental question of "why minimizing the training loss contributes to improved generation quality" in one-step generation models. While the Lipschitz continuity condition imposes implementation constraints, Semi-Lipschitz control has been experimentally shown to be an effective practical compromise.
+

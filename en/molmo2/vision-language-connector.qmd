@@ -1,0 +1,207 @@
+---
+pagetitle: "Vision-Language Connector"
+---
+
+# Vision-Language Connector
+
+## Overview
+
+The Vision-Language Connector is a critical module that transforms visual features extracted by the Vision Transformer (ViT) into a format that the Large Language Model (LLM) can process. Molmo2 follows the standard Vision-Language Model (VLM) architecture [@deitke2024molmo] and adopts a design that can uniformly process both images and video. For the end-to-end pipeline that the Connector sits inside, see the [Molmo2 architecture figure](overview.qmd#fig-architecture) in the overview chapter.
+
+## Architecture Details
+
+### Multi-Layer Feature Usage
+
+The Molmo2 Vision-Language Connector extracts features from **multiple layers** of the ViT, rather than a single layer.
+
+- **Third-to-last layer**: High-level semantic features
+- **Ninth-from-last layer**: Mid-level features
+
+This design follows the prior work Molmo [@deitke2024molmo], combining visual information at different levels of abstraction to achieve richer representations.
+
+### Attention Pooling
+
+**Attention Pooling** is used to reduce patch-level features. The mean of the patches serves as the query, and each patch window is aggregated into a single vector.
+
+#### Images: 2x2 Pooling
+
+**Input Patches (4x4 example)**:
+
+|     | Col 1 | Col 2 | Col 3 | Col 4 |
+|-----|-------|-------|-------|-------|
+| Row 1 | P₁ | P₂ | P₃ | P₄ |
+| Row 2 | P₅ | P₆ | P₇ | P₈ |
+| Row 3 | P₉ | P₁₀ | P₁₁ | P₁₂ |
+| Row 4 | P₁₃ | P₁₄ | P₁₅ | P₁₆ |
+
+: 4x4 input patch layout {#tbl-input-patches-2x2}
+
+**After 2x2 Attention Pooling**:
+
+|     | Col 1 | Col 2 |
+|-----|-------|-------|
+| Row 1 | T₁ (P₁\~P₆) | T₂ (P₃\~P₈) |
+| Row 2 | T₃ (P₉\~P₁₄) | T₄ (P₁₁\~P₁₆) |
+
+: Token layout after 2x2 Attention Pooling (16 → 4 tokens, 1/4 reduction) {#tbl-after-pooling-2x2}
+
+#### Video Frames: 3x3 Pooling
+
+Since videos have many frames, a **3x3 window** is used to further reduce the token count.
+
+**Input Patches (9x9 example)**:
+
+| | C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 | C9 |
+|---|---|---|---|---|---|---|---|---|---|
+| R1 | P₁ | P₂ | P₃ | P₄ | P₅ | P₆ | P₇ | P₈ | P₉ |
+| R2 | ... | ... | ... | ... | ... | ... | ... | ... | ... |
+| ... | ... | ... | ... | ... | ... | ... | ... | ... | ... |
+
+: 9x9 input patch layout {#tbl-input-patches-3x3}
+
+**After 3x3 Attention Pooling**:
+
+| | Col 1 | Col 2 | Col 3 |
+|---|---|---|---|
+| Row 1 | T₁ (9 patches) | T₂ (9 patches) | T₃ (9 patches) |
+| ... | ... | ... | ... |
+
+: Token layout after 3x3 Attention Pooling (81 → 9 tokens, 1/9 reduction) {#tbl-after-pooling-3x3}
+
+### Shared MLP Projection
+
+Finally, the pooled features are projected by a **Shared MLP**. This MLP **shares parameters** between images and video frames, learning a unified visual representation.
+
+The overall data flow from raw ViT features to LLM input tokens -- multi-layer feature concatenation, image- or video-specific attention pooling, and the shared MLP projection -- can be seen on the left half of the [architecture figure](overview.qmd#fig-architecture).
+
+## Cropping Strategy
+
+### Image Cropping
+
+Molmo2 employs a **multi-crop** strategy.
+
+- **One downscaled full crop** + **up to K overlapping tile crops**
+- During training: **K = 8**
+- During inference: **K = 24** (high-resolution processing)
+
+Images that cannot be tiled with K crops are downscaled. That is, from a single source image, one downscaled full crop and K overlapping tile crops $C_1, C_2, \dots, C_K$ are generated, and both are fed to the ViT.
+
+::: {.callout-note}
+
+## Column Tokens
+
+For multi-crop images, **column tokens** are included in the input to the LLM. This conveys aspect ratio information of the image to the LLM.
+
+Column tokens are not included for single-crop images (which are always square).
+
+:::
+
+### Video Cropping
+
+For video, the following strategy is adopted to reduce computational cost:
+
+- **Sampling rate: S = 2 fps** (1 frame every 2 seconds)
+- Each frame is processed as a single crop (downscaled as needed)
+- Maximum frame count: **F = 128** (standard training) or **F = 384** (long-context training)
+
+If the video length exceeds F/S seconds, F frames are uniformly sampled, and the **last frame is always included**.
+
+::: {.callout-tip}
+
+## Special Handling of the Last Frame
+
+The **last frame** of a video is always included. This is because many video players display the last frame after playback ends, making it potentially significant to the user.
+
+:::
+
+## Bi-Directional Attention
+
+In Molmo2, the LLM is designed so that **image tokens can mutually attend to each other** when processing visual tokens [@shen2024longvu; @gao2025tc; @team2025gemma].
+
+In a standard LLM, each token can only attend to tokens preceding it due to the causal mask. However, Molmo2 allows **bi-directional attention** for visual tokens.
+
+**Standard Causal Attention**:
+
+|  | T₁ | T₂ | T₃ | T₄ |
+|---|:---:|:---:|:---:|:---:|
+| **T₁** | ● | × | × | × |
+| **T₂** | ● | ● | × | × |
+| **T₃** | ● | ● | ● | × |
+| **T₄** | ● | ● | ● | ● |
+
+: Standard causal attention mask {#tbl-causal-attention}
+
+**Bi-directional Attention on Vision Tokens**:
+
+|  | V₁ | V₂ | V₃ | T₁ | T₂ |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **V₁** | ● | ● | ● | × | × |
+| **V₂** | ● | ● | ● | × | × |
+| **V₃** | ● | ● | ● | × | × |
+| **T₁** | ● | ● | ● | ● | × |
+| **T₂** | ● | ● | ● | ● | ● |
+
+: Bi-directional attention mask on vision tokens (V: Vision tokens, T: Text tokens) {#tbl-bidirectional-attention}
+
+This allows visual tokens from different frames or different images to exchange information, enabling learning of spatiotemporal relationships.
+
+::: {.callout-important}
+
+## Effect of Bi-Directional Attention
+
+Ablation studies confirmed that bi-directional attention on visual tokens **improves performance**.
+
+It is particularly effective for tasks that require capturing relationships between multiple frames/images, such as video tracking and multi-image understanding.
+
+:::
+
+## Input Format to the LLM
+
+Visual tokens generated by the Vision-Language Connector are fed to the LLM in the following formats.
+
+### Video
+
+```
+<image_start> [Visual Tokens for Frame1] <timestamp>0.5s</timestamp>
+<image_start> [Visual Tokens for Frame2] <timestamp>1.0s</timestamp>
+...
+[Subtitle text] <timestamp>0.5s-2.0s</timestamp>
+```
+
+- **Timestamps** are appended to each frame's visual tokens
+- If subtitles are available, they are added as timestamped text
+
+### Multi-Image
+
+```
+<image_start> [Visual Tokens for Image1] <image>1</image>
+<image_start> [Visual Tokens for Image2] <image>2</image>
+...
+```
+
+- An **image index** is appended to each image
+
+### Multi-Crop Images
+
+```
+<image_start> [Column Tokens] [Visual Tokens for Full Crop]
+[Visual Tokens for Crop1] [Visual Tokens for Crop2] ...
+```
+
+- **Column tokens** convey aspect ratio
+- Tokens from the full crop and partial crops are concatenated
+
+## Summary
+
+The Molmo2 Vision-Language Connector has the following characteristics:
+
+1. **Multi-layer features**: Extracts features from multiple ViT layers (3rd-to-last, 9th-from-last)
+2. **Adaptive pooling**: 2x2 Attention Pooling for images, 3x3 for video frames
+3. **Shared parameters**: Unified MLP projection for images and video
+4. **Multi-crop strategy**: Uses up to 24 crops for high-resolution processing
+5. **Efficient video processing**: 2 fps sampling + last frame retention
+6. **Bi-directional attention**: Allows mutual interaction among visual tokens (improves performance)
+7. **Column tokens**: Conveys aspect ratio information for multi-crop images
+
+This design enables Molmo2 to process images and video uniformly while balancing computational efficiency and representational power.
+

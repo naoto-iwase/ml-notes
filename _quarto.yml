@@ -1,0 +1,91 @@
+profile:
+  # A separate ignored repository supplies the private profile for local use.
+  # CI and public clones must explicitly select only the public profile.
+  default: [public, private]
+
+project:
+  type: website
+  output-dir: _site
+  pre-render: uv run _scripts/build_citations.py
+  render:
+    - "*.qmd"
+  resources:
+    - "js/*.js"
+    - "assets/citations.json"  # Built by pre-render hook; consumed by js/cite.js
+  preview:
+    port: 4200
+
+website:
+  title: "ML Notes"
+  description: "Machine learning research notes by Naoto Iwase (岩瀬 直人)."
+  site-url: https://notes.iwase.dev
+  google-analytics: "G-8NGG6PFL85"
+  favicon: assets/favicon.png
+  open-graph: true
+  twitter-card: true
+  page-footer:
+    center: |
+      © 2026 <a href="/">ML Notes</a>
+
+csl: https://www.zotero.org/styles/chicago-author-date
+link-citations: true
+
+filters:
+  - _filters/hreflang.lua
+
+format:
+  html:
+    theme:
+      light: [cosmo, css/fonts.scss]
+      dark: [darkly, css/fonts.scss, css/dark-overrides.scss]
+    css:
+      - css/styles.css
+      - css/lang-switch.css
+      - css/listing.css
+      - css/cite.css
+      - css/sidebar-toggle.css
+    lightbox: auto
+    citations-hover: true
+    crossrefs-hover: true
+    include-in-header:
+      - text: |
+          <script>
+            // Pre-apply collapsed panels so navigation doesn't flash on load.
+            (function () {
+              ['sidebar', 'toc'].forEach(function (panel) {
+                var state = panel + '-collapsed';
+                if (localStorage.getItem('site-' + state) === 'true') {
+                  document.documentElement.classList.add(state);
+                }
+              });
+            })();
+          </script>
+          <script type="application/ld+json">
+          {
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            "name": "ML Notes",
+            "url": "https://notes.iwase.dev",
+            "author": {
+              "@type": "Person",
+              "@id": "https://iwase.dev/#person",
+              "name": "Naoto Iwase",
+              "url": "https://iwase.dev/"
+            }
+          }
+          </script>
+          <link rel="alternate" type="application/rss+xml" title="ML Notes — 日本語" href="https://notes.iwase.dev/ja/index.xml">
+          <link rel="alternate" type="application/rss+xml" title="ML Notes — English" href="https://notes.iwase.dev/en/index.xml">
+          <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+JP:wght@400;500;700&family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Mono&family=Noto+Serif+JP:wght@600&display=swap">
+    include-after-body:
+      - text: |
+          <script src="/js/lang-switch.js"></script>
+          <script src="/js/sidebar-toggle.js"></script>
+          <script src="/js/cite.js"></script>
+          <script src="/js/article-layout.js"></script>
+    highlight-style: github
+    toc: true
+    toc-depth: 3
+    code-fold: false
+    code-copy: true
+    page-navigation: true

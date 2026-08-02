@@ -1,0 +1,408 @@
+---
+pagetitle: "Continuous vs Discrete"
+---
+
+# Continuous vs Discrete Diffusion: Bridging the Two
+
+The **continuous diffusion models** developed for image generation (Denoising Diffusion Probabilistic Models (DDPM) [@ho2020ddpm], Score-Based Models [@song2021scorebased], Variance-Preserving SDE (VP-SDE), etc.) and the **discrete diffusion models** developed for language (masked / absorbing diffusion exemplified by Masked Diffusion Language Model (MDLM) [@sahoo2024mdlm]) correspond strongly in structure, but their mathematical objects differ. This chapter organizes the correspondence between the two and clarifies "how far the knowledge from the continuous side can be carried over to the discrete side" and "from where a translation becomes necessary."
+
+## Conclusion
+
+Let us state the conclusion up front. The relationship between continuous diffusion and discrete diffusion (masked / absorbing type) can be summarized as follows.
+
+**Parts with strong correspondence**:
+
+- The structure of adding noise in the forward and removing it in the reverse
+- The flow of deriving the loss from the evidence lower bound (ELBO)
+- The simplification of the loss via signal-to-noise ratio (SNR)-like weighting
+- The framework of guidance (classifier-free guidance)
+
+**Parts that do not correspond**:
+
+- The score function $\nabla_x \log p(x)$ — it cannot be naturally defined for discrete variables
+- stochastic differential equation (SDE) / probability flow ordinary differential equation (ODE) — mathematics that presupposes continuous variables
+- The distinction between VE / VP (variance exploding / variance preserving) — the concept of variance does not directly correspond in the absorbing process
+
+If you keep the knowledge of continuous diffusion as a "template," the formulas of MDLM read off in one pass. However, the correct translation is to understand that on the discrete side, the same objective is achieved by the **cross-entropy of $x_0$-prediction** rather than by the score.
+
+::: {.callout-tip}
+## In One Line
+
+"Use the knowledge of continuous diffusion as the template for MDLM's formulas. But do not import the score-centric viewpoint too much."
+:::
+
+## Correspondence Table
+
+Lining up the main concepts of the two sides yields the following table.
+
+| Concept | Continuous diffusion | MDLM (masked / absorbing discrete diffusion) |
+|---|---|---|
+| State space | $\mathbf{x} \in \mathbb{R}^d$ | Token sequence $x \in \mathcal{V}^L$ (discrete) |
+| Time | $t \in [0, T]$ (continuous) | $t \in [0, 1]$ (continuous) |
+| Forward process | VP-SDE: $d\mathbf{x}_t = -\tfrac{1}{2}\beta(t)\mathbf{x}_t\,dt + \sqrt{\beta(t)}\,d\mathbf{w}_t$ | Each token independently absorbed into `[MASK]` at rate $t$ |
+| Marginal distribution | $\mathbf{x}_t = \sqrt{\bar\alpha_t}\mathbf{x}_0 + \sqrt{1-\bar\alpha_t}\boldsymbol{\epsilon}$ | $x_t^i = \texttt{[MASK]}$ w.p. $t$, else $x_0^i$ |
+| Signal ratio | $\text{SNR}(t) = \bar\alpha_t / (1-\bar\alpha_t)$ | $\text{SNR}(t) \propto (1-t)/t$ |
+| Training objective | DSM: $\mathbb{E}[\lambda(t)\|\mathbf{s}_\theta(\mathbf{x}_t,t) - \nabla\log p(\mathbf{x}_t\mid \mathbf{x}_0)\|^2]$ | Masked CE with weight $1/t$ |
+| Parametrization | $\epsilon$-pred / $\mathbf{x}_0$-pred / score-pred | $x_0$-prediction |
+| Reverse process | Reverse-time SDE or probability flow ODE | Discrete-time denoising loop |
+| Acceleration | Denoising Diffusion Implicit Models (DDIM, deterministic ODE) | semi-AR sampling, block-parallel unmask |
+| Guidance | Classifier / Classifier-Free Guidance | Classifier-Free Guidance directly transferable |
+| Latent formulation | Latent Diffusion Model (LDM, Stable Diffusion) | Non-standard in DLLM (not yet established) |
+
+: Conceptual correspondence between continuous diffusion and discrete diffusion (MDLM) {#tbl-correspondence}
+
+What @tbl-correspondence makes clear is that **only the way the forward is set up differs, while the rest of the skeleton follows the same flow**. The continuous side destroys the state with Gaussian noise; the discrete side erases information with the `[MASK]` absorbing state. Either way, the framework of "gradually erase information → restore in reverse" is shared.
+
+Viewed as a flow, the structural correspondence between the two processes is shown in @fig-correspondence.
+
+```{mermaid}
+%%| label: fig-correspondence
+%%| fig-cap: "Structural correspondence between continuous and discrete diffusion"
+
+flowchart TB
+    subgraph Continuous["Continuous diffusion (DDPM / VP-SDE)"]
+        C0["x_0 (clean image)"] --> C1["x_t = √α_t x_0 + √(1-α_t) ε"]
+        C1 --> C2["x_T ~ N(0, I) (pure noise)"]
+        C2 -.reverse SDE / ODE.-> C0
+    end
+
+    subgraph Discrete["Discrete diffusion (MDLM)"]
+        D0["x_0 (clean sequence)"] --> D1["x_t: each position MASK with prob t"]
+        D1 --> D2["x_1: all positions MASK"]
+        D2 -.denoising loop.-> D0
+    end
+
+    Continuous -.same ELBO structure.-> Discrete
+```
+
+## Forward Process Correspondence in Detail
+
+The mathematical objects of the two forwards differ, but the design philosophy of "gradually erase information" matches completely. Here we look at the correspondence at the formula level.
+
+The forward of continuous diffusion (VP-SDE) is
+
+$$
+d\mathbf{x}_t = -\tfrac{1}{2}\beta(t) \mathbf{x}_t \, dt + \sqrt{\beta(t)} \, d\mathbf{w}_t
+$$
+
+and the discretized DDPM transition is
+
+$$
+q(\mathbf{x}_t \mid \mathbf{x}_{t-1}) = \mathcal{N}(\mathbf{x}_t; \sqrt{1-\beta_t} \mathbf{x}_{t-1}, \beta_t \mathbf{I}).
+$$
+
+The marginal at an arbitrary time can be written in closed form as $\mathbf{x}_t = \sqrt{\bar\alpha_t}\mathbf{x}_0 + \sqrt{1-\bar\alpha_t}\boldsymbol{\epsilon}$.
+
+On the other hand, the forward of MDLM is the simple setting where each token is independently replaced by `[MASK]` with probability $t$:
+
+$$
+q(x_t^i \mid x_0^i) = \begin{cases} \delta_{x_0^i} & \text{w.p. } 1 - t \\ \delta_{\texttt{[MASK]}} & \text{w.p. } t \end{cases}
+$$
+
+What both share is:
+
+- **A complete data state at $t=0$ and a fully information-destroyed state at $t=1$ (or $T$)**
+- **The marginal at any time can be written in closed form** (it suffices to sample a single step at training time)
+- **The forward is a fixed process with no learnable parameters**
+
+In particular, the "closed form" property is the essential reason training becomes efficient on both sides. On the continuous side it is the Gaussian reparametrization; on the discrete side it is the independence at each position — the tools differ, but the purpose is the same.
+
+## Four Strongly Corresponding Points
+
+Here we narrow down the most important "strong correspondences" of @tbl-correspondence to four points and look at them in detail.
+
+### Derivation Structure from ELBO to the Simplified Loss
+
+In continuous diffusion, it is known that rewriting the ELBO in terms of the SNR (signal-to-noise ratio) transforms it into **DSM (denoising score matching, a weighted L2)** [@kingma2021vdm]. Specifically, the terms of the ELBO across timesteps cancel each other out, ultimately reducing to
+
+$$
+\mathcal{L}_{\text{cont}} = \mathbb{E}_{t, \mathbf{x}_0, \boldsymbol{\epsilon}} \left[ w(t) \, \| \boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t) - \boldsymbol{\epsilon} \|^2 \right]
+$$
+
+a weighted squared error for noise prediction.
+
+In MDLM, the **discrete version** of the same ELBO transforms into a **masked cross-entropy with weight $1/t$**.
+
+$$
+\mathcal{L}_{\text{MDLM}} = \mathbb{E}_{t, x_t} \left[ \frac{1}{t} \sum_i \mathbf{1}[x_t^i = \texttt{[MASK]}] \, \log p_\theta(x_0^i \mid x_t) \right]
+$$
+
+The weight $1/t$ corresponds to the discrete version of the SNR-based weight. The behavior that the loss is heavily weighted at $t \to 0$ (almost no masks, large SNR) and lightly weighted at $t \to 1$ (almost full masks, small SNR) also parallels the continuous side.
+
+The lesson here is that **the continuous-side intuition that "depending on the parametrization, term cancellation in the ELBO yields a clean loss" carries over directly to MDLM**. The surprise of "why does it reduce to such a concise formula" is, for someone who has been through continuous diffusion once, within the realm of déjà vu.
+
+### "Unifying Different Formulations" via SNR
+
+On the continuous side, it is known that Score-Based Models (VE) and DDPM (VP) can be **unified via SNR**. The two differ in how the forward is written, but viewed through the single quantity $\text{SNR}(t)$, they can be treated as the same family [@kingma2021vdm].
+
+In the same spirit, on the discrete side we can view the following in parallel as "differences in the SNR schedule of the forward":
+
+- **D3PM's uniform transition**: replacement by a random other token rather than by mask
+- **MDLM's absorbing transition**: absorption into the `[MASK]` state
+- **SEDD's continuous-time discrete score**: learning probability ratios in continuous time
+
+These differ only in how the forward is set up (where the information escapes to, and at what rate), but their skeleton is the same. Just as the perspective that abstracts SBM and DDPM by one level is useful in continuous diffusion, taking a similarly elevated perspective in discrete diffusion makes the overview easier.
+
+### $x_0$-Prediction Parametrization
+
+In continuous diffusion, the three options
+
+- predict $\epsilon$ (noise prediction)
+- predict $\mathbf{x}_0$ (data prediction)
+- predict the score $\nabla \log p$ (score prediction)
+
+are known to be **equivalent up to weighting**. Implementation-wise, $\epsilon$-prediction is widely used, while $\mathbf{x}_0$-prediction has the advantage of interpretability at sampling time.
+
+MDLM can be read as **a straightforward discrete version of the $x_0$-prediction** among these three. For masked positions, it predicts "what was the correct token before being masked." It focuses solely on $x_0$, without considering quantities corresponding to $\epsilon$ or the score.
+
+As a consequence, the loss reduces to cross-entropy — the loss most familiar to language models. For readers who have the intuition for taking the $\mathbf{x}_0$-pred parametrization on the continuous side, MDLM appears natural.
+
+### Shape of the Inference Loop
+
+The appearance of the reverse process also corresponds strongly between the two.
+
+| Continuous diffusion (DDPM) | Discrete diffusion (MDLM) |
+|---|---|
+| $\mathbf{x}_T \to \mathbf{x}_{T-1} \to \cdots \to \mathbf{x}_0$ | All `[MASK]` $\to$ partially unmasked $\to \cdots \to$ fully unmasked |
+| Proceed via score / noise prediction | Proceed via $x_0$-prediction |
+| Number of steps $T$ is a hyperparameter trading off quality vs compute | Same |
+| Deterministic (DDIM) vs stochastic | Deterministic (greedy unmask) vs stochastic |
+
+: Correspondence in the shape of the inference loop {#tbl-inference-loop}
+
+As shown in @tbl-inference-loop, the trade-off structure "more steps gives better quality but more compute" is shared by both. There is a choice between deterministic and stochastic progression, and the empirical rule that determinizing makes it faster while suppressing quality degradation is also common.
+
+## Parts That Do Not Correspond / Require Translation
+
+From here, we look at points where trying to import the knowledge of continuous diffusion directly to the discrete side fails.
+
+### The Score Function Cannot Be Naturally Defined for Discrete Variables
+
+At the core of continuous diffusion is the **score function** $\nabla_\mathbf{x} \log p(\mathbf{x})$. It is the vector field representing "in which direction to move the current data point so as to increase density," and the sampling reverse SDE / ODE is essentially written using this score.
+
+However, for discrete variables, the very concept of $\nabla_x$ is meaningless to begin with. When $x$ is a token ID (a categorical variable), "differentiation" cannot be defined.
+
+How discrete diffusion models respond to this issue is where they branch out significantly.
+
+- **MDLM's choice**: Give up on the score and write it as the cross-entropy of $x_0$-prediction (concise, practical)
+- **SEDD's choice**: Learn the probability ratio $p(y)/p(x)$ — called the "concrete score," via ratio matching
+
+The fact that MDLM reduces to "BERT's random mask prediction" emerges directly as **a consequence of avoiding the score function**. This is a degree of freedom not present on the continuous side, and one could say "the discreteness is precisely what makes it concise."
+
+::: {.callout-note}
+## SEDD and the Concrete Score
+
+SEDD is an attempt to define a score-like quantity even for discrete variables, learning a probability ratio. It has a mathematical structure close to the continuous-side score but is more complex to implement and train than MDLM. MDLM swings to the opposite direction and chose "not to use a score." For a comparison of the two, see [D3PM and SEDD: Alternative Formulations of Discrete Diffusion](d3pm-sedd.qmd).
+:::
+
+### SDE / Probability Flow ODE Are Stories of Continuous Variables
+
+The reverse of continuous diffusion can be written as a **reverse-time SDE** (Anderson 1982) or a **probability flow ODE** (Song+ 2021). These are mathematical duals of the forward written as an SDE, and the sampling algorithms (Euler-Maruyama, Heun's method, etc.) are also borrowed from SDE/ODE numerical solvers.
+
+In contrast, the discrete absorbing process is a **continuous-time Markov chain (CTMC)**, which is a jump process rather than an SDE. The state transitions by discrete jumps. The reverse-time SDE of Anderson 1982 cannot be used as is.
+
+As an alternative, **one writes down the discrete reverse rate directly**. D3PM (§3) and MDLM (§2) take the form of deriving the reverse transition probability from Bayes' rule applied to the forward transition matrix. The look of the formulas differs, but the structure that "mathematics exists for inverting the forward" is the same.
+
+The SDE/ODE chapters of continuous diffusion do not apply directly to the discrete side. As a reader, it suffices to carry over **the sense that "math for inverting the forward exists"**, and one needs to separately follow the discrete version for the specific formulas.
+
+### The VE / VP Distinction Cannot Be Carried Over
+
+Continuous diffusion has an important classification axis between **VE (Variance Exploding)** and **VP (Variance Preserving)**.
+
+- **VE**: $\mathbf{x}_t = \mathbf{x}_0 + \sigma(t) \boldsymbol{\epsilon}$, the variance blows up over time
+- **VP**: $\mathbf{x}_t = \sqrt{\bar\alpha_t}\mathbf{x}_0 + \sqrt{1-\bar\alpha_t}\boldsymbol{\epsilon}$, the variance is kept within a fixed range
+
+However, the absorbing process has no axis of "variance increasing / preserved." This is because all discrete absorbing processes are a family where "information disappears in one direction."
+
+The classification axis that is meaningful on the discrete side is rather **where the probability escapes among the non-absorbing states**.
+
+- **uniform**: transition to any token with equal probability (one choice in D3PM)
+- **absorbing**: absorption into the special `[MASK]` state (MDLM's choice)
+- **Gaussian-like**: Gaussian-like diffusion in the embedding space (discretized Gaussian, another choice in D3PM)
+
+Discard the VE/VP axis of the continuous side and translate it into the **different axis of "where the information escapes to"** — this is the correct way to bridge.
+
+| Concept on the continuous side | Correspondence on the discrete side | Type of bridging |
+|---|---|---|
+| Score function $\nabla_x \log p(x)$ | $x_0$-prediction CE (MDLM) or probability ratio (SEDD) | Translation required |
+| SDE / probability flow ODE | CTMC (jump process) | Translation required |
+| VE / VP | uniform / absorbing / discretized Gaussian | Translation required |
+| SNR schedule | SNR $\propto (1-t)/t$ | Directly usable |
+| ELBO | ELBO | Directly usable |
+| Classifier-Free Guidance | Classifier-Free Guidance | Directly usable |
+
+: Correspondence when translating concepts from the continuous side to the discrete side {#tbl-translation}
+
+The top three rows of @tbl-translation (score, SDE/ODE, VE/VP) require "translation," while the bottom three rows (SNR, ELBO, CFG) are "directly usable."
+
+## Correspondence in Sampling Acceleration
+
+Both continuous and discrete diffusion share the common motivation of "wanting to accelerate by reducing the number of steps." The techniques developed on each side look different on the surface, but they share common principles.
+
+### Continuous Side: DDIM and Probability Flow ODE
+
+The representative acceleration on the continuous side is **DDIM** (Song+ 2020) and the **probability flow ODE** (Song+ 2021).
+
+- **DDIM**: while keeping the same forward marginal, parametrically deform the reverse to enable a deterministic transition. High-quality generation is possible even with 10–50 steps
+- **probability flow ODE**: an ODE with the same marginal as the SDE. It has deterministic trajectories, and ODE solver acceleration techniques (DPM-Solver, etc.) can be applied
+
+Both are based on the insight that "removing the stochastic noise injection and making the trajectory deterministic allows one to track it even with few steps."
+
+### Discrete Side: Semi-AR Sampling and Block-Parallel Unmask
+
+Representative accelerations on the discrete side are as follows.
+
+- **Greedy / confidence-based unmask**: at each step, fix the top-$k$ tokens with highest confidence. A strategy originating from MaskGIT
+- **Semi-AR sampling**: divide the sequence into blocks, unmask in parallel within a block, and progress left-to-right between blocks
+- **Low-confidence remasking**: even positions once unmasked are re-masked and rewritten if their confidence is low
+
+These look different from DDIM on the continuous side, but they share the strategy of "deterministically fix the most confident parts first." Whereas DDIM on the continuous side "removes the noise and draws a smooth trajectory," greedy unmask on the discrete side "fixes the most confident tokens first" — each is a determinization tailored to its mathematical object.
+
+| Axis | Continuous-side acceleration | Discrete-side acceleration |
+|---|---|---|
+| Determinization | DDIM, probability flow ODE | greedy unmask, top-$k$ confidence |
+| Parallelization | Batch-dimension parallelism | Position parallelism within a sequence (intra-block) |
+| Distillation | progressive distillation | step distillation (DLLM version) |
+| Solver | DPM-Solver, Heun | semi-AR scheduler |
+
+: Correspondence of acceleration techniques {#tbl-sampling-speedup}
+
+As shown in @tbl-sampling-speedup, the two can be organized as "responding to the same problem (reducing the number of steps) with tools tailored to their respective mathematical objects."
+
+## Guidance Is Common to Both
+
+Classifier-Free Guidance (CFG) is a method established in continuous diffusion, but it can be **directly transferred to discrete diffusion**.
+
+On the continuous side, the conditional prediction $\boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t, c)$ and the unconditional prediction $\boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t, \emptyset)$ are extrapolated by $w$.
+
+$$
+\tilde{\boldsymbol{\epsilon}} = (1 + w) \boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t, c) - w \boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t, \emptyset)
+$$
+
+The same framework works on the discrete side. Conditional / unconditional extrapolation is applied to the predicted probabilities (logits) of $x_0$.
+
+$$
+\log \tilde{p}(x_0 \mid x_t) = (1 + w) \log p_\theta(x_0 \mid x_t, c) - w \log p_\theta(x_0 \mid x_t, \emptyset)
+$$
+
+This is logit-space guidance, and it naturally connects to logit-bias methods in AR LLMs. Anyone who has understood guidance in continuous diffusion may carry that intuition over to the discrete side as is.
+
+::: {.callout-note collapse="true"}
+## Translation of Classifier Guidance
+
+Classifier Guidance (the scheme using gradients of an external classifier) added the classifier's gradient $\nabla_\mathbf{x} \log p(c \mid \mathbf{x}_t)$ to the score on the continuous side. On the discrete side, the gradient cannot be defined, so a direct translation is not possible, but alternative forms adding the classifier's score to the logits have been considered. In practice, CFG is simpler, and CFG is the mainstream on the discrete side as well.
+:::
+
+## Status of Latent-Space Formulation (Latent Diffusion)
+
+One of the major practical breakthroughs in continuous diffusion is the **LDM**. Widely known through Stable Diffusion, this method runs diffusion not in pixel space but in the latent space learned by a VAE, drastically reducing computational cost.
+
+On the DLLM side, this "latent formulation" is **not currently established as a standard method**. Several reasons can be considered.
+
+- A token sequence is already a "compressed" representation in discrete form, so the motivation to further latentize is weak
+- The meaning of language is combinatorial, and smooth interpolation in latent space may not function as well as it does for images
+- In the world of AR LLMs, latent formulations are not mainstream, and research comparison points are scarce
+
+Research on DLLMs that run diffusion in latent space does exist (such as diffusion in latent embeddings), but it has not yet reached a configuration of decisive victory like the image-side LDM.
+
+::: {.callout-note}
+## Latent Formulation: Continuous vs Discrete
+
+While the LDM on the continuous diffusion side took shape via the step "pixel space → latent space," DLLMs already operate in discrete token space from the outset and are designed not to require an additional "latent formulation." This is not a drawback but a consequence of having different goals.
+:::
+
+## Practical Recommendations (A Reading Guide)
+
+For readers with knowledge of continuous diffusion entering the DLLM literature, the efficient reading order is as follows.
+
+1. **Go through the standard formulation of continuous diffusion once**: DDPM, DSM, the SNR-unified perspective (reading the VDM paper is efficient)
+2. **Do not chase SDE/ODE chapters too deeply**; focus on score matching and guidance
+3. **Sander Dieleman's blog** "Diffusion language models" to grasp the bridge between discrete and continuous
+4. **Enter MDLM**. Use continuous knowledge as a "template" and understand that the discrete side achieves the same purpose with a different tool ($x_0$-prediction CE)
+
+Reading in this order, when you look at the MDLM paper, phenomena such as "the ELBO terms cancel and become concise," "an SNR-like weight emerges," and "it becomes a cross-entropy of $x_0$-prediction" all fall into place as discrete versions of known continuous-side patterns.
+
+Conversely, reading only MDLM without going through continuous diffusion risks making "why the weight $1/t$" and "why the ELBO simplifies so cleanly" appear as if handed down from above. The continuous-side intuition has value as scaffolding for reading the discrete-side formulas "without surprise."
+
+::: {.callout-tip}
+## Reading Summary
+
+Once you have gone through "ELBO → DSM simplification" on the continuous side, the MDLM "ELBO → weighted masked CE" reads at once as the discrete version of the same phenomenon. The score / SDE / VE-VP cannot be carried over to the discrete side, so they must be replaced by different tools there.
+:::
+
+## Recommendation of Sander Dieleman's Blog Posts
+
+The blog of DeepMind researcher Sander Dieleman ([sander.ai](https://sander.ai/)) is the single source for most efficiently acquiring the **mathematical intuition for diffusion models in general**. Grasping the meta-overview "what is being done" from these articles before chasing the formulas of papers makes subsequent paper reading dramatically faster.
+
+Listed in order of relevance to DLLMs:
+
+- **"Diffusion language models"**: organizes the relationship between discrete diffusion and AR, and the philosophy of whether diffusion makes sense for language. The article closest to the theme of this book
+- **"Diffusion is spectral autoregression"**: the view that diffusion and AR are not opposites but on a continuum. While on the continuous side, it is also suggestive when thinking about the relationship between discrete DLLMs and AR
+- **"The geometry of diffusion guidance"**: a geometric understanding of guidance in continuous diffusion. Provides intuition that can be applied to the discrete side as well
+
+These are blog posts rather than papers, but for the purpose of efficiently acquiring the "template" of diffusion models, they are often superior to papers.
+
+## Common Misconceptions
+
+When entering DLLMs from continuous diffusion, three particularly easy traps:
+
+### Misconception 1: "MDLM Is Exactly a Discrete Version of DDPM"
+
+Partially correct, but **the treatment of the score function is essentially different**. DDPM has a formulation equivalent to score matching, while MDLM writes its objective with the CE of $x_0$-prediction without using a score. When calling MDLM "a discrete version of DDPM," one should keep it at the level of correspondence in the forward structure and the ELBO structure.
+
+### Misconception 2: "DDIM Can Be Directly Imported into MDLM"
+
+The philosophy of deterministic sampling is shared, but the specific formula of DDIM (the ODE form with $\eta=0$) presupposes continuous variables. On the discrete side, "determinization" means greedy unmask or top-$k$ confidence selection. They are different algorithms and cannot be ported at the code level.
+
+### Misconception 3: "The Theory of SDE / ODE Automatically Carries Over to the Discrete Side"
+
+Both the reverse-time SDE (Anderson 1982) and the probability flow ODE are mathematics of continuous variables. The reverse on the discrete side is different mathematics derived from the CTMC forward, and the various theorems of SDE/ODE (convergence, acceleration methods) cannot be automatically carried over. Discrete-version corresponding theorems are required.
+
+## A Different Perspective: The Continuity Between Diffusion and AR
+
+Sander Dieleman's "Diffusion is spectral autoregression" presents a view of continuous diffusion and AR as **not opposites but on a continuum**. The forward of continuous diffusion can be seen, in the frequency domain, as "a process of erasing information from high frequencies to low frequencies," which can be interpreted as a kind of "spatial AR."
+
+This view also suggests something for DLLMs.
+
+- AR LLM: fix tokens one by one from left to right (AR along the time axis)
+- DLLM: while holding the entire sequence, gradually fix from positions with high confidence (AR along the confidence axis)
+
+Viewing the two as a difference in "along which axis to AR," DLLM is positioned as a relative of the AR LLM. The configuration corresponding to the relationship between continuous diffusion and image AR models exists on the discrete side as well.
+
+```{mermaid}
+%%| label: fig-ar-diffusion-spectrum
+%%| fig-cap: "Continuity between AR and diffusion: along which axis to AR"
+
+flowchart LR
+    A["AR LLM<br/>Axis: time (left→right)"] --> B["DLLM<br/>Axis: confidence (high→low)"]
+    B --> C["Continuous Diffusion<br/>Axis: SNR (high→low)"]
+    C --> D["Spectral AR<br/>Axis: frequency (high→low)"]
+```
+
+Lined up as in @fig-ar-diffusion-spectrum, AR and diffusion appear on a continuum as differences in "along which axis to sequentially decide."
+
+## Summary
+
+Continuous diffusion and discrete diffusion (the MDLM family) **correspond strongly in structure but differ in mathematical objects**.
+
+- The derivation structure "ELBO → simplified loss" is shared
+- The unified perspective of formulations via SNR is shared
+- The $x_0$-prediction parametrization and the shape of the inference loop are shared
+- The framework of guidance is shared
+
+On the other hand,
+
+- The score function cannot be naturally defined for discrete variables → MDLM avoids it with $x_0$-prediction CE
+- SDE / ODE presuppose continuous variables → the discrete side uses CTMC (jump process)
+- The VE / VP distinction cannot be carried over → on the discrete side, the classification axis is "where to let the information escape"
+
+There is great value in keeping the knowledge of continuous diffusion as a "template." However, fixating on the score-centric view will cause one to miss the conciseness of the discrete side. MDLM on the discrete side is most naturally read as **arriving at cross-entropy — the inherent loss of language models — by giving up on the score**.
+
+## Links to Related Chapters
+
+- [MDLM: Masked Diffusion Language Models](mdlm.qmd) to check the formulation on the discrete side
+- [D3PM and SEDD: Alternative Formulations of Discrete Diffusion](d3pm-sedd.qmd) to see another line of discrete diffusion
+- [LLaDA: Large-Scale Masked DLM and Sampling](llada.qmd) to see what it looks like at implementation scale
+
+Sander Dieleman's blog posts [@dieleman2025diffusionlm; @dieleman2024spectral; @dieleman2023guidance] are useful as auxiliary lines for the topics covered in this chapter.
+

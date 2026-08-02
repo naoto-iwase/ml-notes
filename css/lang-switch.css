@@ -1,0 +1,11 @@
+/* Paired with js/lang-switch.js. */
+.lang-switch {
+  text-align: right;
+  margin-bottom: 0.5rem;
+  font-size: 0.85em;
+}
+
+.lang-switch a {
+  color: inherit;
+  text-decoration: underline;
+}

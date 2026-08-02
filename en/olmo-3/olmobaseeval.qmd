@@ -1,0 +1,199 @@
+---
+pagetitle: "OlmoBaseEval"
+---
+
+# OlmoBaseEval: Base Model Evaluation Suite
+
+OlmoBaseEval is a benchmark suite designed to efficiently evaluate the performance of base models (pretrained models). It addresses the shortcomings of conventional evaluation methods and enables reliable evaluation even for smaller models.
+
+## Background and Objectives
+
+During the language model development process, models need to be evaluated frequently throughout training. However, many existing evaluation benchmarks target fully trained or instruction-tuned large models, making them unsuitable for evaluating smaller base models.
+
+OlmoBaseEval was developed with the following objectives:
+
+- Provide meaningful evaluation results even for smaller models
+- Accurately track the progress of models during training
+- Achieve high evaluation accuracy while keeping computational costs low
+- Measure a model's fundamental capabilities from multiple angles
+
+## Challenges with Conventional Methods
+
+There are three main challenges when evaluating smaller base models.
+
+::: {.callout-note}
+## Challenge 1: Random-Chance Performance
+
+Smaller models often perform no better than random chance on many tasks. For example, on a 4-choice question when the model has not yet learned the relevant knowledge, accuracy hovers around 25%, making it impossible to meaningfully measure the model's capabilities.
+:::
+
+::: {.callout-note}
+## Challenge 2: Small Score Differences
+
+Even as training progresses, changes in scores are minuscule, making it difficult to determine whether improvement has occurred. Detecting statistically significant differences requires an extremely large number of samples.
+:::
+
+::: {.callout-note}
+## Challenge 3: Evaluation Instability
+
+Some tasks exhibit large amounts of noise, causing results to fluctuate across evaluations of the same model. This makes it impossible to distinguish genuine performance improvements from noise-induced variation.
+:::
+
+## Three Pillars of the Solution
+
+OlmoBaseEval addresses the above challenges through three approaches.
+
+### Task Clustering
+
+By aggregating multiple tasks that evaluate similar capabilities, evaluation reliability is improved.
+
+Even if individual tasks are noisy, integrating results from multiple tasks that measure the same capability yields more stable evaluation metrics. This allows accurate measurement of specific model capabilities (e.g., reasoning ability, language comprehension).
+
+Benefits of task clustering:
+
+- Averages out noise from individual tasks
+- Enables multi-faceted assessment of capabilities
+- Improves evaluation reproducibility
+
+### Proxy Metrics
+
+Evaluation metrics better suited for smaller models are introduced.
+
+Conventional accuracy-based evaluation fails to capture the capabilities of smaller models. Proxy metrics use continuous indicators that consider the model's output distribution and confidence, rather than a binary correct/incorrect judgment.
+
+Representative proxy metrics:
+
+- **Masked Perplexity**: Measures the model's prediction probability for specific tokens
+- **Probability-based metrics**: Evaluates the probability assigned to the correct answer choice
+- **Calibration metrics**: Measures the alignment between the model's confidence and actual accuracy
+
+These metrics can capture training progress even at stages where the model has not yet fully learned.
+
+### Signal-to-Noise Ratio Improvement
+
+The signal-to-noise ratio of evaluation tasks is analyzed, and only highly reliable tasks are selected.
+
+Not all tasks are equally useful. OlmoBaseEval measures the signal-to-noise ratio of each task and preferentially adopts tasks that produce stable results even for smaller models.
+
+Methods for analyzing signal-to-noise ratio:
+
+- Confirming consistency of evaluation results across multiple model sizes
+- Measuring variance across multiple evaluations of the same model
+- Verifying consistency with scaling laws
+
+## New Benchmarks
+
+OlmoBaseEval includes the following four new benchmarks.
+
+### BasicSkills
+
+Six tasks that measure basic language understanding and reasoning capabilities.
+
+- **Reading Comprehension**: Understanding short texts and extracting information
+- **Fact Recall**: Memorization of basic knowledge
+- **Simple Logic**: Fundamental logical reasoning
+- **Pattern Recognition**: Recognizing and predicting patterns
+- **Basic Math**: Arithmetic-level numerical computation
+- **Common Sense**: Common-sense reasoning
+
+These tasks are designed so that even smaller models can achieve performance above random chance.
+
+### Gen2MC
+
+Five tasks that convert generation tasks into multiple-choice format.
+
+Traditionally, generation tasks have been considered unsuitable for evaluating base models. Gen2MC solves this problem by evaluating generation quality in a multiple-choice format.
+
+- **Summarization**: Judging summarization quality from answer choices
+- **Translation**: Evaluating translation accuracy
+- **Paraphrasing**: Measuring the validity of paraphrases
+- **Question Generation**: Evaluating the quality of generated questions
+- **Title Generation**: Judging the appropriateness of generated titles
+
+This format enables probability-based evaluation even for generation tasks.
+
+### MT MBPP
+
+A multilingual programming benchmark supporting 17 languages.
+
+MT MBPP translates MBPP (Mostly Basic Programming Problems) into 17 natural languages. It simultaneously evaluates a model's multilingual comprehension and coding capabilities.
+
+Examples of supported languages:
+
+- European languages: English, Spanish, French, German
+- Asian languages: Japanese, Chinese, Korean, Hindi
+- Others: Arabic, Russian, Portuguese
+
+By evaluating the same problem set across each language, cross-lingual performance differences can be analyzed.
+
+### Masked Perplexity
+
+An evaluation method that measures prediction accuracy for masked tokens.
+
+Specific important tokens (nouns, verbs, etc.) are masked, and the model is evaluated on how accurately it can predict them. This method provides continuous scores even for smaller models, enabling fine-grained tracking of training progress.
+
+Characteristics of Masked Perplexity:
+
+- Continuous scoring (not binary judgment)
+- Direct measurement of contextual understanding
+- Low computational cost
+- Detects meaningful differences from the early stages of training
+
+## Evaluation in Practice
+
+Evaluation using OlmoBaseEval follows this workflow:
+
+1. **Baseline measurement**: Evaluate the randomly initialized model before training begins
+2. **Periodic evaluation**: Run automated evaluation at regular training steps
+3. **Cluster analysis**: Track performance changes for each task cluster
+4. **Scaling prediction**: Estimate large-model performance from small-model results
+
+::: {.callout-tip}
+## Evaluation Frequency
+
+For smaller models (under 1B parameters), evaluation every few hundred steps is recommended. For larger models, the evaluation frequency should be adjusted considering computational costs.
+:::
+
+## Integration with Scaling Analysis
+
+OlmoBaseEval provides further insights when combined with scaling law analysis.
+
+Based on evaluation results from smaller models, the performance of larger models can be predicted. This allows the effectiveness of training strategies to be verified before actually training large-scale models.
+
+As shown in @fig-olmobaseeval-scaling, Main tasks (top row) stay pinned near random chance in the low-compute regime, whereas Easy tasks (bottom row) show a smoothly decreasing BPB, allowing training progress to be detected far earlier. By pairing Main with Easy and curating tasks that are reliable at each compute budget, OlmoBaseEval extracts meaningful signal during Base model development with little compute.
+
+![Main tasks (top, accuracy / pass@1) and Easy tasks (bottom, BPB) across QA, Math, and Code. For small models, Main saturates at random chance, whereas Easy tasks show a continuously decreasing BPB and yield a usable signal. Source: Olmo 3 Technical Report (arXiv:2512.13961)](images/olmobaseeval-scaling.png){#fig-olmobaseeval-scaling}
+
+The following factors are important for improving prediction accuracy:
+
+- Evaluation data across multiple model sizes
+- Scaling curves for each task cluster
+- Correlation analysis with training data volume
+
+## Computational Efficiency
+
+OlmoBaseEval significantly reduces computational costs compared to conventional evaluation suites.
+
+| Evaluation suite | GPU hours |
+|------|-----:|
+| Traditional | 100 |
+| OlmoBaseEval | 10 |
+
+OlmoBaseEval reduces evaluation cost by approximately **90%**.
+
+Factors contributing to efficiency:
+
+- Optimized number of tasks (elimination of redundancy)
+- Reduced evaluation time through proxy metrics
+- Optimized batch processing
+
+## Summary
+
+OlmoBaseEval brings the following innovations to base model evaluation:
+
+- **Reliability for smaller models**: Achieves evaluation beyond random-chance performance
+- **Efficiency**: Significantly reduces computational costs
+- **Multi-faceted evaluation**: Comprehensive capability measurement through task clustering
+- **Predictability**: Integration with scaling analysis
+
+This evaluation suite enables the verification of data-efficient and compute-efficient training strategies from the earliest stages of model development.

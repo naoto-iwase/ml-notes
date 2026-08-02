@@ -1,0 +1,7 @@
+/*-- scss:defaults --*/
+$pre-bg: #0f0f0f;
+$code-bg: rgba(255, 255, 255, 0.08);
+
+/*-- scss:rules --*/
+div.sourceCode { background: $pre-bg !important; }
+code span.co { color: #9aa5b1 !important; }

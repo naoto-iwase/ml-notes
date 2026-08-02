@@ -1,0 +1,247 @@
+---
+pagetitle: "Transition Matching"
+---
+
+# Transition Matching: A Unified Framework via Discrete-Time Markov Transitions
+
+## Background and Motivation {#sec-background}
+
+Flow Matching [@lipman2023flowmatching] is a generative model based on continuous-time deterministic ordinary differential equations (ODEs) that learns smooth trajectories from noise to data. However, this formulation has several limitations:
+
+- **Dependence on continuous time**: Since actual inference discretizes using methods like the Euler method, a trade-off between the number of steps and accuracy is unavoidable
+- **Deterministic trajectories**: Only a single trajectory exists for each noise point, precluding stochastic exploration
+- **Disconnection from other paradigms**: It occupies a different framework from diffusion models (stochastic) and autoregressive models (discrete, causal)
+
+Shaul et al. [@shaul2025transition] proposed **Transition Matching** to simultaneously resolve these limitations through a unified framework. The core question is:
+
+> Can diffusion models, Flow Matching, and autoregressive models be unified as **discrete-time Markov transitions**?
+
+Transition Matching answers this question affirmatively. By formulating the generative process as a sequence of stochastic transition kernels, it achieves a flexible framework that encompasses all three paradigms.
+
+## General Framework of Transition Matching {#sec-framework}
+
+### Generation via Markov Transition Kernels
+
+Transition Matching formulates the generative process as a sequence of Markov transition kernels at discrete times $t = 0, 1, \ldots, T$. Specifically, the generative process to be learned takes the following form:
+
+$$
+p^\theta(X_0, X_1, \ldots, X_T) = p(X_0) \prod_{t=0}^{T-1} p^\theta_{t+1|t}(X_{t+1} | X_t)
+$$ {#eq-generative-process}
+
+Here, $p(X_0)$ is the noise distribution (e.g., standard normal distribution) and $p^\theta_{t+1|t}$ is the transition kernel parameterized by learnable parameters $\theta$. Generation starts from $X_0 \sim p(X_0)$ and sequentially samples $X_{t+1} \sim p^\theta_{t+1|t}(\cdot | X_t)$.
+
+### Supervising Process
+
+The learning objective is to imitate a **supervising process** $q$ whose terminal distribution is the data distribution $q_1$. The supervising process is defined by the following joint distribution:
+
+$$
+q(X_0, X_1, \ldots, X_T) = p(X_0) \prod_{t=0}^{T-1} q_{t+1|t}(X_{t+1} | X_t)
+$$
+
+This supervising process is typically constructed from an interpolation path connecting noise and data (e.g., linear interpolation $X_t = (1-\alpha_t) X_0 + \alpha_t X_1$).
+
+### Loss Function
+
+Learning is performed by minimizing the divergence between the supervising process transition kernels and the model's transition kernels at each time step:
+
+$$
+\mathcal{L}(\theta) = \sum_{t=0}^{T-1} \mathbb{E}_{q(X_t)} \left[ D\left( q_{t+1|t}(\cdot | X_t) \,\|\, p^\theta_{t+1|t}(\cdot | X_t) \right) \right]
+$$ {#eq-loss}
+
+Here, $D$ is a divergence measure between probability distributions (such as Kullback-Leibler (KL) divergence). A crucial point is that the transition kernels at each time step can be matched **independently**, which is the source of the framework's flexibility.
+
+### Kernel Parameterization via Latent Variables
+
+Directly approximating the supervising process transition kernel $q_{t+1|t}$ can be difficult in some cases. Transition Matching introduces a **latent variable $Y$** to parameterize the kernel:
+
+$$
+q_{t+1|t}(X_{t+1} | X_t) = \int q_{t+1|t,Y}(X_{t+1} | X_t, Y) \, q_{Y|t}(Y | X_t) \, dY
+$$
+
+Different choices of latent variable $Y$ give rise to different variants. This design freedom underpins the versatility of Transition Matching.
+
+![Conceptual comparison of Flow Matching (left) and Transition Matching (right). Flow Matching learns a single deterministic direction at each $X_t$, while Transition Matching learns a stochastic kernel $u_t(X_t)$ that can branch into multiple possible $X_T$, making the formulation discrete-time and stochastic from the outset. Source: [@shaul2025transition]](images/tm-vs-fm.png){#fig-tm-vs-fm}
+
+@fig-tm-vs-fm summarizes the framework: at each transition step, the supervising process target $q_{t+1|t}(X_{t+1} | X_t)$ is imitated by the model kernel $p^\theta_{t+1|t}$ independently, and the loss is $D(q_{t+1|t} \| p^\theta_{t+1|t})$ summed over $t$.
+
+## DTM: Difference Transition Matching {#sec-dtm}
+
+### Formulation
+
+DTM (Difference Transition Matching) is the most fundamental variant of Transition Matching and serves as a natural discrete-time generalization of Flow Matching.
+
+It adopts the **difference** $Y = X_T - X_0$ (the difference between data and noise) as the latent variable. This means that at each transition step, the model predicts the "direction" from noise to data. The transition kernel is defined as:
+
+$$
+p^\theta_{t+1|t}(X_{t+1} | X_t) = \mathcal{N}\left(X_{t+1}; X_t + (\alpha_{t+1} - \alpha_t) f_\theta(X_t, t), \sigma_t^2 I \right)
+$$
+
+Here, $f_\theta(X_t, t)$ is a neural network that predicts the difference (the direction of $X_T - X_0$), $\alpha_t$ is the interpolation schedule parameter, and $\sigma_t$ is the magnitude of stochastic noise.
+
+### Theoretical Relationship with Flow Matching
+
+An important theorem establishing the relationship between DTM and FM has been proven.
+
+::: {.callout-note collapse="true"}
+## Equivalence Between DTM Steps and FM Euler Steps
+
+**Theorem**: The expected value of one DTM step coincides with a Flow Matching Euler step. That is:
+
+$$
+\mathbb{E}\left[X_{t+1} | X_t\right] = X_t + (\alpha_{t+1} - \alpha_t) \mathbb{E}\left[f_\theta(X_t, t)\right]
+$$
+
+This is structurally identical to the FM Euler discretization:
+
+$$
+z_{t+\Delta t} = z_t + \Delta t \cdot v_\theta(z_t, t)
+$$
+
+Furthermore, in the limit $T \to \infty$ (infinite number of time steps), DTM converges exactly to FM Euler steps.
+
+This theorem has two important implications:
+
+- DTM is theoretically justified as a rigorous discrete-time version of FM
+- At finite steps, DTM has an additional stochastic noise term $\sigma_t$ compared to FM
+
+Additionally, the paper provides a **new elementary proof** of FM's marginal velocity field. While the original FM formulation required somewhat complex arguments for proving the existence and uniqueness of the marginal velocity field, the Transition Matching framework yields a more direct and transparent proof.
+:::
+
+### Backbone-Head Architecture
+
+The practical implementation of DTM adopts the **Backbone-Head architecture**. This is a critically important design from the perspective of computational efficiency.
+
+![DTM Backbone-Head architecture. The heavy Backbone processes the input tokens $\{x_t^i\}$ once at time $t$, producing per-position features $\{h_t^i\}$. A lightweight Head then reads a position-specific feature $h_t^i$, the previously sampled latent $y^i$, and the time pair $(t, s)$ to predict the next-state token $u_s^i$. Source: [@shaul2025transition]](images/tm-arch-dtm.png){#fig-tm-arch-dtm}
+
+As @fig-tm-arch-dtm shows, the head is invoked at each refinement substep but only the cheap head — not the full backbone — runs per substep. Backbone forward pass count is reduced from 128 (FM) to 16 (DTM), achieving a **7x speedup**.
+
+The key points of this architecture are:
+
+- **Backbone**: A heavy network such as UNet or DiT that extracts common features from the input. It is run only once per sample
+- **Head**: Lightweight networks specialized for each time step $t$ that predict transitions from the Backbone's output
+- **Speedup**: While conventional FM requires 128 Backbone forward passes, DTM requires only 16. This corresponds to a **7x speedup**
+
+## ARTM: Autoregressive Transition Matching {#sec-artm}
+
+ARTM (Autoregressive Transition Matching) is a variant that incorporates the structure of autoregressive models into Transition Matching.
+
+### Independent Linear Processes and Causal Structure
+
+In ARTM, an **independent linear process** is defined for each token position $i$:
+
+$$
+X_t^{(i)} = (1 - \alpha_t) X_0^{(i)} + \alpha_t X_T^{(i)}
+$$
+
+Here, $X_t^{(i)}$ is the state at time $t$ for token position $i$. The crucial point is that this process has a **causal** structure. That is, the transition at position $i$ depends only on information from positions $1, \ldots, i-1$.
+
+This naturally integrates the **left-to-right** sequential generation structure of autoregressive models with the **noise-to-data** transformation structure of Flow Matching. The velocity at each token position is learned independently, and causal masks control the flow of information.
+
+### Relationship with Autoregressive Models
+
+ARTM can be interpreted as an extension of discrete-token autoregressive generation to continuous space. When the number of tokens is fixed to 1 and the number of steps is $T=1$, it degenerates to a single step of a standard autoregressive model.
+
+## FHTM: Full History Transition Matching {#sec-fhtm}
+
+FHTM (Full History Transition Matching) is the most expressive variant and occupies an important position in integration with LLM architectures.
+
+### Access to Full History
+
+While DTM and ARTM predict the next state based only on the current state $X_t$, FHTM has access to the **full history** $X_0, X_1, \ldots, X_t$:
+
+$$
+p^\theta_{t+1|0:t}(X_{t+1} | X_0, X_1, \ldots, X_t)
+$$
+
+This means abandoning the Markov property in exchange for utilizing richer contextual information.
+
+### Training with Teacher-Forcing
+
+FHTM training uses **teacher-forcing**. This is the standard training technique for autoregressive models in natural language processing, where the true history from the supervising process is used as input during training:
+
+$$
+\mathcal{L}_{\text{FHTM}}(\theta) = \sum_{t=0}^{T-1} \mathbb{E}_{q(X_0, \ldots, X_t)} \left[ D\left( q_{t+1|0:t}(\cdot | X_0, \ldots, X_t) \,\|\, p^\theta_{t+1|0:t}(\cdot | X_0, \ldots, X_t) \right) \right]
+$$
+
+Teacher-forcing ensures efficient and stable training. At inference time, the model uses its own generated history sequentially.
+
+### Innovation as a Fully Causal Model
+
+![FHTM architecture. The backbone processes a concatenation of all past states, beginning with a $\langle\text{boi}\rangle$ marker and continuing through previously generated tokens at each refinement step. Causal masking inside the backbone yields a fully autoregressive transformer decoder that can be trained with standard teacher-forcing. Source: [@shaul2025transition]](images/tm-arch-fhtm.png){#fig-tm-arch-fhtm}
+
+The most notable achievement of FHTM (@fig-tm-arch-fhtm) is that it was **the first fully causal model to surpass Flow Matching**. Previously, generative models with causal structures were thought to be inferior to bidirectional models. FHTM overturned this conventional wisdom, demonstrating that leveraging full history information more than compensates for the constraints of causal structure.
+
+::: {.callout-tip collapse="true"}
+## Potential for Integration with LLM Architectures
+
+FHTM can be directly implemented with standard LLM architectures (Transformer decoder). The reasons are as follows:
+
+- **Causal mask**: FHTM's causal structure perfectly aligns with the autoregressive causal mask of LLMs
+- **Teacher-forcing**: The standard LLM training technique can be applied directly
+- **Representation as token sequences**: The state $X_t$ at each time step can be treated as a token and processed as a temporal sequence
+
+This compatibility opens the possibility of **seamlessly integrating** text and image generation. For example, after autoregressive generation of text tokens, the same model with the same architecture could perform step-by-step refinement of images. The practical advantage of being able to directly leverage the massive LLM ecosystem (optimization methods, inference engines, hardware support) is also significant.
+:::
+
+## Experimental Results {#sec-experiments}
+
+### DTM Image Generation Performance
+
+DTM was trained on **350M Shutterstock data** and evaluated on text-conditioned image generation. The evaluation metrics cover both image quality and prompt alignment.
+
+| Metric | DTM (16 steps) | FM (128 steps) | Notes |
+|--------|----------------|-----------------|-------|
+| CLIPScore | Surpasses | Baseline | Text-image alignment |
+| PickScore | Surpasses | Baseline | Human preference-based evaluation |
+| ImageReward | Surpasses | Baseline | Reward model score |
+| Aesthetics | Surpasses | Baseline | Aesthetic quality |
+| Backbone forwards | 16 | 128 | **7x speedup** |
+
+DTM surpasses 128-step FM across all metrics with only 16 Backbone forward passes. This demonstrates the effectiveness of the Backbone-Head architecture.
+
+### FHTM Performance
+
+FHTM as a fully causal model showed noteworthy results in the following respects:
+
+- **Surpassing FM**: The first instance of a causal model outperforming a bidirectional model
+- **LLM architecture**: Demonstrated implementability with a standard Transformer decoder
+- **Effectiveness of teacher-forcing**: Confirmed training stability and efficiency
+
+## Comparison of the Three Variants {#sec-comparison}
+
+Summarizing the positioning of each variant:
+
+| Variant | Latent Variable $Y$ | Structure | Key Advantage |
+|---------|---------------------|-----------|---------------|
+| DTM | $X_T - X_0$ (difference) | Markov | Discrete-time version of FM, 7x speedup |
+| ARTM | Independent linear processes | Causal | Bridge between AR models and FM |
+| FHTM | Full history | Fully causal | First to surpass FM, LLM-compatible |
+
+## Significance and Positioning {#sec-significance}
+
+The contribution of Transition Matching extends beyond individual performance improvements. This framework provides a unified perspective for treating three generative model paradigms that have previously developed independently:
+
+- **Diffusion models**: Can be expressed as stochastic transition kernels
+- **Flow Matching**: Recoverable as the $T \to \infty$ limit of DTM
+- **Autoregressive models**: Subsumed as special cases of ARTM and FHTM
+
+This unification not only deepens theoretical understanding but also opens new design spaces in practice. For example, it becomes possible to mix stochastic and deterministic transitions, or to adopt causal structure for some steps and bidirectional structure for others.
+
+The fact that FHTM is compatible with LLM architectures is particularly significant as an important step toward unified text and image generation. In the context of one-step generation, it occupies a complementary position to the other methods [@geng2025meanflow; @zhou2025tvm; @deng2026drifting] discussed in the [main document](overview.qmd), approaching the shared goal of high-quality generation with fewer steps from a unique angle of discrete-time, stochastic formulation.
+
+::: {.callout-note collapse="true"}
+## A New Elementary Proof of Flow Matching's Marginal Velocity Field
+
+As a theoretical byproduct of Transition Matching, a new elementary proof of Flow Matching's marginal velocity field has been obtained.
+
+In the original Flow Matching formulation, deriving the marginal velocity field $u_t(x)$ from the conditional velocity field $u_t(x | x_1)$ required going through the theory of probability flows or the continuity equation.
+
+In the Transition Matching framework, starting from discrete-time transition kernels and taking the $T \to \infty$ limit directly yields the existence and expression of the marginal velocity field. Specifically:
+
+$$
+u_t(x) = \lim_{\Delta t \to 0} \frac{1}{\Delta t} \mathbb{E}\left[X_{t+\Delta t} - X_t \mid X_t = x\right]
+$$
+
+This proof provides the perspective of understanding continuous-time FM as the limit of discrete time, placing the theoretical foundations of Flow Matching on firmer ground.
+:::
+

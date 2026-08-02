@@ -1,0 +1,96 @@
+---
+pagetitle: "olmOCR"
+---
+
+# olmOCR: Science PDFs {#sec-olmocr-science-pdfs}
+
+## Overview
+
+olmOCR science PDFs is a new data source built from academic Portable Document Format (PDF) documents.
+
+- **Replacement for peS2o**: Developed to replace Semantic Scholar's existing dataset peS2o
+- **AI2Bot crawler**: Uses a proprietary web crawler that complies with robots.txt
+- **Scale**: The initial collection yielded 238M (238 million) PDF documents
+
+## olmOCR Text Extraction Process
+
+Converting PDFs to plain text employs the following two-stage approach.
+
+- **Stage 1**: PDF to plain text conversion using olmOCR (AI2's Optical Character Recognition (OCR) model)
+- **Stage 2**: Poppler's pdftotext is used as a fallback
+- **Language detection**: Language identification via Lingua (extracting English documents only)
+
+## Data Processing Pipeline
+
+olmOCR science PDFs is constructed through a multi-stage filtering process.
+
+```
+Initial Collection:     238M PDF documents
+         |
+         v
+Language Detection &    160M documents
+Spam Filtering
+         |
+         v
+Fuzzy Deduplication:    156M documents (2.3% reduction)
+         |
+         v
+PII Filtering:          148M documents (4.9% reduction)
+         |
+         v
+Heuristic Filtering:    108M documents (final)
+```
+
+The reduction rates at each stage are as follows.
+
+- **Language detection & spam filtering**: 238M to 160M (approximately 33% reduction)
+- **Fuzzy deduplication**: 160M to 156M (2.3% reduction)
+- **PII filtering**: 156M to 148M (4.9% reduction)
+- **Heuristic filtering**: 148M to 108M (approximately 27% reduction)
+
+## PII Filtering
+
+To exclude documents containing Personally Identifiable Information (PII), classification was performed based on document type.
+
+- **Models used**: Gemma 3 12B and Gemma 3 4B
+- **Classification criteria**: Whether a document was not intended for public release
+- **Target examples**: Personal medical records, student transcripts, resumes, etc.
+- **Reduction effect**: 4.9% of documents were excluded
+
+This filtering ensures a privacy-respecting dataset.
+
+## Data Scale and Characteristics
+
+olmOCR science PDFs is the largest open collection for long-context research.
+
+Statistics by document length are as follows.
+
+- **8K+ tokens**: 22.3M documents (640B tokens)
+- **32K+ tokens**: 4.5M documents (380B tokens)
+
+These long documents are particularly valuable for long-context modeling research.
+
+::: {.callout-note}
+## Importance of Long-Context Data
+
+With 22.3M documents exceeding 8K tokens and 4.5M documents exceeding 32K tokens, this dataset is ideal for training language models that handle long contexts.
+:::
+
+## Classification with WebOrganizer
+
+The final document collection is classified into **24 academic topics** using WebOrganizer.
+
+- **Classification method**: WebOrganizer (AI2's domain classifier)
+- **Number of topics**: 24 categories
+- **Applications**: Data analysis, topic-based sampling, and domain adaptation research
+
+::: {.callout-tip}
+## Differences from peS2o
+
+olmOCR science PDFs offers the following advantages over peS2o.
+
+- More recent crawling data
+- More rigorous PII filtering
+- Rich collection of long documents
+- Ethical crawling compliant with robots.txt
+:::

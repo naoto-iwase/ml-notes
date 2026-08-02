@@ -1,0 +1,234 @@
+---
+pagetitle: "Implementation Guide"
+---
+
+# Implementation Guide
+
+This chapter reorganizes the five papers covered so far (HRM, TRM, PTRM, GRAM, LDT) and the precursor implementation Sotaku from the viewpoint of researchers who actually run code. Official repositories, licenses, compute resources, and pitfalls are gathered in one place. For the mathematics and ablations of each model, see the [HRM](hrm.qmd) / [TRM](trm.qmd) / [PTRM](ptrm.qmd) / [GRAM](gram.qmd) / [LDT](ldt.qmd) chapters. URLs, licenses, and star counts are as of writing (May 2026).
+
+::: {.callout-tip}
+## How to use this chapter
+
+Reading straight through is not the intended use. Jump to the relevant section depending on what you want to do:
+
+- Run TRM on Sudoku → @sec-impl-trm and @sec-impl-quickstart
+- Implement PTRM's test-time noise yourself → @sec-impl-ptrm
+- Reproduce TRM on ARC-AGI → ARC setup in @sec-impl-trm and the ARC subsection of @sec-impl-bench
+- Run LDT → @sec-impl-ldt
+- Reproduce GRAM's variational training → @sec-impl-gram
+:::
+
+## Overview: Official Code Availability and Ease of Entry
+
+A single table summarizes the code status of the six main models. Details follow in each section.
+
+| Model | Official repo | License | Ease of entry | Recommended use |
+|-------|---------------|---------|---------------|-----------------|
+| HRM | sapientinc/HRM | Apache-2.0 | Medium (requires CUDA 12.6 + FlashAttn) | Starting point of the lineage |
+| TRM | SamsungSAILMontreal/TinyRecursiveModels (archived) | MIT | High | Minimal-core recursive reasoning impl |
+| TRM fork | lucidrains/tiny-recursive-model | MIT | **Highest** (`pip install`) | First hands-on run |
+| PTRM | **Unreleased** | – | Medium (implement on top of TRM repo) | Short addition if you already have a TRM checkpoint |
+| GRAM | **Unreleased** ("coming soon") | – | Low (community reproductions emerging) | Reproduction-research opportunity |
+| LDT | lcrh/lattice-deduction-transformers (co-author reconstruction) | MIT | Medium (Modal B200 only) | Entry point to the sound-deduction line |
+| Sotaku | chenglou/sotaku | Unspecified | High (checkpoint bundled) | Reference for sub-TRM minimal implementations |
+
+: Official implementation status of the six main models. "Ease of entry" is an overall judgment based on (i) license clarity, (ii) ease of installation, and (iii) whether it runs on local GPUs. {#tbl-impl-overview}
+
+Three facts to take from @tbl-impl-overview. First, **HRM and TRM are fully public**, so entry into the recursive reasoning model literature in practice starts with one of these two. Second, **PTRM and GRAM have no official code yet**, so reproduction research itself still has academic value in this area. Third, **LDT is strongly tied to Modal's B200 cloud GPU environment**, making local-GPU follow-up difficult. As discussed later, Modal is usable from the hobby tier but represents the first hurdle for reproduction.
+
+## Getting Started with HRM {#sec-impl-hrm}
+
+The official repository is [github.com/sapientinc/HRM](https://github.com/sapientinc/HRM), Apache-2.0 licensed, with 12.5k stars at the time of writing — the largest in the recursive reasoning family. The last commit is at the end of March 2026; it has been steadily maintained for nine months since the paper came out.
+
+### Requirements
+
+The dependencies are surprisingly rigid: CUDA 12.6 + Python 3.10 + PyTorch nightly + FlashAttention v2/v3. Without FlashAttn, train_speed drops to roughly 1/3, making it effectively mandatory. README's `pip install -e .` suffices, but if the FlashAttn wheel doesn't match your local CUDA version, you'll need to build it yourself (about 30 minutes).
+
+### Recommended hardware
+
+HRM paper §3 states ARC-AGI training takes "about 24 hours on 8 GPUs". Wall-clock for Sudoku-Extreme and Maze-Hard is not given in the paper, so consult the official repo's README and community follow-ups.
+
+### Caveats
+
+First, HRM is **designed to train on only 1000 samples**, so seed-to-seed variance in evaluation is large, and running multiple seeds is prudent when discussing ablation numbers (see the [HRM](hrm.qmd) chapter and the ARC Prize Foundation's independent verification [@ge2025hrmperspectives]). Second, the paper's main results **depend on 1000-way augmentation + puzzle_id conditioning**, and on the ARC-AGI semi-private set the public-evaluation 40.3 % drops to 32 % (see the "Independent Verification" section of the [HRM](hrm.qmd) chapter). The official repo's `puzzle_dataset.py` implements this setup.
+
+## Getting Started with TRM {#sec-impl-trm}
+
+The official repository is [github.com/SamsungSAILMontreal/TinyRecursiveModels](https://github.com/SamsungSAILMontreal/TinyRecursiveModels), MIT licensed, 6.5k stars. **However, the repository is archived**: new commits have effectively stopped. The state at the time of the paper's Paper Award is frozen there.
+
+### Official vs. forks
+
+Several forks exist; choose by purpose.
+
+- **Official TRM**: For strictly reproducing the paper's numbers. Depends on the HRM data generation scripts, so you must also clone the HRM repo.
+- **[lucidrains/tiny-recursive-model](https://github.com/lucidrains/tiny-recursive-model)**: MIT, pip-installable. The choice if your goal is "try out the core logic" rather than reproducing paper numbers.
+- **[olivkoch/nano-trm](https://github.com/olivkoch/nano-trm)**: MIT. Reimplementation.
+
+For the usability of each fork, consult the respective README.
+
+### Recommended hardware
+
+The end of §4 in the TRM paper says "Sudoku-Extreme: under 36 hours on one L40S; ARC-AGI: about 3 days on four H100s" (see "Training Details" in the [TRM](trm.qmd) chapter). Wall-clock for Maze-Hard is not stated in the paper.
+
+### Caveats (paper-based)
+
+Two caveats can be read directly from the paper and its ablation table. First, **disabling EMA loses -7.5 pp on Sudoku-Extreme** ([TRM](trm.qmd) chapter Table 1). It is paired with weight decay 1.0 to suppress collapse, so any ablation that removes EMA must also adjust weight decay. Second, **going deeper than $T=3, n=6$ degrades performance** (TRM paper Table 4, 84.2 % at $T=n=4$). The "recurse deeper at test time" idea has only been verified under the paper's assumed transductive setup with puzzle_id conditioning on ARC.
+
+## Getting Started with PTRM {#sec-impl-ptrm}
+
+The official PTRM repository is **not released** at the time of writing. arXiv number is 2605.19943. Unlike GRAM there is not even a project site, so reproduction must be implemented by the reader.
+
+### Minimal core implementation
+
+PTRM is purely a test-time procedure over a trained TRM checkpoint, and the paper gives complete pseudocode as Algorithm 1 (see "Algorithm" in the [PTRM](ptrm.qmd) chapter). Implementation-wise, you add Gaussian noise injection at each deep recursion step, $K$ parallel rollouts, and best-selection by terminal Q value, on top of the TRM repo's inference script.
+
+Three design pinch points stand out from the paper and this book.
+
+First, **noise is injected at every supervision step, not only at the start of the rollout**. As both GRAM and PTRM independently confirmed via ablation, noise injection only into the initial $z$ does not yield gains on Sudoku (see the [PTRM](ptrm.qmd) chapter).
+
+Second, **$\sigma$ is task-dependent**: the paper's §5 optima are around 0.1–0.3 for Sudoku-Extreme, 1.0 for Maze-Hard, and 0.6 for ARC-AGI-2. Useful starting points for a σ sweep on new tasks.
+
+Third, **on some tasks the Q head's verifier capacity caps performance**. On Maze-Hard, best-Q@$K$ lags pass@$K$ by about 10 pp ([PTRM](ptrm.qmd) chapter §5.4). Paper future work points to training and attaching a stronger verifier as the direction to close this gap.
+
+### Compute resources
+
+Since no training is needed, one GPU on which TRM inference runs is enough. The PTRM paper does not state inference wall-clock per $K$ or $D$. Because $K$ rollouts are independent and parallelizable, batching $K$ into the batch dimension up to memory limit is a practical implementation.
+
+## Getting Started with GRAM {#sec-impl-gram}
+
+GRAM's official code is **not released** at the time of writing ("coming soon"). The project site is [ahn-ml.github.io/gram-website](https://ahn-ml.github.io/gram-website/); arXiv number 2605.19376. Two community reproductions have started.
+
+- [ad3002/gram](https://github.com/ad3002/gram): MIT, in progress. Python implementation of the paper's §3 variational training.
+- [SVAH-X/gram-reproduction](https://github.com/SVAH-X/gram-reproduction): Early stage; only the README is published at the time of writing.
+
+### Pain points for self-reproduction
+
+Unlike PTRM, GRAM **learns the stochastic component at train time**, so a TRM checkpoint cannot be reused. Three difficulties stand out.
+
+- **Amortized variational inference**: Carry two heads, prior $p_\theta(\epsilon_t \mid u_t) = \mathcal N(\mu_\theta(u_t), \sigma_\theta^2(u_t) I)$ and posterior $q_\phi(\epsilon_t \mid u_t, y)$, and compute KL via reparameterized Gaussian. Standard patterns from Iterative Amortized Inference [@marino2018iterative] and VAEs apply, but head initialization (especially $\sigma_\theta$) is delicate.
+- **Truncated surrogate loss**: BPTT through all $T_\text{total}$ steps blows up memory, so as the paper's (Eq. 5) prescribes, **flow gradients only through the final transition of each supervision step**. The choice between progressing earlier transitions under `with torch.no_grad()` or `detach()` matters.
+- **LPRM auxiliary training**: The §4 Latent Process Reward Model trains a value head $v_\psi$ in MSE in parallel with the decoder. Since it is used as a best-of-$N$ selector at inference, its forward must also run during training.
+
+### Recommended hardware
+
+Exact training cost is not stated in the paper. Extrapolating from a TRM-comparable size (around 10M parameters) plus the added parallel-trajectory $N$ axis, ARC-AGI-1 with four H100s for about 3 days seems reasonable; Sudoku-Extreme with one L40S for 24–36 hours. Plan for 1.5–2× TRM's cost as reproduction research.
+
+::: {.callout-note}
+## GRAM reproduction is a research opportunity
+
+Of the five papers in this book, GRAM is likely the **most expensive to reproduce**. On the upside, a successful reproduction gives you a recursive reasoning model with three capabilities at once: two-axis test-time scaling, unconditional generation, and multi-hypothesis reasoning. With community reproductions just starting, the work itself has rare publication value (the window before official code lands is on the order of months).
+:::
+
+## Getting Started with LDT {#sec-impl-ldt}
+
+Co-author Leopold Haller (Axiom) maintains [github.com/lcrh/lattice-deduction-transformers](https://github.com/lcrh/lattice-deduction-transformers) (MIT licensed, last commit 20 May 2026). The README explicitly describes it as a **curated reconstruction of the codebase used for the paper's experiments**, that is, an author-cleaned re-implementation rather than the original development codebase. It includes the training / inference / data-generation code needed to reproduce the paper's numbers. An independent third-party implementation [dmelmanrogers/Lattice-Deduction-Transformer](https://github.com/dmelmanrogers/Lattice-Deduction-Transformer) also exists.
+
+### The Modal B200 constraint
+
+Haller's repo **assumes both training and inference run on B200 GPUs in [Modal](https://modal.com)**. Running it on local GPUs requires rewriting the Modal-dependent parts (training loop and inference invocation) as plain PyTorch.
+
+### Snowflake Sudoku synthesis
+
+Per the paper's §5.2, synthesize 30,000 puzzles with **the SMT solver cvc5** [@barbosa2022cvc5], using 500 for train and 1000 for test. Executable with `pip install cvc5` and the synthesis script in the repo.
+
+### A subtlety in the loss design
+
+A distinctive feature of the §4.2 loss is the **asymmetric BCE weight ratio $w^+ / w^- = 8$**, which directly encodes the engineering choice to prioritize soundness over completeness. Under symmetric BCE, soundness breaks. When porting to a new task, this ratio should be re-tuned to the task's "abstain tolerance".
+
+### Compute resources
+
+Per the paper's Table 1, Sudoku-Extreme reaches 100 / 100 with **one Modal B200 in 15 minutes**. Wall-clock for Snowflake Sudoku and Maze-Hard 30×30 is not explicit in the paper.
+
+## Getting Started with Sotaku {#sec-impl-sotaku}
+
+[github.com/chenglou/sotaku](https://github.com/chenglou/sotaku). An individual implementation by Cheng Lou; 101 stars at the time of writing, last updated March 2026. **No LICENSE is specified**, so commercial use or publishing derivative research requires direct contact with the author.
+
+### What is useful about it
+
+Sotaku is the **smallest** of the six implementations mentioned in this book (800K parameters; see "Lineage" in the [LDT](ldt.qmd) chapter and the [Depth Recurrence Lineage](depth-recurrence.qmd) chapter). Per its README, training takes 2h40m on one H200. Reading Sotaku's architecture (4-layer weight-shared + 2D RoPE) as a precursor to [LDT](ldt.qmd) makes it clearer what the lattice projection adds.
+
+### Limitations
+
+There is no generalization beyond Sudoku. Use other models for Maze or ARC.
+
+## Benchmark Acquisition and Preprocessing {#sec-impl-bench}
+
+Acquisition methods and caveats for each main benchmark.
+
+### ARC-AGI
+
+All three generations are publicly released; acquisition is easy.
+
+- **ARC-AGI-1**: [github.com/fchollet/ARC-AGI](https://github.com/fchollet/ARC-AGI), Apache-2.0. 400 + 400 task JSONs under `training/` and `evaluation/`.
+- **ARC-AGI-2**: [github.com/arcprize/ARC-AGI-2](https://github.com/arcprize/ARC-AGI-2), Apache-2.0.
+- **ARC-AGI-3**: [github.com/arcprize/ARC-AGI-3-Agents](https://github.com/arcprize/ARC-AGI-3-Agents) and [github.com/arcprize/arc-agi-3-benchmarking](https://github.com/arcprize/arc-agi-3-benchmarking). Dev Preview. **ARC-AGI-3 is turn-based interactive**; the same pipeline as ARC-1/2 cannot be used.
+
+The implementation pinch point for ARC is augmentation. HRM/TRM paper numbers (e.g., 44.6 %) come from **1000-way augmentation + puzzle_id conditioning + majority vote**. Augmentation is the combination of color permutation + 8 dihedral + translation; `dataset/build_arc_dataset.py` in the HRM repo is the reference. Dropping augmentation drops ARC-AGI-1 by 5–10 pp.
+
+### Sudoku-Extreme and Maze-Hard
+
+Both are included in the HRM repo. `dataset/build_sudoku_dataset.py` and `dataset/build_maze_dataset.py` generate 1000 train + 1000 eval. Hugging Face also hosts them as `sapientinc/sudoku-extreme` and `sapientinc/maze-30x30-hard-1k`, loadable directly via `datasets.load_dataset`. Importantly, Sudoku-Extreme is a hard-puzzle set averaging 22 backtracks; all numbers in this book are trivial on easy/medium Sudoku. Changing the Sudoku difficulty breaks the comparisons in this book.
+
+### Pencil Puzzle Bench (PPBench)
+
+[github.com/approximatelabs/pencil-puzzle-bench](https://github.com/approximatelabs/pencil-puzzle-bench), MIT, 7 stars. Provides a 300-puzzle golden set (20 types × 15) and the full 62,231 puzzles / 94 types.
+
+PPBench is more than a dataset: it is implemented as a **pydantic-ai + Gymnasium + GRPO environment**. The design also supports LLM agent evaluation. Using it for inference of a recursive reasoning model like PTRM requires gridifying the puzzle representation; concretely, running `examples/dataset_sweep.py` with `uv run python` produces row-based representations per puzzle.
+
+### Snowflake Sudoku
+
+LDT's own dataset. Synthesized via `gen_data.py` in `lcrh/lattice-deduction-transformers` using cvc5. About 100 CPUs in parallel can generate 30,000 puzzles in half a day.
+
+## Compute Resource Matrix {#sec-impl-compute}
+
+Only GPU times explicitly stated in papers or official repos are listed. USD costs vary widely with GPU pricing and exchange rates and are omitted.
+
+| Task | Source | GPUs | Time |
+|------|--------|------|------|
+| Train TRM Sudoku-Extreme to paper numbers | TRM paper §4 | 1× L40S | < 36 h |
+| Train TRM ARC-AGI to paper numbers | TRM paper §4 | 4× H100 | ~ 3 days |
+| Train Sotaku Sudoku-Extreme | Sotaku README | 1× H200 | 2 h 40 m |
+| Train LDT Sudoku-Extreme | LDT paper Table 1 | 1× Modal B200 | 15 min |
+| Train LDT Snowflake Sudoku | LDT paper §5.2 | 1× Modal B200 | 13 min |
+| Train LDT Maze-Hard | LDT paper §5.3 | 20× Modal B200 | (nominal; details unstated) |
+
+: Only GPU times explicitly stated in papers or official repos. TRM Maze-Hard training time, PTRM inference time, GRAM training cost, etc., are not listed because no fixed value is stated in the papers. {#tbl-impl-compute}
+
+PTRM requires no training (only a test-time intervention over a TRM checkpoint), so any GPU that runs TRM inference suffices. GRAM's training cost is not stated as a fixed value in the paper, and as of writing community reproduction is still in progress.
+
+## Three Entry Routes {#sec-impl-quickstart}
+
+If the goal is to reproduce paper numbers, three entry routes are plausible depending on objective. Use each repo's README for specific commands.
+
+### Route 1: Reproduce TRM Sudoku-Extreme at paper numbers
+
+Clone the official repo `SamsungSAILMontreal/TinyRecursiveModels`, generate 1000 training samples with the HRM data generation script (`dataset/build_sudoku_dataset.py`), and run the TRM training script. Per paper §4, this finishes in under 36 hours on one L40S. The target to reproduce is the 87.4 % of paper Table 1.
+
+### Route 2: Implement PTRM's test-time noise yourself
+
+PTRM's official code is unreleased, but with the paper's Algorithm 1 and the TRM checkpoint above, implementation is feasible. Apply the three design pinch points laid out in @sec-impl-ptrm (per-step noise injection, task-dependence of $\sigma$, Q-head ceiling) by modifying TRM's inference script. The paper's main validation targets are Sudoku-Extreme (98.75 %) and PPBench (91.2 %).
+
+### Route 3: Reproduce LDT
+
+Run co-author Haller's repo `lcrh/lattice-deduction-transformers` on Modal. Per paper Table 1, Sudoku-Extreme reaches 100 / 100 in 15 minutes on one B200. Synthesizing Snowflake Sudoku assumes the cvc5 dependency (`pip install cvc5`). For local GPUs, the Modal-dependent parts must be rewritten.
+
+## Pitfall Checklist
+
+Cross-model pitfalls to consult when implementations get stuck.
+
+- **Augmentation dependence**: HRM/TRM assume 1000-way augmentation (color permutation + dihedral + translation) on ARC-AGI. The ARC Prize Foundation's independent verification [@ge2025hrmperspectives] reports saturation at 300.
+- **puzzle_id conditioning**: HRM/TRM concatenate a puzzle_id embedding to the input — a transductive design ("Independent Verification" in the [HRM](hrm.qmd) chapter). Evaluating without it does not reproduce paper numbers; the reality is closer to "recognition of training templates" than "generalization to unseen tasks".
+- **Disabling EMA loses -7.5 pp (TRM)**: Paired with weight decay 1.0 (TRM paper Table 1). Any ablation that removes EMA must also adjust weight decay.
+- **Sign of the Q head**: In PTRM, $\hat q$ separates sharply at +6 for correct trajectories and -6 for incorrect ones ([PTRM](ptrm.qmd) chapter §3.2). Mind the sign and the sigmoid in selection logic.
+- **Where to inject $\sigma$ (PTRM)**: Inject noise at every supervision step. Both GRAM and PTRM independently report that injecting only into the initial $z$ does not work.
+- **LDT's asymmetric BCE**: $w^+ / w^- = 8$ is the engineering choice to prioritize soundness over completeness (LDT paper §4.2). Making it symmetric breaks soundness.
+
+## Chapter Summary
+
+Three takeaways. First, **available code spans HRM, TRM, Sotaku as three direct repos plus a curated reconstruction of LDT by co-author Haller — four in total**; PTRM and GRAM are unreleased at the time of writing (GRAM has "coming soon" on its project site; PTRM has only the arXiv). Note that the LDT repo is not the original codebase used for the paper's experiments, and LDT also has a cloud-lock-in via Modal B200.
+
+Second, **augmentation and puzzle_id conditioning are the main drivers of paper numbers on benchmarks** (the ARC Prize Foundation's independent verification [@ge2025hrmperspectives]). Both for proposers of new methods and for those using existing methods as baselines, matching these is a prerequisite for evaluation.
+
+Third, **the compute resources stated in papers are as in @tbl-impl-compute** and vary by orders of magnitude from one L40S × 36 h on TRM Sudoku to four H100s × 3 days on ARC. Items not given fixed values in papers or official repos (USD costs, wall-clocks for unlisted tasks, etc.) are intentionally omitted.
+
+The next chapter, [Open Problems](open-problems.qmd), organizes what research room remains on top of the implementation foundation laid here.

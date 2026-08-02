@@ -1,0 +1,103 @@
+---
+pagetitle: "Overview"
+---
+
+# Small Recursive Reasoning Models: The HRM, TRM, GRAM Lineage and Where It Stands
+
+While chain-of-thought (CoT) on Large Language Models (LLMs) has been the mainstream form of reasoning, a separate lineage of reasoning models came into the spotlight between 2025 and 2026. Five papers, Hierarchical Reasoning Model (HRM), Tiny Recursive Model (TRM), Probabilistic Tiny Recursive Model (PTRM), Generative Recursive reAsoning Models (GRAM), and Lattice Deduction Transformers (LDT), all **execute reasoning by recursively unrolling a small neural network of a few million to a few tens of millions of parameters at test time**. They solve Sudoku and the Abstraction and Reasoning Corpus for Artificial General Intelligence (ARC-AGI) from only a thousand or so training examples, and on certain tasks they claim to surpass 671B-parameter frontier LLMs. This book examines the **recursive reasoning model** research program from all sides, technical content, prior art, evaluation, and critique.
+
+## Central Questions
+
+Four questions run through the book.
+
+**Q1**: Beyond sequential token scaling via CoT, are there other ways to invest test-time compute? If so, are they alternatives to CoT or complements?
+
+**Q2**: What is the *essential* mechanism behind the structures we call "reasoning architectures"? Among the brain-inspired hierarchy, fixed-point approximation, adaptive halting, deep supervision, and recursion — which are load-bearing and which are decorative narrative?
+
+**Q3**: Reports have emerged that a 27M-parameter HRM or a 7M-parameter TRM beats 671B-parameter DeepSeek-R1 on ARC-AGI. What does this actually mean? Is it an architecture win, a benchmark bias, or the accumulation of test-time tricks?
+
+**Q4**: How does reasoning that lives entirely in latent state differ from CoT-style reasoning that emits a natural-language trace? Where are the trade-offs in expressiveness, efficiency, interpretability, and generality?
+
+## Main Models
+
+This book treats five papers as main models, each covered in its own chapter that covers the mathematics, experiments, and critiques. HRM launched this research program in June 2025, TRM peeled off its narrative through ablations in October 2025, and PTRM, GRAM, and LDT each branched from TRM's minimal core in different directions in May 2026. Within this book they are ordered from the smallest intervention onto TRM to the largest, PTRM, then GRAM, then LDT.
+
+**[HRM (Hierarchical Reasoning Model)](hrm.qmd)** [@wang2025hrm]: Published in June 2025 by Sapient Intelligence and Tsinghua University. It combines a high-level module $f_H$ and a low-level module $f_L$ inspired by slow/fast brain hierarchy, a 1-step gradient derived from Deep Equilibrium Models (DEQ), and a Q-learning-based adaptive halting head. The paper reports 40.3% on the ARC-AGI-1 public evaluation set with a 27M-parameter model trained on roughly 1,000 samples.
+
+[→ Detail:]{.detail-link} [HRM](hrm.qmd)
+
+**[TRM (Tiny Recursive Model)](trm.qmd)** [@jolicoeur2025trm]: A single-author October 2025 paper by Alexia Jolicoeur-Martineau at Samsung SAIL Montréal. Through ablations it sequentially denies HRM's hierarchical structure, fixed-point approximation, and brain narrative, then shows that a single 2-layer, 7M-parameter network with full backpropagation through time (BPTT) outperforms HRM (44.6% on ARC-AGI-1, 7.8% on ARC-AGI-2). It won the ARC Prize 2025 Paper Award (first place).
+
+[→ Detail:]{.detail-link} [TRM](trm.qmd)
+
+**[PTRM (Probabilistic Tiny Recursive Model)](ptrm.qmd)** [@sghaier2026ptrm]: A May 2026 paper by Sghaier and Parviz at Mila Québec AI Institute / ETS Montreal together with independent researcher Jolicoeur-Martineau (the original TRM author). It runs a **test-time procedure that leaves the trained TRM checkpoint intact and adds Gaussian noise to the latent at each deep recursion step** to explore parallel trajectories. It reuses the Q head that TRM already has as a verifier and so requires neither retraining nor task-specific augmentation, lifting Sudoku-Extreme from 87.4% to **98.75%** and Pencil Puzzle Bench from 62.6% to **91.2%**. Read alongside Efstathiou & Balwani [@efstathiou2026attractor], who independently arrived at the attractor landscape hypothesis at the same time, the deterministic limit of TRM is dismantled both mechanistically and from an engineering side.
+
+[→ Detail:]{.detail-link} [PTRM](ptrm.qmd)
+
+**[GRAM (Generative Recursive Reasoning)](gram.qmd)** [@baek2026gram]: A May 2026 paper by Baek, Jo, Kim, Ren, Bengio, and Ahn (KAIST, New York University, Mila), accepted to the ICLR 2026 Workshop on AI with Recursive Self-Improvement. It adds a Gaussian stochastic component to the deterministic latent transition of HRM/TRM and trains via amortized variational inference. The same model gains **two-axis test-time scaling along depth and parallel trajectories** plus unconditional generation. It reaches 97.0% on Sudoku-Extreme and 52.0% on ARC-AGI-1. Whereas PTRM addresses the problem with test-time intervention alone, GRAM uses training-time stochasticization to also gain the additional capability of unconditional generation.
+
+[→ Detail:]{.detail-link} [GRAM](gram.qmd)
+
+**[LDT (Lattice Deduction Transformers)](ldt.qmd)** [@davis2026ldt]: A May 2026 paper by Davis (Amherst College), Haller and Alfarano (Axiom, a commercial mathematical AI company), and Santolucito (Barnard / Columbia). It projects the latent state of a recurrent Transformer onto the **lattice of abstract interpretation (Cousot & Cousot 1977)** between forward passes to obtain empirical soundness, the property of either returning a solution or abstaining. The lineage is HRM → TRM → Sotaku (an individual implementation that reaches 98.9% on Sudoku-Extreme with 800K parameters) → LDT, positioned as an independent "sound deduction" lineage against the "approximate refinement" lineage of HRM/TRM/PTRM/GRAM. With 800K parameters it solves Sudoku-Extreme and Snowflake Sudoku at **100% / 100%**, and with 1.8M it solves Maze-Hard at **99.9%**, while all frontier LLMs (Claude Opus 4.6, DeepSeek V4-Pro 1.6T, GPT-5.4) score 0%.
+
+[→ Detail:]{.detail-link} [LDT](ldt.qmd)
+
+## Four Supporting Chapters and Two Entry-Point Chapters
+
+These five papers alone do not answer "why did this approach suddenly rise?", "how does it differ from other forms of latent reasoning?", "how should we compare it to CoT?", or "where does it really stand on benchmarks?". The next four chapters fill those gaps. After them, two final chapters take the perspective of researchers starting hands-on work: an [implementation guide](implementation.qmd) and a roundup of [open problems](open-problems.qmd).
+
+**[The Depth Recurrence Lineage](depth-recurrence.qmd)**: HRM's technical building blocks were already in place between 2016 and 2021. Adaptive Computation Time (ACT, 2016), Universal Transformer (2018), Deep Equilibrium Models (DEQ, 2019), PonderNet (2021), Looped Transformers (2023–2024), and Geiping et al.'s Recurrent Depth in LLMs (2025) form a lineage that helps locate what is genuinely novel about HRM.
+
+[→ Detail:]{.detail-link} [The Depth Recurrence Lineage](depth-recurrence.qmd)
+
+**[A Taxonomy of Latent Reasoning](latent-reasoning.qmd)**: "Reasoning that does not pass through a discrete token sequence" — Coconut [@hao2024coconut], Pause Tokens [@goyal2024pause], Quiet-STaR [@zelikman2024quietstar], Diffusion-of-Thought [@ye2024dot], Soft Thinking [@zhang2025softthinking] and others — has rapidly been systematized in recent years. Using the survey of Zhu et al. [@zhu2025latentsurvey] as a backbone, this chapter locates HRM/TRM/GRAM in this broader landscape.
+
+[→ Detail:]{.detail-link} [A Taxonomy of Latent Reasoning](latent-reasoning.qmd)
+
+**[Depth Scaling vs Token Scaling](scaling.qmd)**: The "emit longer thinking tokens" CoT scaling established by OpenAI o1 and DeepSeek-R1 [@deepseek2025r1] and the "recurse deeper on the same layers" recurrent depth scaling shown by HRM/TRM/GRAM offer different ways to use test-time compute. We discuss when to use each, alongside Snell et al.'s compute-optimal analysis [@snell2024computeoptimal] and Brown et al.'s log-linear coverage [@brown2024monkeys].
+
+[→ Detail:]{.detail-link} [Depth Scaling vs Token Scaling](scaling.qmd)
+
+**[ARC-AGI and Small Models](arc-agi.qmd)**: ARC-AGI, the main battleground of HRM/TRM, shifted significantly during 2025–2026. We organize the winners of ARC Prize 2024 [@chollet2024arcprize] and 2025 [@chollet2026arcprize], the effectiveness of Test-Time Training (TTT) [@akyurek2024ttt], the arrival of ARC-AGI-2/3, and the catch-up by frontier LLMs, in order to locate where HRM/TRM-style models actually stand and where their limits are.
+
+[→ Detail:]{.detail-link} [ARC-AGI and Small Models](arc-agi.qmd)
+
+**[Implementation Guide](implementation.qmd)**: For the five main models and the precursor Sotaku, this chapter gathers official repositories, licenses, required GPUs, data acquisition, and pitfalls in one place. It outlines three entry routes for actually running code: reproduce TRM Sudoku-Extreme, self-implement PTRM, or reproduce LDT.
+
+[→ Detail:]{.detail-link} [Implementation Guide](implementation.qmd)
+
+**[Open Problems](open-problems.qmd)**: Consolidates the "limitations" and "future work" scattered across the chapters into nine open problems. For adaptive allocation with CoT, the verifier ceiling, interpretability of latent state, generalization to open domains, automatic design of abstract domains, train→test compute substitution, scaling laws, benchmark selection bias, and the path to AGI, this chapter shows where we are and one starting point for each.
+
+[→ Detail:]{.detail-link} [Open Problems](open-problems.qmd)
+
+## Six Cross-Cutting Observations
+
+Six patterns that are easy to miss if read chapter by chapter, stated upfront.
+
+**Observation 1: The length of the lineage.** HRM's technical pieces (depth-wise recurrence, weight-tied transformer, implicit differentiation, adaptive halting) were essentially in place between 2016 and 2021. HRM/TRM/GRAM are not sudden inventions but a confluence point in a long depth-recurrence lineage. When discussing "architectural novelty", one must distinguish whether the novelty is in a building block, in the combination, or in the regime.
+
+**Observation 2: The peeling away of the narrative.** HRM carried three decorative claims: "hierarchical brain structure", "fixed-point approximation", and "adaptive halting". TRM's ablations showed that removing each of the three sequentially actually improves performance, and the ARC Prize Foundation's independent verification reported that hierarchy contributes only about 5 percentage points. **Empirical verification separates decorative explanation from essential mechanism.** This book performs that separation on all five main models.
+
+**Observation 3: The depth/width duality.** PTRM's PPBench observation that "$K=100$ parallel rollouts outperform doubling depth by 4x", together with GRAM's result that "on Sudoku-Extreme, $N=20$ parallel trajectories aggregated $K=16$ times surpasses a single $K=320$ deep decoder", are important empirical instances of the test-time compute allocation question. When thinking about Best-of-N on the CoT side and recursion depth, the two may be treatable as independent scaling axes.
+
+**Observation 4: The trade-off between interpretability and soundness.** CoT's natural-language trace is readable by humans and easy to combine with a verifier. By contrast, the latent state of HRM/TRM/PTRM/GRAM is not visible to humans. This means the family of "read reasoning structure from the trace" methods (attribution graphs, prefix consensus, faithfulness analysis) cannot be directly applied. PTRM addresses this by discovering that the trained Q head of TRM functions as a "de facto verifier", achieving verifier integration with the latent kept opaque. LDT pushes further in the direction of "projecting the latent onto a lattice to make it interpretable" and obtains empirical soundness of either solving or abstaining. Interpretability of recursive reasoning is not a single-answer problem but a new category where every design decision opens a different axis.
+
+**Observation 5: Dependency on the choice of benchmark.** Sudoku, Maze, and ARC-AGI, the tasks where HRM/TRM/PTRM/GRAM dominate, are all grid-structured output tasks where conditioning on a puzzle identifier is permitted at training time. Generalization to other reasoning tasks (HLE, FrontierMath, open-domain QA, and so on) has not been verified. To evaluate the narrative that "small models surpass frontier LLMs", one must be explicit about the benchmark selection bias. At the time of writing, PTRM does show 91.2% on the verifier-equipped Pencil Puzzle Bench, but this is still within the scope of "closed constraint satisfaction" and the bridge to open-domain reasoning remains open.
+
+**Observation 6: Orthogonal branching of stochasticization and sound deduction.** The three branches that grow from TRM's deterministic minimal core converged in 2026. PTRM is the smallest possible intervention that only injects noise at test time and leaves the trained TRM intact. GRAM trains a stochastic term during training and variationally trains the model, obtaining unconditional generation in the same model. LDT adds, instead of stochasticity, the lattice projection of abstract interpretation to obtain sound deduction. All three run in parallel as independent engineering solutions to the same problem (the limit of TRM's single deterministic trajectory), and which dominates depends strongly on task properties (multi-solution CSP, presence of a verifier, clarity of logical structure, and so on).
+
+::: {.callout-tip}
+## Prerequisites
+
+We assume basic familiarity with the Transformer and attention, the concept of CoT and test-time scaling, variational inference (VI; needed in the GRAM chapter), and fixed-point iteration (covered in depth in the HRM chapter). The dedicated lineage chapter covers Adaptive Computation Time (ACT) and Deep Equilibrium Models (DEQ), so prior knowledge of these is not assumed.
+:::
+
+::: {.callout-note collapse="true"}
+## What This Book Does Not Cover
+
+- **Details of LLM-side Reinforcement Learning from Verifiable Rewards (RLVR) and Process Reward Models (PRMs)**: We treat these as LLM-side topics and focus on the recursive-reasoning-model counterparts (HRM's Q-head, GRAM's Latent PRM).
+- **The basic formulation of Diffusion Language Models (DLLMs)**: GRAM's variational latent trajectory is mathematically related to diffusion, but we only discuss its behavior in the recursive reasoning context.
+- **A comprehensive history of ARC-AGI competition**: We focus on the methods that HRM/TRM compare against.
+- **Evaluation of the neuroscientific plausibility**: HRM cites hierarchical processing and theta–gamma coupling. We treat these as "things the paper cites" and do not evaluate the plausibility itself.
+- **Deep dives on inference optimization**: Official repositories, required compute, and pitfalls per model are covered in the [Implementation Guide](implementation.qmd). Lower-level concerns like kernel-level optimization or quantization are out of scope.
+:::

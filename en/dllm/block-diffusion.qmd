@@ -1,0 +1,278 @@
+---
+pagetitle: "Block Diffusion"
+---
+
+# Block Diffusion: A Continuum Between AR and DLLM
+
+LLaDA's [@nie2025llada] semi-autoregressive sampling introduced a block-size parameter at inference time that selects "generate fully in parallel" versus "advance block by block in an Autoregressive (AR) fashion." However, the block structure there was **not present during training**; it was merely a sampling-time convenience. **BD3-LMs** (**B**lock **D**iscrete **D**enoising **D**iffusion **L**anguage **M**odels) [@arriola2025bd3lms] promotes this block structure to a **first-class citizen at training time**, and uses a single hyperparameter — the block width $K$ — to continuously interpolate from "pure AR ($K=1$)" to "full Diffusion Language Model (DLLM) ($K=L$)."
+
+This chapter organizes this **block diffusion** formulation and discusses why incorporating block structure at training time pays off. We also touch on **GIDD** (Generalized Interpolating Discrete Diffusion) [@vonrutte2025gidd], a recent proposal that interpolates along a different axis, and map out the landscape of "interpolation-style" research now emerging around DLLMs.
+
+## Why You Should Read This Chapter
+
+Readers who have gone through [LLaDA](llada.qmd) should already see that semi-AR sampling is a device for "exploiting the Key-Value (KV) cache while preserving global consistency." However, the following inconsistencies remain.
+
+- **Train/inference mismatch**: LLaDA is trained with masked diffusion over the whole sequence. Serializing into blocks at inference time is in effect **generating under a different condition than the training distribution**
+- **Weak justification for the block size**: Since the block size is decided only at inference time, "which block size is optimal" must lean on heuristics
+
+BD3-LMs gives the straightforward answer of "**embed the block structure at training time**." Furthermore, by making the block width an explicit hyperparameter, the continuum between AR and DLLM comes into view as a single spectrum. The goal of this chapter is to make this spectrum graspable as a design space.
+
+::: {.callout-note}
+## Positioning of BD3-LMs
+
+BD3-LMs is a **hybrid likelihood model** that combines Masked Diffusion Language Model (MDLM) [@sahoo2024mdlm] within-block formulation with an AR across-block factorization. A redesigned loss (variance reduction) and a learnable noise schedule allow it to achieve the best likelihood among DLLMs at the time of publication. It clarifies the picture to view BD3-LMs as elevating LLaDA's semi-AR from a "sampling trick" to a "training recipe."
+:::
+
+## The Block Diffusion Formulation
+
+### Partitioning the Sequence
+
+A sequence $x_0 = (x_0^1, \dots, x_0^L)$ of length $L$ is partitioned into $M = L/K$ blocks of width $K$.
+
+$$
+x_0 = (B_1, B_2, \dots, B_M), \qquad B_m = (x_0^{(m-1)K+1}, \dots, x_0^{mK})
+$$
+
+The block width $K$ can be viewed as a continuous parameter.
+
+- $K = 1$ → Each block is a single token. The across-block AR factorization becomes isomorphic to next-token prediction, degenerating to **pure AR LLM**
+- $K = L$ → A single large block. The within-block masked diffusion applies to the entire sequence, degenerating to **full DLLM (equivalent to MDLM / LLaDA)**
+- $1 < K < L$ → A hybrid between AR and DLLM
+
+### Joint Likelihood
+
+BD3-LMs factorizes the sequence likelihood as "AR across blocks" times "diffusion within blocks":
+
+$$
+\log p_\theta(x_0) = \sum_{m=1}^{M} \log p_\theta(B_m \mid B_{<m})
+$$
+
+Each $\log p_\theta(B_m \mid B_{<m})$ is bounded by a MDLM-style diffusion evidence lower bound (ELBO):
+
+$$
+\log p_\theta(B_m \mid B_{<m}) \geq \mathcal{L}_{\text{diff}}(B_m \mid B_{<m}; \theta)
+$$
+
+Here $\mathcal{L}_{\text{diff}}$ takes the same "weighted masked cross-entropy" form as MDLM. The overall loss is
+
+$$
+\mathcal{L}_{\text{BD3}}(\theta) = - \sum_{m=1}^{M} \mathcal{L}_{\text{diff}}(B_m \mid B_{<m}; \theta)
+$$
+
+Because the across-block probabilities are written down exactly in AR style, the final likelihood can be treated as an **upper bound on the true negative log-likelihood** (i.e., the negative of the lower bound). At $K=1$, $\mathcal{L}_{\text{diff}}$ degenerates to single-token prediction, which coincides with the usual next-token CE. At $K=L$, it becomes the diffusion ELBO over a single block, which is the MDLM loss itself.
+
+### Attention Masks
+
+The training-time attention mask becomes a hybrid that reflects the block structure.
+
+- **Within-block**: Bidirectional attention within a block. As in MDLM, `[MASK]` positions can attend to any other position (masked or unmasked)
+- **Across-block**: Causal mask across blocks. $B_m$ can only attend to $B_{<m}$; $B_{>m}$ is invisible
+
+This attention structure is isomorphic to that of AR if a block is viewed as one "extended token." The difference is that each "extended token" is not the next single token but a set of $K$ tokens, with the interior of that set generated by masked diffusion.
+
+```{mermaid}
+%%| label: fig-bd3-attention
+%%| fig-cap: "Attention structure of BD3-LMs. Bidirectional within a block, causal across blocks. The figure shows the case with M=3 blocks of width K=3"
+
+flowchart LR
+    subgraph B1["B_1 (bidirectional)"]
+        t1[t_1] <--> t2[t_2]
+        t2 <--> t3[t_3]
+        t1 <--> t3
+    end
+    subgraph B2["B_2 (bidirectional)"]
+        t4[t_4] <--> t5[t_5]
+        t5 <--> t6[t_6]
+        t4 <--> t6
+    end
+    subgraph B3["B_3 (bidirectional)"]
+        t7[t_7] <--> t8[t_8]
+        t8 <--> t9[t_9]
+        t7 <--> t9
+    end
+    B1 -.causal.-> B2
+    B2 -.causal.-> B3
+    B1 -.causal.-> B3
+```
+
+## Gradient Variance and Learnable Schedules
+
+### The High-Variance Problem of the Diffusion ELBO
+
+The main technical contribution of BD3-LMs is not the design of the objective per se but the **control of gradient variance**. The MDLM-style ELBO carries two layers of randomness: the sampling of the time $t \in [0,1]$ and the sampling of the mask pattern at that time. Compared with the next-token CE of AR, the stochastic gradient of $\mathcal{L}_{\text{diff}}$ tends to have higher variance.
+
+Once block structure is introduced, each block becomes shorter and the within-block distribution becomes thinner. Concretely,
+
+- The probability of "all-masked" ($t=1$) within a single block becomes non-negligible
+- Fully-masked blocks provide essentially no training signal, yet they are amplified by the $1/t$ weight of the ELBO
+
+This combination inflates the gradient variance, surfacing levels of instability that did not appear in the full-DLLM regime.
+
+### Variance-Reduced Estimators
+
+BD3-LMs redesigns the Monte Carlo estimator of the ELBO so as to suppress this variance. Concretely,
+
+- **Mask-count clipping**: Removing the all-masked block from the sampling region and handling a conditional distribution under which at least one observed token remains
+- **Reparametrization of the time distribution**: Adjusting the distribution of $t$ to match the block width, concentrating sampling on the regime where the training signal is meaningful
+
+Mathematically these correspond to choosing different estimators within the same family for the ELBO. The training fixed point does not change, but the variance is reduced.
+
+### Data-Driven Noise Schedules
+
+BD3-LMs goes further and **learns the noise schedule itself so as to minimize gradient variance**. Intuitively,
+
+- Which $t$ within a block yields the most useful training signal depends on the data
+- Rather than hard-coding it ahead of time, estimating it from the data lowers variance
+
+The paper shows that this "data-driven schedule" clearly beats fixed schedules (linear, cosine) in terms of likelihood.
+
+::: {.callout-tip}
+## What "Variance Reduction Pays Off" Means
+
+The contribution of BD3-LMs is less "the proposal of a new model family" than the **engineering required to bring an existing model family to a usable level**. Block diffusion as a structure is naturally imaginable from LLaDA's semi-AR, but **training it so that it actually works** required controlling gradient variance — this is the heart of the paper. The same theme — variance reduction — recurs as a common challenge in other recipes for discrete diffusion.
+:::
+
+## Inference-Time Advantages
+
+### Natural Use of the KV-Cache
+
+Completed blocks $B_{<m}$ are fixed, and their K/V need not be recomputed. By the same mechanism as the KV-cache of an AR LLM,
+
+- While generating $B_m$, the K/V of $B_{<m}$ are read from the cache
+- Once $B_m$ is completed, its K/V are added to the cache
+- Generation proceeds to $B_{m+1}$
+
+This pattern is difficult in full DLLM (since a forward pass over all positions is required at every step), but it arises naturally in block diffusion thanks to the across-block causal structure. The KV-cache hit rate decreases as $K$ grows (approaching full DLLM), but in the regime $K \ll L$, benefits close to those of an AR LLM are obtained.
+
+### Variable-Length Generation
+
+Full DLLM implementations often assume a fixed length $L$, making variable-length generation somewhat awkward. In contrast, with block diffusion,
+
+- Generation proceeds as $B_1, B_2, \dots$, so it can stop at any block boundary
+- When an EOS token is generated, the run can be cut off on a block boundary
+- There is no need to leave remaining positions as `[MASK]`
+
+This is isomorphic to the natural behavior of an AR LLM and removes the need for prior knowledge of the length.
+
+### The Inference-Cost Knob
+
+The block width $K$ functions as a knob that moves inference cost continuously.
+
+| Choice of $K$ | Parallelism | KV-cache efficiency | Typical generation quality |
+|------------|--------|---------------|----------------|
+| $K = 1$ | None (same as AR) | Maximum | On par with AR LLM |
+| $K$ small (a few to a few dozen) | Medium | High | Balanced |
+| $K$ medium (dozens to hundreds) | High | Medium | DLLM parallelism pays off |
+| $K = L$ | Maximum (full parallel) | Minimum | On par with MDLM / LLaDA |
+
+: Block width $K$ and inference-time trade-offs {#tbl-bd3-tradeoff}
+
+@tbl-bd3-tradeoff is not meant to indicate "the correct $K$"; rather, it shows that **having $K$ as a choice** itself is a design-side advantage of block diffusion.
+
+## Contrast with LLaDA's Semi-AR
+
+LLaDA's semi-autoregressive sampling and BD3-LMs both deal with a block structure, but the positioning differs.
+
+| Aspect | LLaDA semi-AR | BD3-LMs |
+|------|---------------|---------|
+| Where the block structure exists | Inference only | Both training and inference |
+| Training distribution | Masked diffusion over the whole sequence | Within-block diffusion + across-block AR |
+| Justification for the block width | Heuristic | Set at training time and made consistent |
+| Use of the KV-cache | Partial (inference-time convenience) | Structural (guaranteed by the causal mask) |
+| Variable-length generation | Somewhat awkward | Natural |
+| The limit of block width 1 | Works but diverges from training | Equivalent to pure AR |
+
+: Comparison of LLaDA semi-AR and BD3-LMs {#tbl-llada-vs-bd3}
+
+In short, **LLaDA semi-AR can be viewed as the "untrained version" of block diffusion**. BD3-LMs brings training-time consistency, promoting the block width from "a trick only on the inference side" to "a regular axis of the design space."
+
+Looked at in reverse, the fact that semi-AR sampling **worked** in LLaDA is itself indirect evidence that masked diffusion training allows for some degree of block structure. BD3-LMs provides the recipe that pulls the maximum out of that latitude.
+
+## GIDD: Interpolation Along a Different Axis
+
+Whereas block diffusion offers interpolation along the axis of block width, **GIDD** (Generalized Interpolating Discrete Diffusion) [@vonrutte2025gidd] interpolates along the **axis of the noise process**.
+
+### The Two Extremes Being Interpolated
+
+GIDD mixes the two extremes "mask-only" and "uniform-only" as a forward process.
+
+- **Mask-only** (MDLM / LLaDA): A token is stochastically replaced by `[MASK]`. Once it becomes `[MASK]`, it does not come back
+- **Uniform-only** (D3PM's uniform transition; see [D3PM and SEDD](d3pm-sedd.qmd)): A token is stochastically replaced by another token from the vocabulary
+
+GIDD interpolates between these two transitions via a mixing parameter. One extreme degenerates to mask-only, the other to uniform-only, and at intermediate settings both transitions happen simultaneously.
+
+### Self-Correction Ability
+
+A weakness of mask-only training is that **the model never sees a "wrong token"**. What is observed at training time is only "the correct token" and "`[MASK]`," and the experience of correcting a low-quality token in a later stage at inference time is absent from training.
+
+Mixing in a uniform component lets the model receive "tokens replaced by noise" as inputs and accumulate the experience of correcting them at training time. GIDD shows that this **self-correction** ability appears as a strength absent in mask-only models.
+
+Concretely, models trained with GIDD are reported to acquire the ability to re-evaluate and replace tokens at inference time.
+
+### Relationship to Block Diffusion
+
+GIDD and BD3-LMs are **two orthogonal axes of interpolation**.
+
+- **BD3-LMs**: Axis of structure (block width). A continuum between AR factorization and fully parallel diffusion
+- **GIDD**: Axis of the noise process (mask vs. uniform). A continuum between absorbing and uniform
+
+The two can in principle be combined, and one can imagine a hybrid that uses GIDD as the within-block noise process and AR across blocks. At the publication stage, however, the two are proposed independently, and combinations remain open.
+
+## Redrawing the AR-DLLM Continuum
+
+In the LLaDA chapter we framed "AR and DLLM are different factorizations." BD3-LMs lets us redraw this as a **continuous spectrum**.
+
+```{mermaid}
+%%| label: fig-ar-dlm-spectrum
+%%| fig-cap: "The AR-DLLM continuum along the axis of block width K. Representative models correspond to each endpoint and to intermediate regions"
+
+flowchart LR
+    AR["K=1<br/><b>Pure AR</b><br/>GPT / Llama"]
+    Small["K small (few to dozens)<br/>BD3-LMs (small K)<br/>AR-leaning"]
+    Mid["K medium (dozens to hundreds)<br/>BD3-LMs (medium K)<br/>Balanced"]
+    Large["K large (hundreds to L)<br/>BD3-LMs (large K)<br/>DLLM-leaning"]
+    DLM["K=L<br/><b>Full DLLM</b><br/>MDLM / LLaDA"]
+
+    AR --> Small
+    Small --> Mid
+    Mid --> Large
+    Large --> DLM
+```
+
+Once this spectrum is accepted, the following questions arise naturally.
+
+- Which $K$ gives the best likelihood / generation quality? Is this task-dependent, scale-dependent?
+- Under the same compute budget (FLOPs, memory), which region of $K$ forms the Pareto frontier?
+- Is a strategy that dynamically changes $K$ at inference meaningful (e.g., small $K$ for short responses, large $K$ for long-form)?
+
+The BD3-LMs paper reports that a "**sweet spot**" exists in the intermediate region, where likelihood can be better than at $K=1$ (pure AR). This is the most concrete empirical evidence to date for the fact that "AR is not always strongest."
+
+::: {.callout-note collapse="true"}
+## Interpreting "the Middle Is Strongest"
+
+The phenomenon of improved likelihood in the intermediate region can be interpreted as follows. AR ties the chain of conditional distributions to "the left-side context only," whereas bidirectional attention within a block can capture **joint dependencies inside the block**. On the other hand, when the block is too large ($K=L$), drawbacks such as thinner training signal, more inference steps, and ineffective KV-caching surface. The balance is struck at intermediate $K$.
+
+Whether "the middle is strongest" is universal, or dependent on the dataset, scale, and task, is still open — one of the unresolved questions addressed in the next section.
+:::
+
+## Open Questions
+
+Block diffusion has opened a new design space, but its full shape is not yet clear. Many of the questions overlap with the [Open Problems chapter](open-problems.qmd) of this book, but the following are specific to block diffusion.
+
+- **Optimal block width**: How is the optimal $K$ determined as a function of task, scale, and data? Can a scaling-law-style empirical rule be constructed?
+- **Dynamic block width**: Is there a strategy that decides block boundaries dynamically at inference? Is it effective to align block boundaries with sentence or semantic units?
+- **Combination with guidance and editing**: How do inference-time interventions (classifier-free guidance, infilling, in-place editing, etc.) cohere with block diffusion? The across-block AR structure looks like a natural place to attach guidance, but the within-block intervention requires separate design
+- **Theoretical understanding**: In the AR-DLLM continuum, how do expressivity, sample complexity, and inference cost behave as functions of $K$? Generalization bounds and convergence properties with $K$ as a parameter are largely unexplored
+- **Combination with GIDD**: Does simultaneously optimizing the noise-process axis (GIDD) and the block-width axis (BD3-LMs) yield a better design than each in isolation?
+
+These can be organized as the task of translating tools that already exist on the AR LLM side into the continuum view of DLLMs.
+
+## Links to Related Chapters
+
+- The origin of semi-AR sampling: [LLaDA](llada.qmd)
+- The foundation of within-block diffusion: [MDLM](mdlm.qmd)
+- The origin of GIDD's uniform transition: [D3PM and SEDD](d3pm-sedd.qmd)
+- Field-wide open questions: [Open Problems](open-problems.qmd)
+
+Block diffusion reorganizes the binary opposition "AR vs DLLM" into a single continuum, and on top of that it provides a concrete recipe for keeping training and inference consistent. Reading this chapter after LLaDA should let you reposition semi-AR from "a useful trick" to "a regular point in the design space."
+

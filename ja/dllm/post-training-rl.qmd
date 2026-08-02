@@ -1,0 +1,266 @@
+---
+pagetitle: "Post-Training (RL)"
+---
+
+# Post-Training (RL)
+
+Diffusion Language Model（DLM）の事前学習レシピが LLaDA [@nie2025llada] でほぼ実用ラインに到達したのと前後して、研究の重心は **事後学習（post-training）** ―― 特に推論能力を引き上げる強化学習（Reinforcement Learning, RL）―― へと移りつつある。本章では、サーベイ [@li2025dlmsurvey] の §3.2 を骨格としつつ、DLM 側で実際に提案された手法群を「**(1) 思考連鎖（Chain-of-Thought, CoT）の DLM 翻案**」「**(2) 方策勾配法（群相対方策最適化（Group Relative Policy Optimization, GRPO）一族）**」「**(3) 選好最適化（Preference Optimization、直接選好最適化（Direct Preference Optimization, DPO）の DLM 化）**」の 3 つの流れに整理し、それぞれの中心的な技術選択肢を俯瞰する。事前学習との対応については [MDLM](mdlm.qmd) と [LLaDA](llada.qmd)、領域全体の未確立論点については [Open Problems](open-problems.qmd) を参照されたい。
+
+## なぜ DLM で RL が難しいか
+
+自己回帰（Autoregressive, AR）LLM の post-training レシピ ―― 教師ありファインチューニング（Supervised Fine-Tuning, SFT）から始まり、人間フィードバックによる強化学習（Reinforcement Learning from Human Feedback, RLHF）、近接方策最適化（Proximal Policy Optimization, PPO）、DPO、GRPO までの一連の手順 ―― は、ここ数年でほぼ標準化された [@li2025dlmsurvey]。その大前提となるのは、AR の系列確率が
+
+$$
+p_\theta(y \mid x) = \prod_{i=1}^{L} p_\theta(y_i \mid y_{<i}, x)
+$$
+
+の積で書け、**1 回の forward pass で系列レベルの対数尤度 $\log p_\theta(y \mid x)$ が厳密に評価できる**という事実である。PPO の比 $\pi_\theta / \pi_{\theta_\text{old}}$、DPO の選好項、GRPO の方策比のいずれも、この log-prob の差として計算される。
+
+DLM では同じ計算が原理的に成立しない。生成は時刻 $t$ を $1 \to 0$ に進める iterative denoising trajectory であり、**系列レベルの厳密な log-prob は積分が intractable** である。MDLM [@sahoo2024mdlm] の変分下限（Evidence Lower Bound, ELBO）は
+
+$$
+\log p_\theta(y) \geq -\mathbb{E}_{t, y_t} \left[ \frac{1}{t} \sum_i \mathbf{1}[y_t^i = \texttt{[MASK]}] \log p_\theta(y^i \mid y_t) \right]
+$$
+
+という形で書けるが、これは「**時刻 $t$ とマスク $y_t$ をモンテカルロ（Monte Carlo, MC）でサンプルした上での確率的な近似**」であり、推定分散が大きい。さらに DLM 固有の難所として次の論点が加わる。
+
+- **どの時刻 $t$ で評価するか**: 訓練時の $t$ 分布を MC 推定にも使うのか、固定するのか
+- **どのマスクパターンを使うか**: 同じ $t$ でも実現値 $y_t$ は無数にあり、選び方が分散を支配する
+- **schedule の干渉**: forward 過程の mask schedule、推論時の unmask schedule、reward を与える時刻の 3 軸が干渉し、勾配信号の意味が schedule に依存する
+
+要するに DLM の RL は「**intractable な log-prob を、最小の分散・最小の forward 回数・最小のメモリで近似する**」という設計問題に集約される。後述する手法群の差異の多くは、ここで紹介する 3 つの軸（log-prob 近似・報酬設計・安定化）に整理できる。
+
+::: {.callout-note}
+## AR 側の RL レシピ（3 行要約）
+
+AR LLM の post-training は概ね次の順序で発展した:
+
+- **SFT**: 指示応答ペアでの教師あり訓練（標準的な next-token CE）
+- **RLHF / PPO**: 報酬モデルで scalar reward を与え、PPO で方策を更新。clipping で方策比の暴走を防ぐ
+- **DPO**: 報酬モデルを陽に介さず、選好対 $(y_w, y_l)$ の log-prob 差を直接最大化
+- **GRPO**: 同一プロンプトから複数応答をサンプルし、群内で標準化した相対的優位（advantage）で更新。critic を持たないため軽量。DeepSeek-Math 系で確立
+
+本章で扱う DLM 側の手法は、いずれもこの系譜のいずれかを「DLM の log-prob 評価できない問題」を回避する形で翻案している。
+:::
+
+## 3 つの流れと比較表
+
+3 つの流れの位置付けと、各手法の中核アイデアを @tbl-rl-comparison にまとめる。サーベイ Table 2 [@li2025dlmsurvey] を参考にしつつ、本書では「**log-prob をどう近似するか**」を独立した列として明示した。これが DLM 側 RL 研究の主戦場だからである。
+
+| 手法 | アルゴリズム型 | 中核アイデア | log-prob 近似 | モデル |
+|------|---------------|-------------|---------------|--------|
+| **DoT** [@ye2024dot] | Non-RL SFT | 直列 CoT を並列拡散に変換、self-correction を訓練時に注入 | （RL でないため非該当） | Plaid / SEDD |
+| **DCoLT** [@huang2025dcolt] | Outcome-based RL | latent thinking action、Unmask Policy Module で順序自体を学習 | trajectory レベルで outcome reward のみ | LLaDA / SEDD |
+| **SEPO** [@zekri2025sepo] | PG（PPO/GRPO 一般枠） | score entropy 上で重要度サンプリングを使った低分散勾配 | concrete score $s_\theta$ を介した推定 | 離散拡散一般 |
+| **diffu-GRPO (d1)** [@zhao2025d1] | GRPO | SFT + GRPO の 2 段、1 forward で per-token log-prob を出す | mean-field 分解 $\log p_\theta(y) \approx \sum_i \log p_\theta(y^i \mid y_t)$ | LLaDA |
+| **coupled-GRPO (DiffuCoder)** [@gong2025diffucoder] | GRPO | pair complementary mask で全トークン被覆 | 補完的 2 マスクの平均 | 7B code DLM |
+| **UniGRPO (MMaDA)** [@yang2025mmada] | GRPO（multimodal） | structured noising で全段の denoising に均等な信号 | masked 位置上の平均 log-likelihood | multimodal DLM |
+| **VRPO (LLaDA 1.5)** [@zhu2025llada15] | DPO | ELBO 推定の分散削減（MC 配分 + antithetic） | ELBO（$n_t=n$, $n_{y_t}=1$ + 共有 mask） | LLaDA |
+| **IGPO** [@zhao2025igpo] | GRPO | inpainting で ground-truth 部分思考を注入し zero-advantage を緩和 | diffu-GRPO 系 | LLaDA |
+| **wd1** [@tang2025wd1] | PG | 目的関数を weighted likelihood に再定式、近似 1 回で済む | 重み付き尤度（current policy のみ近似） | masked DLM |
+| **SAPO** [@xie2025sapo] | GRPO | 潜在 reasoning 階層に整合した process reward | diffu-GRPO 系 | masked DLM |
+| **SPG** [@wang2025spg] | PG | true log-likelihood を上下 bound でサンドイッチ、片側 bias を削減 | block-wise masking で上下 2 bound | LLaDA |
+| **BGPO** [@lin2025bgpo] | PG | ELBO RL のメモリ削減、constant memory で大きな MC | gradient accumulation で MC sample size を拡大 | masked DLM |
+
+: DLM 向け post-training 手法の比較。サーベイ Table 2 [@li2025dlmsurvey] を参考に「log-prob 近似」列を追加した {#tbl-rl-comparison}
+
+3 つの流れに分けて見ると、**(1) CoT 翻案**は手法数が少なく DoT と DCoLT に集約される。**(2) GRPO 一族**が圧倒的多数で、log-prob 近似の選択が論文ごとの主たる貢献になっている。**(3) Preference Optimization** は VRPO（LLaDA 1.5）が事実上の代表例である。
+
+## 流れ A: DoT と DCoLT — CoT を DLM に翻案する
+
+AR LLM の CoT は「思考を中間トークンとして左から右に書き出す」という構造を持ち、これは AR の逐次生成と本質的に相性が良い。DLM では生成順序が並列であるため、CoT の構造自体を作り直す必要がある。
+
+### DoT (Diffusion-of-Thought)
+
+DoT [@ye2024dot] は CoT を DLM へ翻案した先駆的研究である。**RL ではなく SFT 側の手法**だが、本章で扱う RL 系手法の前提となるため最初に位置付ける。Plaid [@gulrajani2023plaid]・SEDD [@lou2024sedd] のような事前学習済み DLM を、問題・段階推論・答えを含むデータセットで fine-tune する。
+
+DoT の本質的な工夫は、AR の直列 CoT を **「拡散ステップに分散させた並列思考」** として再定式化したことにある。さらに自己訂正能力を高めるため、訓練時に次の 2 つの戦略を導入する。
+
+- **Scheduled sampling**: 訓練中の denoising trajectory の途中状態に、モデル自身の予測を混入させる
+- **Coupled sampling**: 1 つの問題に対して複数の denoising trajectory を結合してサンプル、モデルが自身の誤りに晒される機会を増やす
+
+これにより、AR と比べて小さい DLM でも数学・論理ベンチマークで AR より高い性能を出せる例が報告されている。「**並列思考が AR の直列思考より弱いとは限らない**」ことを最初に実証した点が DoT の意義である。
+
+### DCoLT (Diffusion Chain of Lateral Thought)
+
+DCoLT [@huang2025dcolt] は DoT の発想を **outcome-based RL** に拡張した。DoT が中間思考の token 列を教師信号として与えるのに対し、DCoLT は中間思考を直接監督せず、**reverse diffusion の各ステップを latent thinking action** とみなして trajectory 全体を最終答えの報酬で最適化する。AR の「縦の思考（vertical thinking）」に対比して「**横の思考（lateral thinking）**」と表現されている。
+
+DCoLT の最大の技術的貢献は **Unmasking Policy Module（UPM）** である。LLaDA のサンプラは「信頼度上位 $k$ 個を unmask」という規則ベースの順序選択を使うが（[LLaDA](llada.qmd) 参照）、UPM はこの **unmask の順序自体を RL の action space に含めて学習** する。すなわち「どのトークンを先に確定すべきか」という意思決定を、固定の confidence-based 規則ではなく学習された policy に委ねる。
+
+報告されている改善は LLaDA ベースで GSM8K +9.8%、HumanEval +19.5% と大きい [@huang2025dcolt]。「**サンプラの順序選択は学習対象になりうる**」という事実は、後続の GRPO 系手法でも繰り返し参照される設計選択肢である。
+
+::: {.callout-tip}
+## DoT と DCoLT の対比
+
+両者は同じ「CoT の DLM 翻案」というスローガンだが、設計層が異なる:
+
+- **DoT**: 訓練データ側の工夫（CoT つきデータ + self-correction 増強）。学習アルゴリズムは標準的な SFT
+- **DCoLT**: 学習アルゴリズム側の工夫（outcome RL + 順序学習）。データは答えと報酬関数のみで済む
+
+DoT は CoT データさえあれば適用可能で実装が単純、DCoLT は CoT データを要しない代わりに RL pipeline を要する。AR 側の「SFT → RL」の段階発展と並行する構図である。
+:::
+
+## 流れ B: GRPO ファミリーの設計選択
+
+GRPO 一族は本章の中心である。すべての手法が **同じ問いに答えている**: 「**DLM の系列 log-prob $\log p_\theta(y \mid x)$ をどう近似し、どの程度の forward コストで GRPO を回すか**」。以下では (1) log-prob 近似、(2) 報酬設計、(3) 安定化テクニックの 3 軸で整理する。
+
+### log-prob 近似の選択肢
+
+#### Mean-field 分解（d1 / diffu-GRPO）
+
+d1 [@zhao2025d1] は **LLaDA に GRPO を持ち込んだ最初の実用形** である。SFT で reasoning データに合わせた後、**diffu-GRPO** と呼ぶ独自の GRPO 変種を回す。中核は系列 log-prob の **mean-field 分解** による近似である:
+
+$$
+\log p_\theta(y \mid x) \;\approx\; \sum_{i=1}^{L} \log p_\theta\!\left(y^i \,\big|\, y_t, x\right)
+$$
+
+ここで $y_t$ は完全マスク（all `[MASK]`）の completion を表し、prompt $x$ にはランダムマスクを掛ける。**1 回の forward pass で per-token 確率が全位置で得られ、それを単純積（独立性仮定）で系列 log-prob とする** ことで、GRPO の方策比を計算するコストを大幅に下げている。各 inner gradient step で prompt の random mask を変えることが正則化として効くことも報告されている。
+
+mean-field 仮定はトークン間の相関を無視するため理論的には粗い近似だが、**実用上は GRPO の方策更新に十分な勾配信号を提供する** ことが d1 の経験的成功で示された。これ以降、ほぼすべての DLM-GRPO 手法はこの「1 forward で per-token を出して系列を近似する」枠組みを出発点に置く。
+
+#### Coupled complementary mask（DiffuCoder / coupled-GRPO）
+
+DiffuCoder [@gong2025diffucoder] はコード生成向けの 7B 規模 DLM で、**coupled-GRPO** を提案する。d1 の mean-field 近似は「1 つのマスクパターンでの 1 forward」だが、coupled-GRPO は **補完的な 2 つのマスクをペアで作る**: 各位置が「ちょうど一方のマスクで `[MASK]`、他方では非 `[MASK]`」になるように対を構成する。
+
+$$
+M_1 \cup M_2 = \{1, \dots, L\}, \quad M_1 \cap M_2 = \emptyset
+$$
+
+log-prob 推定は 2 回の forward の損失平均で行う。これにより:
+
+- **全トークンが部分マスクの文脈で評価される**（full token coverage）
+- 単一ランダムマスクに比べて **分散が下がる**（complementary 構造による）
+- full mask（d1 の選択肢）に比べて **訓練分布との整合が良い**（part-mask 文脈は推論時の中盤に対応）
+
+副次効果として、DiffuCoder では coupled-GRPO で訓練したモデルが **AR 的でない、より並列的な decoding pattern** を示すことも報告されている。これは、AR 的に左→右へ unmask する degenerate な解に陥らない正則化として coupled-GRPO が機能しているためと解釈できる。
+
+#### Structured noising（UniGRPO / MMaDA）
+
+UniGRPO [@yang2025mmada] は MMaDA の RL 段で導入された multimodal 統一 RL アルゴリズムである。d1 の「completion を全マスクにする」選択を批判し、代わりに **mask 率 $p_i \in [0,1]$ を一様サンプル** する structured noising を採用する。
+
+これにより、
+
+- モデルは「ほぼ全マスク」から「ほぼ全 unmask」までの全 stage に晒される
+- 訓練分布が事前学習の MDLM ELBO と整合する（事前学習も $t \sim \mathcal{U}(0,1)$）
+- 多段 denoising 能力が RL で減衰しない
+
+系列 log-likelihood は **masked 位置上で平均** することで近似する。UniGRPO は multimodal 文脈で設計されたが、「**RL の noise schedule を事前学習の schedule に揃える**」という発想自体は単一モダリティの DLM にも転用できる。
+
+#### Sandwich bound（SPG）
+
+SPG [@wang2025spg] は単一の lower bound（ELBO）に依存する従来の DLM-RL が **片側 bias** を抱えることに着目する。すなわち ELBO は $\log p_\theta(y)$ を常に下から押すので、勾配信号が系統的に歪む可能性がある。SPG はこれを上下 2 つの bound で挟む:
+
+$$
+\mathrm{LB}(\theta) \;\leq\; \log p_\theta(y) \;\leq\; \mathrm{UB}(\theta)
+$$
+
+両 bound を MC で推定し、**ブロック単位の masking** で MC 推定を安定化する。LLaDA に適用して様々な reasoning ベンチマークで SOTA を報告している [@wang2025spg]。「ELBO は近似の片側に過ぎない」という観点を DLM-RL に持ち込んだ点が貢献である。
+
+#### Weighted likelihood（wd1）
+
+wd1 [@tang2025wd1] は問題設定そのものを再定式化する。標準的な PPO/GRPO は **current policy $\pi_\theta$ と old policy $\pi_{\theta_\text{old}}$ の両方の log-prob を近似** する必要があるが（方策比 $\pi_\theta / \pi_{\theta_\text{old}}$ の計算で双方が必要）、wd1 は目的関数を **weighted likelihood** の形に書き換え、**current policy の log-prob 近似が 1 回で済む** ようにする。
+
+これにより:
+
+- 近似回数が半減し計算コストが下がる
+- 2 段階の近似誤差が累積する bias を回避できる
+- 訓練の安定性が改善する
+
+報告されている効果は reasoning task で従来手法比 **+16% accuracy** [@tang2025wd1]。「**RL の objective そのものを DLM 向けに再設計する**」方向性は、log-prob 近似の改良だけでは到達できない領域を開いた。
+
+### 報酬設計
+
+#### Outcome-only（DCoLT）
+
+最も素朴な選択は **最終答えの正誤のみを報酬とする** outcome-based RL である。DCoLT が代表例で、中間思考の品質を一切監督せず、最終 reward に向けて trajectory 全体を最適化する。実装が単純で、verifiable な答えを持つ数学・コードタスクと相性が良い。
+
+#### Process reward（SAPO）
+
+SAPO [@xie2025sapo] は outcome-only の対極に位置する。**step-aware な fine-grained process reward** を導入し、潜在的な reasoning 階層（problem framing → decomposition → execution → verification 等）に整合した報酬を与える。これにより、
+
+- 「unstructured refinement」（漫然と書き換えるだけ）を抑制
+- より解釈可能な multi-step reasoning trace が得られる
+
+AR 側の Process Reward Model（PRM）の DLM 翻案にあたるが、DLM の場合は「ステップ」が時刻 $t$ の進行に対応するため、PRM の時間軸が AR と本質的に異なる点が興味深い。
+
+#### Inpainting injection（IGPO）
+
+IGPO [@zhao2025igpo] は **DLM 固有の能力 ―― inpainting** を RL の探索戦略に組み込む。GRPO は同一プロンプトから複数の trajectory をサンプルして群内で advantage を計算するが、**全 trajectory が同程度に正解 or 不正解** だと advantage が 0 になり勾配信号が消える（**zero-advantage problem**）。
+
+IGPO はこの状況で **ground-truth の部分 reasoning trace を inpainting で trajectory に注入** する。すなわち、サンプリング途中で正解推論の一部を `[MASK]` ではなく真値として与え、残りをモデルに完成させる。これにより:
+
+- 完全失敗群でも部分的成功 trajectory を作れる
+- group 内の reward 分散が回復し勾配が立つ
+- 探索範囲が拡大する
+
+AR の RL では「partial completion で続きを書かせる」操作は trivial ではない（KV-cache の整合や生成順序の制約がある）が、DLM では infilling が定義上自然なので追加コストなく実現できる。**「DLM 固有の操作を RL の探索装置として使う」** という設計が示された点で IGPO は重要である。
+
+### 安定化テクニック
+
+#### Constant memory（BGPO）
+
+ELBO-based RL の最大の実装上の制約は **メモリ** である。MC sample size を増やせば推定分散は下がるが、forward pass の数だけメモリが線形に膨らみ、大規模モデルでは事実上不可能になる。BGPO [@lin2025bgpo] は **boundary-guided lower bound** と **gradient accumulation** を組み合わせ、**MC sample size に依存しない一定メモリ** で訓練できるようにする。
+
+これにより、同じハードウェア上で従来手法の数倍～十数倍の MC sample が取れる。分散が直接下がるため、reasoning 性能も改善する。「**RL の品質はメモリ予算で律速されている**」という診断とその解決策を示した点が貢献である。
+
+#### 順序の RL 化（DCoLT の UPM、再掲）
+
+サンプラの unmask 順序は規則ベース（confidence-based）でなく学習対象になりうる、という観点は UPM が最初に示した。後続の GRPO 系手法では明示的な順序 RL は採用されないが、coupled mask や structured noising といった「マスクパターン側の設計」が間接的に順序問題に効いている。
+
+## 流れ C: Preference Optimization（VRPO）
+
+選好最適化は AR では DPO が標準だが、DLM への翻案では **ELBO の分散** が支配的な障害になる。LLaDA 1.5 [@zhu2025llada15] が提案した **VRPO（Variance-Reduced Preference Optimization）** は、この問題に正面から取り組んだ事実上唯一の本格的研究である。
+
+### DPO の DLM 化と ELBO の分散
+
+AR の DPO は選好対 $(y_w, y_l)$ に対して
+
+$$
+\mathcal{L}_\text{DPO} = -\log \sigma\!\left( \beta \left[ \log\frac{\pi_\theta(y_w)}{\pi_\text{ref}(y_w)} - \log\frac{\pi_\theta(y_l)}{\pi_\text{ref}(y_l)} \right] \right)
+$$
+
+を最小化する。DLM では $\log \pi_\theta(y)$ が直接計算できないため、**ELBO 推定で置き換える** ことになるが、ELBO 自体が MC 推定であるため次の問題が生じる:
+
+- $\pi_\theta$ と $\pi_\text{ref}$ の **両方の ELBO を独立に推定** すると、推定誤差が打ち消し合わず差分の分散が拡大する
+- 結果として勾配信号が雑音に埋もれ、訓練が不安定になる
+
+VRPO は **2 つの不偏な分散削減テクニック** でこれを抑える。
+
+### (1) 最適な MC 予算配分
+
+ELBO 推定では時刻 $t$ と各時刻でのマスク $y_t$ の両方をサンプルする必要がある。MC 予算 $n = n_t \times n_{y_t}$ が与えられたとき、$n_t$（時刻数）と $n_{y_t}$（時刻あたりのマスクサンプル数）の配分は自由である。VRPO は **$n_t = n$, $n_{y_t} = 1$**（時刻を多く、各時刻で 1 マスクのみ）が分散最小であることを示す。
+
+直観: ELBO の積分は $t$ について連続的なので、$t$ の被覆を密にする方が「時刻方向の分散」を直接削れる。一方、同じ $t$ で異なる $y_t$ を取っても、$y_t$ の条件付き分散はそこまで大きくないため重複が利かない。
+
+### (2) Antithetic sampling
+
+第 2 のテクニックは **同じ時刻 $t$ と同じマスクパターン $y_t$ を policy $\pi_\theta$ と reference $\pi_\text{ref}$ で共有する** ことである。すなわち $(t, y_t)$ を 1 度サンプルし、その同じ値で両 ELBO を推定する。
+
+直観: 求めたいのは ELBO の **差** であり、両側で共通の雑音項は差分で打ち消される。独立サンプルだと共通項が消えず分散が積み上がるが、antithetic にすればこの相関を分散削減に積極利用できる。
+
+この 2 つを組み合わせた VRPO を LLaDA に適用したのが **LLaDA 1.5** であり、math・code・alignment ベンチマークで一貫した改善を報告している [@zhu2025llada15]。**ELBO の分散削減という抽象的に見える論点が、選好最適化の実用性を直接決める** ことを示した好例である。
+
+::: {.callout-note}
+## VRPO の含意
+
+VRPO の 2 テクニックはどちらも「**選好対の差** を取るときに、共通項を残して分散を削る」発想で統一できる。AR の DPO は log-prob が決定論的なのでこの問題が顕在化しないが、DLM では確率的近似が入る瞬間に「**何を共有して何を独立にするか**」が支配的な設計選択になる。これは GRPO 系の coupled mask や antithetic に通底する思想であり、DLM-RL の一般原理として広く適用可能である。
+:::
+
+## 残課題と open problems
+
+本章で見た手法群は、AR で確立されたレシピの DLM 翻案を 1 つずつ進めているが、まだ未着手の領域も多い。
+
+- **評価軸の不整合**: 各手法のベンチマーク・モデル・hyperparameter が論文ごとに違うため、現状の数値を横並びに比較するのが難しい。「LLaDA 8B + diffu-GRPO vs LLaDA 8B + SPG」のような直接対戦の結果は限られている
+- **Critic-based RL の DLM 翻案**: GRPO は critic を持たない軽量手法だが、AR では PPO + value head の組み合わせも依然有力である。DLM で critic を学習する場合、時刻 $t$ に依存する value function を設計する必要があり、まだ整理されていない
+- **Reward Model 自体の DLM 化**: AR の RLHF では reward model も AR LLM である。DLM の出力に対する reward model を DLM で構築する是非、双方向 attention を活かした reward 設計などはほぼ未着手
+- **Long-horizon credit assignment**: DLM の reasoning は多段 denoising として展開されるが、報酬を最終ステップだけに与えると初期ステップへの credit が薄まる。Process reward（SAPO）が部分的に答えているが、$t$ 方向の credit propagation の理論はまだない
+- **AR と DLM の RL 統合**: BD3-LMs [@arriola2025bd3lms] のような block diffusion 系では「ブロック内 = DLM、ブロック間 = AR」のハイブリッド構造になる。RL もブロックごとに切り替える必要があるが、その設計指針は未確立
+- **Inference-time RL**: AR の o1 系で進展した test-time compute の活用を DLM 側で組むには、ステップ数・guidance 強度・remask 戦略の 3 軸を同時に最適化する必要がある。DLM の自由度の高さがそのまま設計空間の高次元化として跳ね返ってくる
+
+これらの未解決論点は、より広い分野展望と合わせて [Open Problems](open-problems.qmd) 章でも扱っている。本章の手法群は「**AR RL レシピの DLM 翻案リスト**」のうち基礎部分が埋まり始めた段階にあり、上記の未着手項目はそれぞれが論文一本以上のテーマになりうる open space である。
+
+[→ 詳細:]{.detail-link} [DLLM 分野の現状と未解決問題](open-problems.qmd)
+
+[→ 詳細:]{.detail-link} [LLaDA: 大規模 Masked DLM とサンプリング](llada.qmd)
+
+[→ 詳細:]{.detail-link} [MDLM: Masked Diffusion Language Models](mdlm.qmd)
