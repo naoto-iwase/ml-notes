@@ -2,6 +2,7 @@
 /_site/
 /private/
 _quarto-private.yml
+/ja/agent-harness-optimization/chapter-bib/
 .DS_Store
 
 **/*.quarto_ipynb
