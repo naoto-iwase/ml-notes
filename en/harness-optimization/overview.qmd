@@ -4,13 +4,40 @@ pagetitle: "Overview"
 
 # Overview
 
-Agent harness optimization changes the execution system around a fixed target model. This chapter defines the problem, scope, and unit of comparison, making explicit **what may change, what remains fixed, and who judges improvement**.
+Even with the same model, an agent's behavior changes with its prompt, tool interface, workflow, memory, and recovery logic. **Harness optimization** updates this surrounding execution system from execution results while keeping the model weights fixed.
 
-## Problem Formulation
+Suppose an agent answers without checking a tool result. One could revise the instruction, add a verification step, or place a validator before the final answer. Producing such candidates is not enough to establish improvement. They must be compared with the current version under the same conditions, and an accepted change must persist to future tasks.
 
-Let the target agent be $A_{\theta,H}$, where $\theta$ denotes the target model parameters and $H$ denotes the executable harness. In round $t$, the agent produces a trajectory $\tau_t$ and receives an evaluation result $y_t$.
+## What Counts as Harness Optimization
 
-An optimizer $O$ uses the incumbent harness $H_t$ and the evidence $(\tau_t,y_t)$ to produce a candidate $H'_t$. An external evaluator produces evaluation records for the incumbent and candidate. A precommitted acceptance rule $V$ then chooses the next version. The equations omit the evaluation records from the arguments and abbreviate the acceptance decision as $V(H'_t,H_t)$.
+A harness can include the system prompt, context assembly, retrieval, durable memory, tool mediation, workflow, verification, retries, and rollback [@weng2026harness]. This book treats an update as harness optimization when three conditions hold:
+
+1. Records or evaluations from execution drive the update.
+2. The updated harness is saved as a version and persists to future tasks.
+3. An evaluator outside the optimizer measures both versions, and a precommitted acceptance rule chooses the next version.
+
+Without the third condition, the optimizer could change both the harness and the definition of improvement. Candidate generation and acceptance must remain separate.
+
+## Scope
+
+The key boundary is whether the updated harness persists to future executions. Generating and discarding alternatives within one response does not constitute harness optimization.
+
+| Change | Treatment in This Book |
+|---|---|
+| Save an evaluated change to a prompt, tool policy, workflow, or memory policy | Included |
+| Add ordinary execution records to memory | A state update; not called optimization by itself |
+| Increase samples or reflection rounds for one task | Test-time scaling; excluded when no change persists to the next run |
+| Change model weights through fine-tuning or reinforcement learning (RL) | Model optimization; treated separately |
+
+Labels such as autonomous research or self-evolving agent do not determine inclusion. The system must contain an update loop that satisfies the three conditions above.
+
+Reflexion stores reflections after failures in memory and uses them in subsequent trials [@shinn2023reflexion]. This is persistence across trials within the same task, not evaluation of a change promoted across independent future tasks. Separate external evaluation is needed to determine whether the change improves performance in general.
+
+Harness-R1 keeps the target model fixed and uses a separate editor to generate candidates. The editor is trained, but the harness is the final object being updated [@shao2026harnessr1].
+
+## Generate Candidates, Then Decide Externally
+
+Let the current harness be the **incumbent** $H_t$ and a proposed update be a **candidate** $H'_t$. In the target agent $A_{\theta,H_t}$, $\theta$ denotes fixed model parameters. Running the agent produces a trajectory $\tau_t$ and evaluation result $y_t$, which the optimizer $O$ uses to generate a candidate.
 
 $$
 H'_t = O(H_t, \tau_t, y_t), \qquad
@@ -21,83 +48,29 @@ H_t & \text{otherwise}.
 \end{cases}
 $$
 
-This book uses **self-improvement** only when all four conditions hold:
+Acceptance rule $V$ compares the evaluator's records for the incumbent and candidate. The optimizer may propose a candidate but may not change the evaluator or $V$. The target model and environment are also fixed in principle; if either changes, treat it as a separate version.
 
-1. Evidence from execution drives the update.
-2. The update persists to future tasks.
-3. The incumbent remains available as a versioned baseline.
-4. Acceptance does not depend only on the optimizer's own account of its change.
-
-Without the final condition, the optimizer could change both the harness and the definition of improvement. Candidate generation and acceptance must therefore remain separate.
-
-## Scope
-
-A harness can include the system prompt, context assembly, retrieval, durable memory, tool mediation, workflow, verification, retries, and rollback [@weng2026harness]. This book excludes model-weight updates, test-time scaling and self-refinement confined to a single episode, and unconstrained recursive self-improvement in general. Autonomous research is a task-domain label rather than an optimization method; it is included only when it contains an externally evaluated, persistent harness-update loop.
-
-The boundary is whether a change persists to future executions. Changing memory content or a read/write policy for subsequent episodes updates harness state. Generating and discarding alternatives within one response does not constitute harness optimization.
-
-| Change | Treatment in This Book |
-|---|---|
-| Add ordinary execution records to memory | Merely a state update; not called optimization by itself |
-| Use failures to change memory content or the read/write policy, then save the change after external evaluation | Included in harness optimization |
-| Increase the number of samples or reflection rounds for one task | Test-time scaling; excluded unless the change persists to the next run |
-| Update the compute allocation policy from execution results and save it for future use | Included in harness optimization |
-| Change target model weights $\theta$ through fine-tuning or reinforcement learning (RL) | Target model optimization; separate from harness optimization |
-
-Reflexion stores reflections after failures in memory and uses them in subsequent trials [@shinn2023reflexion]. This is an example of persistence across trials within the same task, not an evaluation of an artifact promoted across independent future tasks. Separate external evaluation is needed to determine whether the change improves performance in general.
-
-Harness-R1 keeps the target model fixed and uses a separate editor to generate a candidate $H'_t$. The editor is trained, but the harness is the final object being updated [@shao2026harnessr1].
-
-## What to Hold Fixed and What to Change
-
-| Role | Examples | May the Optimizer Change It? |
-|---|---|---|
-| Target model | Large language model (LLM) weights, decoding policy | Fixed in principle. Treat any change as a separate version |
-| Harness | Prompts, context, tool wrappers and tool policy, workflow, memory, recovery | Yes, but define the scope in advance |
-| Environment | Browser, database, compiler, simulator | Fixed in principle |
-| Evaluator | Score, cost, safety measurement | No. Keep it outside the optimizer |
-
-For example, if tools are called in a poor order, the workflow can be changed. In contrast, changing how the evaluator assigns scores to make a candidate appear better is not allowed.
-
-The evaluator measures outcomes but does not decide whether to accept a change. The acceptance rule $V$ accepts or rejects a candidate according to predefined conditions. The optimizer $O$, which produces candidates, cannot change the evaluator or $V$.
-
-@fig-optimization-boundary shows this boundary. An execution result is used to produce a candidate $H'_t$, and only a candidate that passes external evaluation is saved as the next version $H_{t+1}$.
+This boundary is shown in @fig-optimization-boundary.
 
 ![An editable harness around a fixed target model, with the evaluator and acceptance rule separated from the optimizer. An execution result produces a candidate, and only a candidate that passes external evaluation is saved.](images/optimization-boundary.svg){#fig-optimization-boundary fig-align="center" width="100%"}
 
-## Mathematical Formulation
+## Compare the Entire Update Loop
 
-A task $x$, target agent $A_{\theta,H}$, and environment $E$ produce one trajectory $\tau$.
-
-$$
-\tau \sim P(\tau \mid x, A_{\theta,H}, E)
-$$
-
-Define the evaluation value of harness $H$ over task distribution $\mathcal{D}$ as
+This book compares the entire update loop rather than an individual model or agent framework:
 
 $$
-J_{\mathcal{D}}(H)=\mathbb{E}_{x\sim\mathcal{D},\,\tau}[s(\tau)]
-$$
-
-This is the average score $s(\tau)$ across different tasks. Harness optimization keeps the target model parameters $\theta$ fixed while updating $H_t$ to $H_{t+1}$ to improve this value.
-
-## Unit of Comparison
-
-The unit of comparison is not an individual model or agent framework, but the following update loop:
-
-$$
-\text{Target}
-\rightarrow \text{Edit surface}
-\rightarrow \text{Optimizer}
-\rightarrow \text{Execution evidence}
+\text{Current harness}
+\rightarrow \text{Execution}
+\rightarrow \text{Evidence}
+\rightarrow \text{Candidate generation}
+\rightarrow \text{External evaluation}
 \rightarrow \text{Acceptance / rollback}
-\rightarrow \text{Persistence}
-\rightarrow \text{Evaluation}.
+\rightarrow \text{Next version}.
 $$
 
-Two prompt optimizers provide different strengths of evidence when one selects candidates on training examples alone and the other uses a sealed test. Likewise, a workflow editor that fixes a targeted failure differs from one whose promotion gate also checks prior successes and safety.
+Two prompt optimizers support different strengths of improvement claims when one selects candidates on training examples alone and the other checks unused tasks. Likewise, a workflow editor that fixes only the targeted failure differs from one that also checks prior successes and safety.
 
-## Five Decisions Before an Experiment
+To make an experiment comparable, fix five decisions before it begins:
 
 - **Edit scope:** Files, hooks, prompts, and tool schemas that may change
 - **Fixed conditions:** APIs, permissions, timeouts, and output schemas
@@ -105,8 +78,4 @@ Two prompt optimizers provide different strengths of evidence when one selects c
 - **Evaluation metrics:** How to aggregate quality, cost, latency, and failure rate
 - **Acceptance rule:** Conditions for accepting or rejecting a candidate and rolling back if needed
 
-The boundary should be explicit enough to state, for example, that "the pre-action hook may change, but the evaluator and tool permissions may not." Without fixing the boundary first, the source of an improvement cannot be reproduced.
-
-## Key Points
-
-Harness optimization keeps the target model and environment fixed in principle and changes only the harness within the permitted scope. It separates candidate generation from external evaluation and carries accepted changes forward to future tasks.
+The boundary should be explicit enough to state, for example, that "the pre-action hook may change, but the evaluator and tool permissions may not." If the boundary is ambiguous, one cannot tell whether a performance difference came from the harness update or from different experimental conditions.
