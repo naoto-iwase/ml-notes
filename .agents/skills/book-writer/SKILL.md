@@ -159,6 +159,8 @@ Prior experience: overly short slugs such as `lineage.qmd` and `latent-map.qmd` 
 
 Name the slug by extracting the “core noun phrase that represents the theme” from the H1 title so that H1 and URL correspond naturally (Japanese-title example: H1 = `Depth recurrence の系譜` → slug = `depth-recurrence`).
 
+Review the chapter title and slug together. If the title changes enough that the old slug no longer describes it, rename both in the same change. Bilingual editions use the same relative slug under `ja/` and `en/`; translate the title, not the filename. Audit all chapter titles and slugs as a set after adding Parts so one chapter does not retain a stale naming scheme.
+
 ### Naming Book Titles: Avoid Confusion with Existing Genres
 
 When choosing the book name (the `title:` field) and overview H1, **check whether it could be confused with a very well-known existing concept**.
@@ -187,8 +189,8 @@ For books with few citations, such as a guide to a single paper, skip this phase
 
 ### Procedure Summary
 
-1. **Launch a bibliography prebuild subagent** — use the template in `assets/subagent-prompts/bib-prebuild.md`. Have it read primary sources (survey Markdown / paper list) and build `references.bib` in one place
-2. **Fetch all figures in a batch** — run `fetch_arxiv_figures_batch.py --bib {book}/references.bib --parallel 8` to unpack every paper's e-print under `/tmp/arxiv_figures/<id>/` and generate `{book}/chapter-bib/_figure_manifest.md`
+1. **Launch a bibliography prebuild subagent** — use the template in `assets/subagent-prompts/bib-prebuild.md`. Have it read primary sources (survey Markdown / paper list), build `references.bib` in one place, and put internal paper-to-chapter notes under `/tmp/book-writer/{book_slug}/`
+2. **Fetch all figures in a batch** — run `fetch_arxiv_figures_batch.py --bib {book}/references.bib --audit-dir /tmp/book-writer/{book_slug} --parallel 8` to unpack every paper's e-print under `/tmp/arxiv_figures/<id>/` and generate `/tmp/book-writer/{book_slug}/_figure_manifest.md`
 3. **Pass the phase gate** — confirm the batch completed and the manifest exists before drafting chapters. A zero-figure book is valid only after inspecting the available source figures; “no figure quota” never means “skip figure review”
 4. **Validate the bibliography** — run `lint_chapters.py {book}` and confirm there are zero `[DUP]`, `[NOTE_LEAK]`, `[ANON_AUTHOR]`, and `[TITLE_MISMATCH]` findings
 
@@ -473,8 +475,9 @@ Complete procedure, templates, and sidebar language rules: [references/index-and
 
 Key points:
 
-- **index.qmd is the book's “cover”**: what the book is, its source, and its date. Keep content minimal and always include `toc: false`
-- **overview.qmd is optional**: create it only when the book needs a distinct big-picture chapter that is not duplicated by the index, sidebar, and chapter introductions
+- **Inspect two or three existing book entries before writing `index.qmd`**. Follow the repository's landing-page baseline rather than inventing an extra call to action, table of contents, or “Structure of This Book” section
+- **index.qmd is the book's “cover”**: what the book is, its source, and its date. The default is front matter plus one or two lead paragraphs, with no `##` headings or bibliography citations. An optional compact line may link directly to the primary paper, code, demo, or official project page. Always include `toc: false`
+- **overview.qmd is optional**: when problem formulation, scope, notation, or the unit of comparison would make the index long, move them into `overview.qmd`. Do not duplicate the sidebar's chapter map in either file
 - **Register every chapter in the `_quarto-public.yml` sidebar**: because index.qmd has no table of contents, the sidebar is the only entry point for chapter navigation
 
 ---
@@ -534,12 +537,16 @@ Delete intermediate files generated during Phases 2 and 4 before publication:
 - `{book}/bib_entries/` — temporary directory for parallel writes in Phase 4; delete it after merging
 - `{book}/*.html` — stray HTML generated while validating with `quarto preview`
 - `{book}/*.log` — Quarto / Pandoc logs
+- `{book}/chapter-bib/` — legacy internal audit directory; internal paper/figure inventories belong under `/tmp/book-writer/{book_slug}/` and must never be committed or deployed
 
 ```bash
 # Sanitize
 find {book} -maxdepth 2 \( -name "*.html" -o -name "*.log" \) -delete
 [ -d {book}/bib_entries ] && rm -rf {book}/bib_entries
+[ -d {book}/chapter-bib ] && rm -rf {book}/chapter-bib
 ```
+
+Before a public deployment, run the full-site render in a clean checkout or worktree that matches the CI file set. A local ignored private overlay can still be merged through the project's default profile even when `--profile public` is supplied. Use targeted book renders while editing, and do not use a root-wide render in a dirty mixed public/private tree as proof of the public build. After an interrupted render, inspect `git status` and delete only confirmed generated files; never use a broad cleanup command that could remove unrelated untracked work.
 
 ---
 

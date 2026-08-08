@@ -11,12 +11,8 @@ image: "images/molmo2.png"
 toc: false
 ---
 
-Molmo2 (Multimodal Open Language Model 2) is a fully open Vision-Language Model (VLM) family developed by the Allen Institute for AI (AI2) and the University of Washington. Its key distinguishing feature is **video grounding** capability, which enables the model to precisely indicate "when and where" specific events or objects occur within a video.
+Molmo2 (Multimodal Open Language Model 2) is a fully open Vision-Language Model (VLM) family developed by the Allen Institute for AI and the University of Washington. Its defining capability is **video grounding**: identifying when and where an event or object appears within a video.
 
-Using 9 new datasets (constructed entirely without relying on proprietary models), Molmo2 achieves state-of-the-art performance among open-source models. In particular, it surpasses proprietary models such as Gemini 3 Pro in video pointing and tracking.
+This book examines the open data pipeline, model family, and grounding evaluations behind that capability, including the reported comparisons with proprietary systems.
 
-**Paper**: [arXiv:2601.10611](https://arxiv.org/abs/2601.10611)
-
-**Code**: [github.com/allenai/molmo2](https://github.com/allenai/molmo2)
-
-**Demo**: [playground.allenai.org](https://playground.allenai.org)
+[Paper](https://arxiv.org/abs/2601.10611) · [Code](https://github.com/allenai/molmo2) · [Demo](https://playground.allenai.org)

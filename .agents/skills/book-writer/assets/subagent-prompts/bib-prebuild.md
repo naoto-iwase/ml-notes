@@ -71,7 +71,7 @@ Standard `booktitle` values by venue:
 ## Output
 
 1. Create or overwrite `{book_dir}/references.bib`
-2. Create `{book_dir}/chapter-bib/_paper_index.md`, a lookup table for chapter subagents:
+2. Create `{audit_dir}/_paper_index.md`, a lookup table for chapter subagents. `{audit_dir}` is `/tmp/book-writer/{book_slug}` and must not be placed under the public book tree:
 
 ```markdown
 # Paper Index
@@ -100,6 +100,7 @@ Briefly report: "Bib entries: N," "Breakdown by planned chapter: ch1=X, ch2=Y...
 ## Notes for Using This Template
 
 - Include multiple survey Markdown files in `{source_files}`, such as the result files produced by parallel survey subagents
+- Set `{audit_dir}` to `/tmp/book-writer/{book_slug}`. It is internal scratch and must not be committed or deployed
 - If `{survey_main_bib}` exists, always require the cross-check
 - For a large bibliography with more than 80 citations, if one bib pre-build subagent cannot finish the work, split it across two or three domain-specific subagents and have the parent merge their results. One subagent may still be sufficient when the number of chapters matches the number of domains
 - Start chapter subagents only after this phase finishes. Their contract prohibits creating new bib entries

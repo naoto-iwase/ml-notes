@@ -6,10 +6,11 @@ In Phase 6, create the book landing page, `index.qmd`, and register it in the si
 
 ### Division of Responsibilities: index.qmd vs overview.qmd
 
+- Before drafting, inspect two or three existing `index.qmd` files from the same repository. Preserve the site's landing-page pattern instead of designing the entry from scratch.
 - **index.qmd = the book's "cover"**: what the book is about, what its sources are, and when it was written. A reader arriving from a listing should be able to decide within five seconds whether the book is relevant. **Keep it minimal.**
 - **overview.qmd = an optional "big picture" chapter**: use it only when the main questions, structure, and importance need a substantial treatment that would overload the landing page.
 
-For a compact book, omit `overview.qmd` and let `index.qmd` contain a short problem statement, scope boundary, and notation after the landing-page summary. Do not create an overview merely to repeat the sidebar or chapter introductions.
+The default repository pattern is front matter plus one or two lead paragraphs. Avoid bibliography citations such as `[@key]`; a claim that needs evidence belongs in `overview.qmd`. Direct links serve a different purpose and are allowed: after the introduction, one compact line may link to the primary paper, code, demo, dataset, or official project page. For a compact book with no overview, a brief problem statement may remain in the index only when existing entries use that pattern. For a multi-part or survey book, move problem formulation, scope, notation, and the unit of comparison into `overview.qmd`. Do not add a “Structure of This Book” section, a chapter list, or a standalone “Read the overview” link; the sidebar already provides that navigation.
 
 ### Minimal Template
 
@@ -49,7 +50,9 @@ Do **not** put the following in `index.qmd` unless the compact-book exception ab
 - A list of open artifacts.
 - A list of major topics equivalent to chapter titles, because the sidebar already provides it.
 - A literal `## 目次` ("Table of Contents") section, because it duplicates the sidebar completely.
+- A “Structure of This Book” section or manual link to the first chapter, because it creates a second chapter map beside the sidebar.
 - A paper-list table, even for a multi-paper survey, because the sidebar and chapter openings provide this information.
+- Bibliography citations used to support technical claims. Move both the claim and citation to `overview.qmd`; do not confuse this with a compact direct link to the primary artifact.
 
 For a cover-only index, do not place any `## ...` heading in the index. A compact book that combines its overview with the index may use a small number of functional headings. In either case, include `toc: false` so the right-hand table-of-contents sidebar stays hidden.
 
@@ -147,11 +150,11 @@ A slug rename is a cross-file operation. Before editing, search for the old dire
 6. Render the book once after the rename.
 7. Verify that the new index and chapter URLs return success, the old URL follows the chosen 404/redirect policy, and previous/next navigation points to the new path.
 
-Do not keep a weak slug merely to avoid a rename. Prefer a one-to-three-word functional noun phrase that matches the chapter H1, and perform the full cross-file check above.
+Review titles and slugs together, and audit the complete Part or book rather than correcting only the chapter that drew attention. Do not keep a weak or stale slug merely to avoid a rename. Prefer a one-to-three-word functional noun phrase that matches the chapter's core concept. Bilingual editions use the same relative slug under `ja/` and `en/`; translate the visible title, not the filename.
 
 ### Naming Nested `section:` Entries: Use Functional Terms
 
-When a book has at least eight chapters and the sidebar nests them by Part or Section, name each section with a **two- or three-character Japanese functional term that describes the chapters' role**.
+When a book has at least eight chapters and the sidebar nests them by Part or Section, use a **compact functional label that describes the chapters' role**. If the sections are numbered Parts, prefer a Roman numeral plus the label, such as `I 基礎`, rather than the width-consuming `Part I: 基礎` or `第 I 部: 基礎`.
 
 Past example: the first edition of `recursive-reasoning` used the Japanese labels `系譜と地図` ("Lineage and Map") and `比較と動向` ("Comparison and Trends") and was criticized as vague. Those labels merely joined chapter-title concepts with "and," so the section's contents were not inferable from its name. The `reliable-reasoning` labels `訓練側の信号` ("Training-Side Signals"), `推論側の信号` ("Inference-Side Signals"), and `構造的アプローチ` ("Structural Approaches") are the model for functional classification.
 
@@ -180,7 +183,7 @@ See [style-consistency.md](style-consistency.md) for details.
 - Translate abstract or descriptive titles into Japanese:
   - `Overview` → `概要` ("Overview").
   - `Open Problems` → `未解決問題` ("Open Problems").
-  - `Part I: Foundations` → `第 I 部: 基礎` ("Part I: Foundations").
+  - `Part I: Foundations` → `I 基礎` ("Part I: Foundations").
   - `Deduplication` → `重複除去` ("Deduplication") and `Data Mixing` → `データ混合` ("Data Mixing").
 - Match the tone of existing sidebar groups in `_quarto-public.yml` / `_quarto-private.yml`.
 - **Japanese sidebar text must match the chapter's Japanese H1 exactly**, as described below. When adding a chapter, use the same string for H1 and sidebar text.

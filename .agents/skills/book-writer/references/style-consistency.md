@@ -36,7 +36,7 @@ Past example: subagents tend to write headings such as `## Current Benchmark Sta
 
 ### Name Sidebar Sections with Functional Terms
 
-**Rule**: use a **two- or three-character Japanese functional term that describes the chapters' role** as a sidebar section title. Japanese examples include `中心` ("Core"), `背景` ("Background"), `評価` ("Evaluation"), `訓練側` ("Training Side"), `推論側` ("Inference Side"), and `構造的アプローチ` ("Structural Approaches"). Do **not** use an abstract expression that merely joins chapter-title concepts with the Japanese conjunction `と` ("and"), such as `系譜と地図` ("Lineage and Map"), `比較と動向` ("Comparison and Trends"), or `位置付けと整理` ("Positioning and Organization").
+**Rule**: use a **compact Japanese functional label that describes the chapters' role** as a sidebar section title. Japanese examples include `中心` ("Core"), `背景` ("Background"), `評価` ("Evaluation"), `訓練側` ("Training Side"), `推論側` ("Inference Side"), and `構造的アプローチ` ("Structural Approaches"). For numbered Parts, omit the literal word `Part` and the colon: prefer `I 基礎` over `Part I: 基礎`. Do **not** use an abstract expression that merely joins chapter-title concepts with the Japanese conjunction `と` ("and"), such as `系譜と地図` ("Lineage and Map"), `比較と動向` ("Comparison and Trends"), or `位置付けと整理` ("Positioning and Organization").
 
 Past example: the first edition of `recursive-reasoning` used `系譜と地図` and `比較と動向` and was criticized as vague. Use `reliable-reasoning` as the model: it classifies chapters functionally with `訓練側の信号` ("Training-Side Signals"), `推論側の信号` ("Inference-Side Signals"), and `構造的アプローチ` ("Structural Approaches").
 
@@ -195,6 +195,8 @@ A file slug is **exposed in the URL and sidebar**, so make it neither too short 
 - `arc-agi-and-small-models.qmd` ← `arc-agi` is sufficient.
 
 **Guideline**: one to three words in kebab case. Extract the core functional noun phrase from the chapter title.
+
+Review chapter titles and slugs in one pass. A title change that changes the core concept also requires a slug review. For bilingual books, keep the same relative slug under `ja/` and `en/`; only the visible titles are translated.
 
 ## Style Elements That Regeneration Will Not Fix
 

@@ -70,7 +70,7 @@ Refer to the figure in the prose with `@fig-{chapter_prefix}-X`.
 
 ## Inserting Images
 
-1. Read `{book_dir}/chapter-bib/_figure_manifest.md`, then inspect the relevant sources under `/tmp/arxiv_figures/<arxiv_id>/`
+1. Read `{audit_dir}/_figure_manifest.md`, then inspect the relevant sources under `/tmp/arxiv_figures/<arxiv_id>/`
 2. Inspect captions and surrounding source text, then select zero or more figures according to information value. Do not decide from filenames alone
 3. For a PDF, convert it to PNG with `pdftoppm -r 200 -png /tmp/arxiv_figures/<id>/<file>.pdf <output>`. The output gains a `-1.png` suffix, so rename it with `mv`
 4. For PNG or JPG input, copy it to `{book_dir}/images/{chapter_prefix}-<shortname>-<desc>.png`
@@ -156,7 +156,7 @@ Also, a Unicode arrow `→` (U+2192) inside Mermaid causes a syntax error and pr
 2. Run `python3 {skill_root}/scripts/fix_spacing.py {book_dir}`
 3. Run `python3 {skill_root}/scripts/lint_chapters.py {book_dir}` and confirm that your chapter produces no errors
 4. Confirm that every section advances the chapter's question; remove method details and repeated summaries that do not change the reader's understanding
-5. Report the paper IDs inspected and the keep/reject decision for each candidate figure to the parent. Do not edit the shared `_figure_triage.md`
+5. Report the paper IDs inspected and the keep/reject decision for each candidate figure to the parent. Do not edit the shared `{audit_dir}/_figure_triage.md`
 
 ## Completion Report
 
@@ -170,6 +170,7 @@ Briefly report the output path, lint result, papers whose figures were inspected
 - Set `{skill_root}` to the absolute path of the skill directory
 - Set `{source_file}` to the relevant survey section or notes, kept short enough for the subagent to read
 - Set `{book_dir}` to the absolute path of the book directory
+- Set `{audit_dir}` to `/tmp/book-writer/{book_slug}`; it is internal scratch and must not be committed or deployed
 - Set `{chapter_slug}` to the kebab-case file name without its extension
 - Set `{chapter_prefix}` to the short prefix used under `images/`, such as `rlvr`, `prm`, or `sc`
 - Set `{chapter_topic}` to a one-line description of the chapter topic

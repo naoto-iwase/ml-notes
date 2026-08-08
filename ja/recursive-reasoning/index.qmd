@@ -11,7 +11,7 @@ image: "images/gram-overview.png"
 toc: false
 ---
 
-数百万から数千万 parameters の小規模ニューラルネットを test-time に深く再帰展開して reasoning を実行する、まったく別系統の reasoning model 群が 2025–2026 年に脚光を浴びている。Hierarchical Reasoning Model（HRM）、Tiny Recursive Model（TRM）、Probabilistic Tiny Recursive Model（PTRM）、Generative Recursive reAsoning Models（GRAM）、Lattice Deduction Transformers（LDT）の 5 論文はいずれも、千例規模の学習データで Sudoku や ARC-AGI を解き、特定タスクでは 671B parameters の Frontier LLM を上回ったと主張する。
+小規模なneural networkをtest-timeに再帰展開するreasoning modelは、parameter数の代わりに反復計算を使う。SudokuやARC-AGIなどの構造化taskを中心に、独立した研究系統として発展してきた。
 
-本書はこの **recursive reasoning model** という研究プログラムを、技術的中身・前史・評価・批判のすべての面から立体的に把握することを目的とする。主要 5 論文 (HRM, TRM, PTRM, GRAM, LDT) を各章で深掘りし、補助 4 章で系譜・latent reasoning の分類・CoT scaling との比較・ARC-AGI 動向を扱い、最後の 2 章で実装ガイドと未解決問題を整理する。
+本書はrecursive reasoning modelを、技術的基盤、前史、実験評価、批判の各面から整理する。latent reasoningやtest-time scalingとの関係、実装上の選択、未解決問題も扱う。
 

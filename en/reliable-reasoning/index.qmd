@@ -11,12 +11,6 @@ image: "images/rlvr-yue2025-overview.png"
 toc: false
 ---
 
-Research on eliciting the reasoning ability of Large Language Models (LLMs) in a *reliable* manner accelerated rapidly through 2025–2026. This book organizes that literature along three axes — **training-side signals** (RLVR, GRPO, Process Reward Models), **inference-side signals** (self-consistency, confidence, test-time scaling), and **structural approaches** (tree search, reasoning structure analysis, diffusion LLMs) — covering more than 190 recent works from ICLR 2026, ACL 2026, ICML 2026, NeurIPS 2025, EMNLP 2025, and beyond.
+Research on making Large Language Model (LLM) reasoning more reliable expanded rapidly in 2025–2026. This book connects methods that use external signals to improve or evaluate reasoning rather than treating longer generation alone as evidence of progress.
 
-Three questions run through the book:
-
-- **Q1**: Does RLVR genuinely expand the capabilities of the base model, or does it merely re-weight existing capabilities?
-- **Q2**: How can we estimate the *correctness* of a reasoning trace without access to ground truth?
-- **Q3**: Where in the inference budget — depth, width, or search — should the limited compute be invested?
-
-Multiple research lines that developed independently around these questions began to intersect rapidly during 2025–2026.
+It organizes the literature around training-side signals, inference-side signals, and structural approaches, with particular attention to capability gains, correctness estimation, and the allocation of inference compute.

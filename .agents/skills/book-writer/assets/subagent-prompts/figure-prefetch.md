@@ -22,10 +22,11 @@ Extract the arXiv e-print for every entry in `{book_dir}/references.bib` under `
    uv run {skill_root}/scripts/fetch_arxiv_figures_batch.py \
        --bib {book_dir}/references.bib \
        --out /tmp/arxiv_figures \
+       --audit-dir {audit_dir} \
        --parallel 8
    ```
 
-3. Confirm that the script created `{book_dir}/chapter-bib/_figure_manifest.md`. The script writes the deterministic inventory; do not recreate it manually.
+3. Confirm that the script created `{audit_dir}/_figure_manifest.md`. The script writes the deterministic inventory; do not recreate it manually or place it under `{book_dir}`.
 
 The manifest sorts assets by descending size and marks filenames that suggest message-bearing figures. It is an inventory, not a selection. Chapter writers must inspect captions and surrounding source text before deciding whether to keep a figure.
 
@@ -47,3 +48,4 @@ Briefly report: "Fetched successfully: N of M papers," "Failed papers, if any," 
 - Be mindful of arXiv rate limits when setting parallelism with `--parallel 8`; this value has worked in practice
 - For more than 100 papers, it may be easier for the parent to run the script directly rather than use a subagent, because the logs are easier to inspect
 - If `/tmp/arxiv_figures/<id>/` already exists, the script skips it instead of downloading it again
+- Set `{audit_dir}` to `/tmp/book-writer/{book_slug}`. This directory contains internal workflow artifacts and must not be committed or deployed

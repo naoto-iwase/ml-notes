@@ -13,4 +13,4 @@ toc: false
 
 The same model can produce different results under different prompts, tools, context construction, memory policies, control flow, validators, and recovery logic. This book calls the executable system surrounding the model an **executable harness**. It examines methods that turn execution results into candidate harness updates, decide whether to accept them through external evaluation, and carry accepted changes into future executions.
 
-Prompt engineering, workflow optimization, and self-evolving agents each span broad research areas [@sahoo2024promptengineering; @gao2026selfevolving; @yue2026workflow]. This book does not attempt to cover all of them. It focuses on persistent harness-update loops around a fixed or managed target model.
+Prompt engineering, workflow optimization, and self-evolving agents are broader fields. This book focuses on persistent harness-update loops around a fixed or managed target model.

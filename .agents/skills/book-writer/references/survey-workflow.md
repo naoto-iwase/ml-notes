@@ -34,8 +34,8 @@ Key points:
 - Start a **bibliography pre-build subagent** and create `references.bib` in one place; do not let each chapter subagent invent its own keys.
   - Prompt template: `assets/subagent-prompts/bib-prebuild.md`
 - Use **figure pre-fetch** to extract the e-prints for every paper in `references.bib` into `/tmp/arxiv_figures/` in one batch.
-  - `fetch_arxiv_figures_batch.py --bib {book}/references.bib --parallel 8`
-- Confirm `{book}/chapter-bib/_figure_manifest.md` was generated before chapter drafting. During drafting, record keep/reject decisions in the parent-owned `_figure_triage.md`; selecting no figures is valid, but skipping figure inspection is not.
+  - `fetch_arxiv_figures_batch.py --bib {book}/references.bib --audit-dir /tmp/book-writer/{book_slug} --parallel 8`
+- Confirm `/tmp/book-writer/{book_slug}/_figure_manifest.md` was generated before chapter drafting. During drafting, record keep/reject decisions in the parent-owned `/tmp/book-writer/{book_slug}/_figure_triage.md`; selecting no figures is valid, but skipping figure inspection is not. These audit files must not enter the public book tree or Git history.
 - **Always use the survey's `main.bib` as the primary source** for bibliography entries; do not rely on descriptions in the survey prose.
 - Normalize key names to the book convention, `{lastname}{year}{shortname}`.
 - Do not confuse a method name with a paper title. For example, "Elastic-Cache" is a method name, not the paper title.

@@ -13,4 +13,4 @@ toc: false
 
 同じmodelでも、prompt、tool、context construction、memory policy、control flow、validator、recovery logicが違えば実行結果は変わる。本書では、このmodel外部の実行系を **executable harness** と呼ぶ。主題は、実行結果からharnessの更新候補を作り、外部評価に基づいて採否を決め、その変更を将来の実行へ持ち越す方法である。
 
-Prompt engineering、workflow optimization、self-evolving agentにはそれぞれ広い研究領域がある [@sahoo2024promptengineering; @gao2026selfevolving; @yue2026workflow]。本書はそれら全体ではなく、固定または管理されたtarget modelの周囲にあるpersistentなharness更新loopを横断して整理する。
+Prompt engineering、workflow optimization、self-evolving agentは、それぞれより広い研究領域である。本書は、固定または管理されたtarget modelの周囲にあるpersistentなharness更新loopに焦点を当てる。

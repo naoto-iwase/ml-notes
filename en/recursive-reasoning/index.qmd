@@ -11,6 +11,6 @@ image: "images/gram-overview.png"
 toc: false
 ---
 
-A separate lineage of reasoning models, built around small neural networks of a few million to a few tens of millions of parameters that are recursively unrolled at test time, came into focus in 2025–2026. Five papers, Hierarchical Reasoning Model (HRM), Tiny Recursive Model (TRM), Probabilistic Tiny Recursive Model (PTRM), Generative Recursive reAsoning Models (GRAM), and Lattice Deduction Transformers (LDT), all reach competitive accuracy on Sudoku and Abstraction and Reasoning Corpus for Artificial General Intelligence (ARC-AGI) from only a thousand or so training examples, and on certain tasks claim to surpass 671B-parameter frontier Large Language Models (LLMs).
+A distinct line of reasoning models uses small neural networks that are recursively unrolled at test time. These models seek to trade parameter count for iterative computation and have been studied on structured tasks such as Sudoku and ARC-AGI.
 
-This book examines the **recursive reasoning model** research program from all sides, technical content, prior art, evaluation, and critique. The five main models (HRM, TRM, PTRM, GRAM, LDT) each have a dedicated chapter, four supporting chapters cover the lineage, the broader landscape of latent reasoning, the comparison with CoT scaling, and the ARC-AGI competitive context, and two final chapters provide an implementation guide and a roundup of open problems.
+This book examines recursive reasoning models through their technical foundations, prior art, empirical evaluation, and critiques. It also connects them to latent reasoning, test-time scaling, implementation choices, and open problems.

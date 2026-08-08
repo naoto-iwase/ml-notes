@@ -31,6 +31,12 @@ and leaks of internal implementation details:
                 example, `## Chapter summary` or `## Adaptive compute allocation`
 [H3_CASE]       An H3 in en/ is not in Chicago Title Case; headings under ja/
                 and private/ are outside this convention and are skipped
+[INDEX_CITE]     A book index contains a bibliography citation; move the
+                 evidence-bearing claim and citation to overview.qmd
+[INDEX_HEADING]  A book index contains a body heading
+[INDEX_LAYOUT]   A book index uses a list, table, callout, or more than two
+                 prose paragraphs; one compact primary-resource link line is
+                 allowed after the introduction
 [TITLE_MISMATCH] Optional: a bibliography title differs from a reference
                 bibliography supplied with --cross-check=PATH
 
@@ -382,6 +388,13 @@ FIG_SRC_BARE_RE = re.compile(r'(出典|Source):\s*@[a-zA-Z][\w-]*')
 CODE_BLOCK_RE = re.compile(r'```[^\n]*\n.*?```', re.DOTALL)
 FM_BLOCK_RE = re.compile(r'^---\n.*?\n---\n', re.DOTALL)
 INLINE_CODE_RE = re.compile(r'`[^`\n]+`')
+MARKDOWN_LINK = r'\[[^\]\n]+\]\([^)\n]+\)'
+INDEX_RESOURCE_LINE_RE = re.compile(
+    rf'^{MARKDOWN_LINK}(?:\s*[·|]\s*{MARKDOWN_LINK})*\.?$'
+)
+INDEX_STRUCTURED_BLOCK_RE = re.compile(
+    r'^(?:[-+*]\s|\d+[.)]\s|>\s|:::\s*|\|\s|!\[|```)',
+)
 
 # Legitimate .qmd occurrences (stripped before leak check)
 MD_LINK_QMD_RE = re.compile(r'\[[^\]]*\]\([^)]*\.qmd[^)]*\)')
@@ -410,6 +423,45 @@ def _check_qmd(qmd: Path, rel, has_bib: bool, book_slugs: set):
 
     issues = 0
     rp = rel(qmd)
+
+    if qmd.name == 'index.qmd':
+        index_text = INLINE_CODE_RE.sub('', clean)
+
+        for m in CITE_RE.finditer(index_text):
+            key = m.group(1) or m.group(2)
+            if key and not key.startswith(XREF_PREFIXES):
+                print(f"[INDEX_CITE] {rp}:{line_no(index_text, m.start())}: bibliography citation '@{key}' belongs in overview.qmd")
+                issues += 1
+
+        for m in re.finditer(r'^#{1,6}\s+.+$', index_text, re.MULTILINE):
+            print(f"[INDEX_HEADING] {rp}:{line_no(index_text, m.start())}: index body headings are not part of the landing-page pattern")
+            issues += 1
+
+        blocks = [block.strip() for block in re.split(r'\n\s*\n', index_text)
+                  if block.strip()]
+        prose_blocks = []
+        resource_blocks = []
+        structured_blocks = []
+        for block in blocks:
+            if block.startswith('<!--') and block.endswith('-->'):
+                continue
+            if INDEX_RESOURCE_LINE_RE.fullmatch(block):
+                resource_blocks.append(block)
+            elif INDEX_STRUCTURED_BLOCK_RE.match(block):
+                structured_blocks.append(block)
+            elif not block.startswith('#'):
+                prose_blocks.append(block)
+
+        if structured_blocks:
+            first = structured_blocks[0].splitlines()[0]
+            print(f"[INDEX_LAYOUT] {rp}: index uses a structured block '{first}'; keep one or two prose paragraphs plus an optional resource-link line")
+            issues += 1
+        if len(prose_blocks) > 2:
+            print(f"[INDEX_LAYOUT] {rp}: index has {len(prose_blocks)} prose blocks; keep one or two")
+            issues += 1
+        if len(resource_blocks) > 1:
+            print(f"[INDEX_LAYOUT] {rp}: index has {len(resource_blocks)} resource-link blocks; combine them into one compact line")
+            issues += 1
 
     # [BACKTICK] backtick-wrapped citation/xref key (raw display bug)
     for m in BACKTICK_BIBKEY_RE.finditer(clean):

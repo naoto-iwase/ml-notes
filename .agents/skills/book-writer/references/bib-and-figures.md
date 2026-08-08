@@ -32,7 +32,7 @@ Key points:
 - Have it read every primary source, such as survey Markdown and paper lists, and name bibliography keys in `{lastname}{year}{shortname}` format.
 - Fetch each arXiv abstract page with WebFetch to establish the title and authors; do not rely on survey secondary sources.
 - Create `{book}/references.bib`.
-- At the same time, create `{book}/chapter-bib/_paper_index.md` as a mapping from key to arXiv ID, first author, and intended chapter.
+- At the same time, create `/tmp/book-writer/{book_slug}/_paper_index.md` as a mapping from key to arXiv ID, first author, and intended chapter.
 
 ### Step 2: Fetch Figures in One Batch
 
@@ -42,13 +42,14 @@ Run `fetch_arxiv_figures_batch.py`:
 uv run .agents/skills/book-writer/scripts/fetch_arxiv_figures_batch.py \
     --bib {book}/references.bib \
     --out /tmp/arxiv_figures \
+    --audit-dir /tmp/book-writer/{book_slug} \
     --parallel 8
 ```
 
 - Automatically extract arXiv IDs from `url = {https://arxiv.org/abs/XXXX.XXXXX}` fields in `references.bib`.
 - Download in parallel and skip existing downloads.
 - Continue after failures; a few failed papers must not stop the batch.
-- With `--bib`, generate `{book}/chapter-bib/_figure_manifest.md` automatically. The manifest inventories image assets even for sources that were already downloaded.
+- With `--bib`, generate `/tmp/book-writer/{book_slug}/_figure_manifest.md` automatically. The manifest inventories image assets even for sources that were already downloaded.
 
 For 100 or more papers, log tracking is easier if the parent runs the script directly rather than delegating it to a subagent.
 
@@ -58,7 +59,7 @@ Delegating this step is optional. If you do, use the prompt template `assets/sub
 
 Do not treat a successful batch download as completion. The writer must inspect the manifest, then inspect the caption and surrounding source text for candidate figures relevant to each chapter.
 
-Record decisions in the parent-owned `{book}/chapter-bib/_figure_triage.md`:
+Record decisions in the parent-owned `/tmp/book-writer/{book_slug}/_figure_triage.md`:
 
 ```markdown
 | Chapter | Paper | Source figure | Decision | Reason |
@@ -191,21 +192,21 @@ If a venue cannot be confirmed, fall back to `arxiv preprint`. It is safer to wr
 
 ## File Layout
 
-Book directory after completing Phase 2:
+Book source and internal audit directories after completing Phase 2:
 
 ```
 {book}/
 ├── _metadata.yml
 ├── references.bib              # Completed in Phase 2
-├── chapter-bib/
-│   ├── _paper_index.md         # Mapping from bib key to intended chapter
-│   ├── _figure_manifest.md      # Generated inventory of extracted figure assets
-│   ├── _figure_triage.md        # Parent-owned keep/reject decisions with reasons
-│   └── (empty or per-chapter stash)
 └── images/                     # Filled by chapter subagents in Phase 4
+
+/tmp/book-writer/{book_slug}/
+├── _paper_index.md             # Mapping from bib key to intended chapter
+├── _figure_manifest.md          # Generated inventory of extracted figure assets
+└── _figure_triage.md            # Parent-owned keep/reject decisions with reasons
 ```
 
-Every paper's e-print is then extracted under `/tmp/arxiv_figures/<id>/`. Chapter subagents inspect candidate figures there and report keep/reject decisions. Selected figures are converted to PNG with `pdftoppm` and copied into `{book}/images/`.
+Every paper's e-print is then extracted under `/tmp/arxiv_figures/<id>/`. Chapter subagents inspect candidate figures there and report keep/reject decisions. Selected figures are converted to PNG with `pdftoppm` and copied into `{book}/images/`. Paper indexes, manifests, and triage notes are internal workflow artifacts: never place them under the book source tree, commit them, or deploy them.
 
 ## Rebuilding an Existing Book
 

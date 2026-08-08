@@ -7,9 +7,10 @@
 
 Run this immediately after creating references.bib in Phase 2 to extract the
 e-print for every paper cited in the book under `/tmp/arxiv_figures/<id>/`.
-When `--bib` is used, the script also writes
-`chapter-bib/_figure_manifest.md` beside the bibliography. Chapter writers use
-that inventory to inspect candidate figures before deciding whether to keep any.
+When `--bib` is used, the script also writes an internal figure manifest under
+`/tmp/book-writer/<book>/`. Chapter writers use that inventory to inspect
+candidate figures before deciding whether to keep any; it is never written into
+the public book source tree.
 
 Usage:
     # List IDs directly
@@ -201,6 +202,12 @@ def main() -> int:
         help="Extraction root (default: /tmp/arxiv_figures)",
     )
     ap.add_argument(
+        "--audit-dir",
+        type=Path,
+        default=None,
+        help="Internal audit directory (default: /tmp/book-writer/<book>)",
+    )
+    ap.add_argument(
         "--parallel",
         type=int,
         default=4,
@@ -246,7 +253,8 @@ def main() -> int:
     print(f"[summary] ok={ok}  skip={skip}  fail={fail}  total={len(results)}")
 
     if args.bib:
-        manifest_path = args.bib.parent / "chapter-bib" / "_figure_manifest.md"
+        audit_dir = args.audit_dir or Path("/tmp/book-writer") / args.bib.parent.name
+        manifest_path = audit_dir / "_figure_manifest.md"
         key_mapping = map_bib_keys_to_arxiv_ids(args.bib)
         result_mapping = {aid: (status, detail) for aid, status, detail in results}
         write_figure_manifest(

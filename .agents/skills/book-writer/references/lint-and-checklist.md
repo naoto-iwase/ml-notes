@@ -63,6 +63,9 @@ It detects:
 - `[META]` — meta-level references in prose, including the Japanese fixtures `引用キー` ("citation key") and `bib エントリ` ("bib entry").
 - `[QMD_LEAK]` — a `*.qmd` filename exposed in prose outside a Markdown link or include.
 - `[SLUG_LEAK]` — a file slug, for example, `survey-li2025`, exposed in `(slug)` / `（slug）` syntax.
+- `[INDEX_CITE]` — a bibliography citation appears in `index.qmd`; move the evidence-bearing claim and citation to `overview.qmd`.
+- `[INDEX_HEADING]` — a body heading appears in `index.qmd`.
+- `[INDEX_LAYOUT]` — an index uses a list, table, callout, more than two prose paragraphs, or multiple resource-link blocks. One compact line of direct primary-resource links is allowed.
 - `[DUP]` — duplicate keys in `references.bib`.
 - `[NOTE_LEAK]` — internal information such as an OpenReview ID exposed in a bibliography `note` field.
 - `[ANON_AUTHOR]` — `author = {Anonymous}` in a bibliography entry, suggesting an OpenReview double-blind submission was imported. Retrieve the actual authors from the latest arXiv version.
@@ -115,12 +118,12 @@ After running the automatic fixes, confirm the following.
 ### YAML / Metadata
 
 - [ ] `_metadata.yml` exists and includes `sidebar`. Do not add `lang:` because the parent `_metadata.yml` already sets it.
-- [ ] `index.qmd` exists. A cover-only index has no `##` headings; a compact book that combines overview content into the index uses only a small number of functional headings. Neither form contains a literal `## 目次` ("Table of Contents") or a paper-list table.
+- [ ] `index.qmd` exists and follows two or three existing repository entries. The default is front matter plus one or two lead paragraphs, with no `##` headings, chapter list, “Structure of This Book” section, or manual link to the first chapter. It has no bibliography citations; claims that require evidence belong in `overview.qmd`. One compact line of direct primary-resource links (paper, code, demo, dataset, or official page) is allowed.
 - [ ] The `index.qmd` front matter includes `date-modified: last-modified`.
 - [ ] The `index.qmd` front matter includes `toc: false`, so the landing page does not display the right-hand table-of-contents sidebar.
 - [ ] The `_quarto-public.yml` or `_quarto-private.yml` sidebar registers **every chapter**.
 - [ ] Sidebar `text:` follows the language rules: English for an English sidebar; localized toward Japanese for a Japanese or private sidebar, while proper nouns remain in English.
-- [ ] If a book or chapter slug changed, the source path, sidebar `href`, `_metadata.yml` sidebar ID, relative links, generated `_site` output, and old/new URL policy have all been checked.
+- [ ] Chapter titles and slugs were reviewed together across the complete book or Part. Bilingual editions use the same relative slug. If a slug changed, the source path, sidebar `href`, `_metadata.yml` sidebar ID, relative links, generated `_site` output, and old/new URL policy have all been checked.
 
 ### Chapter Prose
 
@@ -157,7 +160,7 @@ After running the automatic fixes, confirm the following.
 - [ ] Images are placed in the `images/` directory.
 - [ ] **Figure-caption sources use the Japanese literal form `出典: [@key]` ("Source: `[@key]`"), including citation brackets.** `lint_chapters.py` checks this with `[FIG_SRC]`.
 - [ ] There is no figure-count quota. Every retained figure adds information that prose or a table would convey less clearly; Mermaid was not added merely to fill space.
-- [ ] For a survey-heavy book, `_figure_manifest.md` exists and `_figure_triage.md` records a keep/reject decision for every chapter. A zero-figure decision identifies what was inspected and why it was rejected.
+- [ ] For a survey-heavy book, `/tmp/book-writer/{book_slug}/_figure_manifest.md` exists and `_figure_triage.md` records a keep/reject decision for every chapter. A zero-figure decision identifies what was inspected and why it was rejected. No `chapter-bib/` or other internal audit directory is tracked or present in the publish artifact.
 - [ ] Every custom SVG parses as XML and has been inspected at the rendered article width for clipping, overlap, baselines, arrowheads, `viewBox`, aspect ratio, and panel alignment.
 - [ ] Mathematical labels inside custom SVGs match the page's rendered math style. SVGs embedded through `<img>` do not rely on inheriting page fonts or fetching an unverified external font.
 
@@ -212,7 +215,7 @@ Each item can be found mechanically with `grep`:
 
 ### Sidebar Section Names
 
-- [ ] Each section name is a **functional Japanese term**, such as `中心` (core), `背景` (background), `評価` (evaluation), `訓練側` (training side), `推論側` (inference side), or `構造的アプローチ` (structural approaches).
+- [ ] Each section name is a **compact functional Japanese label**, such as `中心` (core), `背景` (background), `評価` (evaluation), `訓練側` (training side), `推論側` (inference side), or `構造的アプローチ` (structural approaches). Numbered Parts use `I 基礎`, not `Part I: 基礎` or `第 I 部: 基礎`.
 - [ ] It does not use an abstract phrase that merely joins chapter titles with `と` ("and"), such as `系譜と地図` ("Lineage and Map"), `比較と動向` ("Comparison and Trends"), or `位置付けと整理` ("Positioning and Organization").
 - [ ] It does not use an excessively abstract or conflicting term such as `文脈` (context), `位置付け` (positioning), or `諸論点` (various issues). See `style-consistency.md`.
 
@@ -234,6 +237,8 @@ Image reference; the Japanese caption means "Figure caption":
 
 During interactive prose revision, batch coherent wording changes and run cheap source checks first. Do not render after every small wording edit. Render after structural, path, or asset changes; at user-requested checkpoints; and before publication.
 
+Use a targeted book render in the working tree. Before a public deployment, run the full-site render in a clean checkout or worktree that contains the same files as CI. An ignored private overlay may still enter the default Quarto profile even when `--profile public` is passed, so a root-wide render in a dirty mixed tree is not valid proof of the public build.
+
 Preview locally with Quarto:
 
 ```bash
@@ -251,10 +256,14 @@ Delete intermediate files created during Phase 2 or Phase 4 before publication.
 - `{book}/bib_entries/` — temporary directory for parallel writes during Phase 4. It is unnecessary after merging into `references.bib`.
 - `{book}/*.html` — stray HTML generated while validating with `quarto preview`.
 - `{book}/*.log` — Quarto / Pandoc logs.
+- `{book}/chapter-bib/` — legacy internal audit output. Delete it; the current workflow keeps manifests and triage notes under `/tmp/book-writer/{book_slug}/`.
 
 ```bash
 find {book} -maxdepth 2 \( -name "*.html" -o -name "*.log" \) -delete
 [ -d {book}/bib_entries ] && rm -rf {book}/bib_entries
+[ -d {book}/chapter-bib ] && rm -rf {book}/chapter-bib
 ```
 
 A remaining `bib_entries/` directory creates noise when inspecting the book's site structure. Always delete it after the merge.
+
+After an interrupted render, inspect `git status` before cleanup. Remove only confirmed generated files. Do not use a broad recursive cleanup that could delete unrelated untracked work.
