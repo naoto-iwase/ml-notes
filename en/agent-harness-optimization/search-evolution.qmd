@@ -1,0 +1,161 @@
+---
+pagetitle: "Search and Evolution"
+---
+
+# Search and Evolution
+
+Harness optimization can be formulated as black-box optimization that selects a good artifact from a candidate space.
+
+$$
+H^* = \arg\max_{H\in\mathcal{H}} J_{\mathcal{D}_{\mathrm{opt}}}(H).
+$$
+
+However, $\mathcal{H}$ is discrete, and candidate evaluation is expensive and stochastic. Small string-level differences in prompts, workflows, and code can produce discontinuous changes in behavior. This chapter classifies optimizers not by how they create proposals, but by **the order in which they evaluate candidates, the history they retain, and how they allocate the budget**.
+
+## Best-of-$N$ as the Baseline
+
+The simplest optimizer independently generates $N$ candidates and selects the one with the highest development score.
+
+$$
+\hat H = \arg\max_{1\leq i\leq N}\widehat J(H_i).
+$$
+
+This baseline is important. Even if a complex search algorithm wins, it may simply have used more candidates or tokens. Comparisons should match the following quantities.
+
+- Number of candidates
+- Proposal tokens per candidate
+- Number of cases used to run each candidate
+- Target model and optimizer model
+- Number of validation queries
+- Wall time with parallel execution
+
+When scores are noisy, simply increasing $N$ makes it more likely that a candidate with an accidentally high score will be selected. Improvements from Best-of-$N$ include both artifact quality and selection noise.
+
+## LLM Search with History in the Prompt
+
+APE generates instruction candidates from task examples, scores them on a subset, and reselects them [@zhou2023ape]. OPRO lists past candidates and scores in a meta-prompt and asks an optimizer large language model (LLM) to generate the next candidate [@yang2024opro]. Rather than using numerical gradients, the LLM reads patterns in the history.
+
+In this approach, the meta-prompt is the search state. Including every past candidate expands the context, while retaining only the top candidates discards the exploration history. Moreover, OPRO's reported tables include an analysis that presents the instruction with the highest test accuracy under each setting. The method's search mechanism must be distinguished from its effect size under clean held-out selection.
+
+An LLM that merely generates candidates is not necessarily itself the optimizer. The outer loop that records, evaluates, selects, and stops candidates is the optimizer.
+
+## Local Search and Beam Search
+
+Local search edits the neighborhood of the incumbent. Given prompt $p_t$ and an edit operator $M$,
+
+$$
+\mathcal{C}_t = \{M(p_t,z_j)\}_{j=1}^{m}
+$$
+
+constructs a set of neighboring candidates. Here, $z_j$ can be a wrong answer, critique, or mutation instruction.
+
+ProTeGi creates textual gradients from minibatch errors and adds prompt paraphrases and edits to a beam. It also uses bandit selection to allocate evaluation budget among candidates in the beam [@pryzant2023protegi]. This makes use of the direction indicated by failures rather than relying on scalar-only search, but if the local critique is wrong, the entire beam can move in the same direction.
+
+The primary ProTeGi paper also includes a plot in which training performance rises over successive iterations while test performance deteriorates. Some of its main results max-pool multiple prompts from the final beam at test time. Comparisons should therefore separate persistent improvement to a single prompt, search-time selection, and test-time ensembling.
+
+TextGrad propagates natural-language feedback to text variables in a computation graph and repeatedly applies local edits [@yuksekgonul2025textgrad]. When the graph is fixed, this is local parameter search and differs from methods that search the workflow topology itself.
+
+## Tree Search
+
+Tree search branches the history by treating candidates as nodes and edits as edges. AFlow represents workflows as code nodes and uses Monte Carlo tree search to generate and evaluate new workflows [@zhang2025aflow].
+
+In MCTS, exploring only branches with high known scores biases the search toward local optima. A selection rule must balance exploration of unknown branches with exploitation of known ones. However, when workflow evaluation has high variance, it is difficult to determine whether differences in node values reflect differences between artifacts or sampling noise.
+
+AFlow reports an average improvement of 5.7% over existing baselines across six benchmarks, and on some tasks a workflow using a smaller model outperforms GPT-4o at 4.55% of the post-adoption inference cost [@zhang2025aflow]. These results come from a separate search on each benchmark and do not show that the same workflow transfers to another environment. In addition, the cost in the figure primarily reflects running the final workflow on the test set, not the total search cost.
+
+## Search with a Surrogate
+
+When every candidate cannot be evaluated with a full rollout, a surrogate can predict performance from a small number of evaluations.
+
+MIPRO generates instruction and demonstration candidates for multistage LM programs and uses Bayesian optimization to select combinations [@opsahlong2024mipro]. The primary paper outperforms baseline optimizers on five of seven programs and reports accuracy differences of up to approximately 13%. This is a comparison with budgets and tasks defined within the same paper, not an effect size for workflow code search in general.
+
+AgentSquare evolves and recombines planning, reasoning, tool-use, and memory modules, then narrows the candidates with an in-context performance predictor [@shang2025agentsquare]. Because parents remain among the candidates for selection, it creates local non-degradation on the same `Eval_d`. However, the primary paper does not clearly establish a strict separation between search tasks and the final test. The reported average improvement should not be interpreted as generalization to unknown tasks.
+
+Surrogate search requires distinguishing two scores.
+
+$$
+\tilde J(H) \quad \text{surrogate prediction},
+\qquad
+\widehat J(H) \quad \text{observed rollout score}.
+$$
+
+Selecting candidates using only $\tilde J$ biases the search toward the surrogate's blind spots. Finalists and candidates with high uncertainty should be evaluated directly, and prediction error should also be reported.
+
+## Populations and Evolution
+
+Evolutionary search maintains multiple candidates as a population and repeatedly applies selection, mutation, and crossover.
+
+EvoPrompt uses an LLM as the operator in a genetic algorithm or differential evolution to evolve natural-language instructions [@guo2024evoprompt]. Promptbreeder coevolves not only task prompts but also the mutation prompts that mutate them [@fernando2024promptbreeder]. This is not general "self-improvement," but a specific form of prompt evolution based on fixed-task fitness.
+
+The advantage of a population is that exploration is not tied to a single incumbent. On the other hand, repeatedly measuring fitness on the same development set adapts the entire population to that set. Population diversity does not guarantee held-out generalization.
+
+## Pareto Archives
+
+A single average score can prematurely discard candidates that perform well on specific instances. GEPA retains the union of candidates that perform best on individual validation instances in a Pareto archive and creates reflective mutations from those candidates [@agrawal2026gepa].
+
+Across four main tasks, GEPA reports scores that average 10% higher than GRPO with 35 times fewer rollouts, and it outperforms MIPROv2 by 3.4 to 9.2 points on the same task set. The comparison budgets are matched within the paper, but the results depend on the tasks, evaluator, and target model. A Pareto archive is designed to preserve specialists during search. It does not guarantee that a deployment candidate retains all past capabilities.
+
+Pareto archives must also be distinguished from multi-objective optimization. GEPA's archive primarily uses nondominance over instance-level scores. Promoting quality, cost, and safety together requires a separate evaluation vector and acceptance rule.
+
+## Code Archives and Open-Ended Search
+
+The Meta Agent Search method in ADAS gives an archive of evaluated agent code to a coding agent as in-context examples and generates new agent systems [@hu2025adas]. DGM goes further by modifying the codebases of different parents in the archive and retaining even candidates whose scores do not improve immediately as stepping stones in separate lineages [@zhang2026dgm].
+
+DGM reports improvements from 20.0% to 50.0% on SWE-bench and from 14.2% to 30.7% on Polyglot. These are search results over coding-agent implementations that use a fixed foundation model. Because archive selection repeatedly evaluates the same coding benchmark, the search campaign itself is transductive even when transfer experiments on other benchmarks are included.
+
+![DGM's archive tree (left) and improvements along the lineage leading to the final best agent (right). The branching archive retains candidates that are not immediately best as stepping stones for later improvements. Source: [@zhang2026dgm], Figure 3 ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); two panels combined in the paper's layout, rasterized, and whitespace-cropped).](images/dgm-archive-progress.png){#fig-dgm-archive-progress}
+
+"Open-ended" does not mean proceeding in arbitrary directions without evaluation. DGM runs candidate code and adds it to the archive based on benchmark scores. A broad search space that does not require monotonic improvement is different from the absence of an evaluation objective.
+
+## Evolution vs Learned Optimizers
+
+An evolutionary optimizer improves individual candidate artifacts as a population. A learned optimizer learns, across multiple optimization episodes, the policy parameters that generate candidates.
+
+| Type | Persistent state | What a new target requires |
+|---|---|---|
+| Evolution | Population, archive, best artifact | Usually rerun the search |
+| Prompted LLM editor | Prompt, history, candidate archive | Search with the editor prompt |
+| Learned optimizer | Editor / policy weights | Generate candidates and evaluate them externally |
+
+RLPrompt learns a discrete prompt generator with reinforcement learning (RL) [@deng2022rlprompt]. Harness-R1 learns a runtime patch generator with online RL [@shao2026harnessr1]. These methods are discussed in the next chapter. Even when an evolutionary method uses a trained model as its LLM mutation operator, it should not be called a learned optimizer if it does not learn the operator's weights during the current search campaign.
+
+## Measuring Selection Bias
+
+When many candidates are compared using development scores, the maximum is biased upward. Let the observed score of candidate $i$ be
+
+$$
+\widehat J_i = J_i + \varepsilon_i
+$$
+
+As the number of candidates considered when selecting $\max_i\widehat J_i$ grows, the optimizer becomes more likely to select a candidate with large noise $\varepsilon_i$. Selection bias from repeatedly reusing the same data for model selection has long been recognized [@cawley2010overfitting].
+
+The remedy is not simply to use more seeds.
+
+- Create proposals on development data
+- Select candidates on validation data and record the number of queries
+- Finalize the finalists before evaluating the sealed test once
+- Reevaluate the incumbent with the same seeds and case runs
+- Compare against a Best-of-$N$ baseline under the same budget
+- Report the distribution of candidate scores, not only the average
+
+If a public leaderboard is used repeatedly as validation, its score is search feedback. It cannot be called the final test.
+
+## Stopping Rules
+
+When search ends "once improvement stops," the relevant question is which set defines improvement. Repeatedly checking a validation plateau adapts the stopping point itself to validation.
+
+Fix one of the following in advance.
+
+- Number of candidate evaluations
+- Number of case runs
+- Target / optimizer token budget
+- Wall-clock budget
+- Number of validation queries
+- Improvement threshold and patience
+- Reaching a safety or cost limit
+
+If no significant candidate emerges before the budget is exhausted, retain the incumbent. "Always adopt the best candidate" is not a stopping rule.
+
+## Key Points
+
+Search methods differ not in whether they use an LLM, but in their search state, proposal operator, evaluation budget, selection, and archive. Compare Best-of-$N$, local/beam, tree, surrogate, population, Pareto, and code-archive methods under the same budget and held-out protocol. Populations and archives preserve diversity during search, but do not automatically guarantee generalization or regression-free promotion.

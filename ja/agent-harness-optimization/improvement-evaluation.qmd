@@ -51,7 +51,7 @@ Harnessは、正解率だけでなくコストや安全性も変える。Version
 | 安全性 | 権限違反、信用できない入力からの越境 |
 | 安定性 | seed、task、model versionを変えたときのばらつき |
 
-AFlowはHumanEvalで正解率と実行コストを同時に比較する [@zhang2025aflow]。GEPAは一つの平均値だけで候補を選ばず、taskごとに強い候補を複数残す [@agrawal2026gepa]。
+AFlowはHumanEvalで正解率と採用後のworkflow実行costを同時に比較する [@zhang2025aflow]。GEPAは一つの平均値だけで候補を選ばず、validation instanceごとに強い候補を複数残す [@agrawal2026gepa]。
 
 探索量も記録する必要がある。1,000個から選んだ最良候補と、10個から選んだ最良候補を最終評価値だけで比べると、前者が多く試した利点を隠してしまう。
 
@@ -59,9 +59,9 @@ AFlowはHumanEvalで正解率と実行コストを同時に比較する [@zhang2
 
 | 手法 | 確認していること | 残る限界 |
 |---|---|---|
-| DGM [@zhang2026dgm] | 変更後にcompileし、coding benchmarkで評価する | 同じbenchmark群の外でも良くなるとは限らない |
-| Failure-Driven Workflow Refinement [@zhang2026failure] | 修正対象と周辺taskへの副作用を調べる | 未使用taskでの改善は別に確認する必要がある |
-| Harness-R1 [@shao2026harnessr1] | validation、test、held-out taskを分ける | 新しいenvironmentやtool APIでも有効かは未確定である |
+| DGM [@zhang2026dgm] | 変更後にcompileし、coding benchmarkで評価する | Archive選択は同じbenchmarkの反復結果を使うため、benchmark外一般化とは別である |
+| Failure-Driven Workflow Refinement [@zhang2026failure] | Failure traceからworkflow editを作る機構を提案する | 公開arXiv版の表はillustrative projectionであり、実測効果量として使えない |
+| Harness-R1 [@shao2026harnessr1] | Same-batch、validation、test、held-out taskを分ける | Same-batch rewardはtransductiveであり、新しいenvironmentやtool APIは未検証である |
 
 この違いは、手法の優劣ではなく、どこまでを実験で確認したかの違いである。
 
@@ -83,5 +83,3 @@ AFlowはHumanEvalで正解率と実行コストを同時に比較する [@zhang2
 ## 要点
 
 更新候補を作る仕組みと、採用を決める仕組みは分離する。未知のtaskで改善し、既存の成功・コスト・安全性を悪化させない候補だけを採用する。
-
-## 参考文献 {.unnumbered}

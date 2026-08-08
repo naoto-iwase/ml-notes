@@ -1,0 +1,259 @@
+---
+pagetitle: "Regressions, Cost, and Safety"
+---
+
+# Regressions, Cost, and Safety
+
+A harness candidate may fix the targeted failure while breaking another task, increasing inference cost, or weakening safety boundaries. Maximizing only mean quality hides these effects. This chapter treats promotion as multi-objective change management.
+
+## Defining Regressions
+
+Let the set of instances solved by the incumbent $H_t$ be
+
+$$
+P_t=\{x:s(H_t,x)=1\}
+$$
+
+The set that candidate $H'$ breaks is
+
+$$
+R(H')=\{x\in P_t:s(H',x)=0\}
+$$
+
+Define the regression rate as
+
+$$
+\rho(H')=\frac{|R(H')|}{|P_t|}
+$$
+
+The mean score can increase even when $\rho(H')>0$.
+
+At the same time, report the set of newly solved instances
+
+$$
+F(H')=\{x:s(H_t,x)=0,\ s(H',x)=1\}
+$$
+
+A net gain of $|F|-|R|$ can hide the loss of a single important prior task, so report newly fixed and newly broken instances separately.
+
+## Building a Preservation Set
+
+Regression testing does not mean rerunning every development task each time. Version a preservation set that includes at least the following.
+
+- Representative tasks solved by previous releases
+- Failures that have recurred in the past
+- Interface contracts for tools, memory, and validators
+- Low-frequency but severe safety cases
+- Upper-bound cases for cost and latency
+- Major versions of the target model and environment
+
+Separate the targeted failure set $F_t$ from the preservation set $P_t$. Even if a candidate fixes $F_t$, do not promote it when it falls below the baseline on $P_t$.
+
+AgentSquare includes the parent among the candidates in each search phase, making it less likely to select a candidate that performs worse than the parent on the same `Eval_d` [@shang2025agentsquare]. GEPA retains per-validation-instance specialists in a Pareto archive [@agrawal2026gepa]. DGM preserves ancestor code in an archive [@zhang2026dgm]. These mechanisms are useful for rollback and search diversity, but none guarantees regression-free deployment across the full task distribution.
+
+## Continual Optimization and Forgetting
+
+When a harness is updated over multiple rounds, an optimizer that uses only the latest failures may undo earlier improvements.
+
+$$
+H_0\rightarrow H_1\rightarrow\cdots\rightarrow H_T.
+$$
+
+During candidate selection in round $t$, if $H_{t+1}$ is chosen using only the current failure set, tasks solved by $H_1,\ldots,H_t$ are not rechecked. Even when old versions remain in an archive, regressions are not prevented unless the promotion rule examines old tasks.
+
+Do Agent Optimizers Compound? is a technical report that splits hard Terminal-Bench 2.0 tasks into 12 Phase 1 tasks and 10 tasks introduced in Phase 2. It compares three optimizers—GEPA, Meta Harness, and RELAI-VCL, which enforces regression control inside the search loop—under the same budget of 200 rollouts per phase [@wang2026compound]. GEPA falls below the unoptimized baseline when transferred to unseen tasks, Meta Harness transfers positively but cannot continue improving in Phase 2, and only RELAI-VCL combines positive transfer with further improvement after re-optimization. This is initial evidence from one benchmark, not proof of sealed-test generalization, but it shows why continual harness optimization must put preservation inside the search loop.
+
+## Search Cost and Deployment Cost
+
+There are at least three kinds of cost.
+
+| Cost | When It Occurs | Example |
+|---|---|---|
+| Search cost | Candidate generation and search | Optimizer tokens, candidate rollouts |
+| Verification cost | Before promotion | Compilation, regression tests, sealed tests, safety evaluation |
+| Deployment cost | Every run after adoption | Target tokens, tool calls, latency, retries |
+
+A harness may incur a high one-time search cost while reducing deployment cost. Conversely, a workflow that is cheap to discover but runs multiple agents every time after adoption has a high long-term cost.
+
+Define total cost for $n$ uses as
+
+$$
+C_{\mathrm{total}}(H;n)
+=
+C_{\mathrm{search}}(H)
++C_{\mathrm{verify}}(H)
++n\,C_{\mathrm{deploy}}(H)
+$$
+
+The break-even point depends on the difference from the incumbent. Do not treat the per-task cost reported in a search paper as production cost.
+
+AFlow compares the final workflow's accuracy and inference cost, but the cost shown in its figure is not the cost of the optimizer's entire search [@zhang2025aflow]. GEPA matches MIPROv2's rollout budget and also reports API cost and final prompt length [@agrawal2026gepa]. Many studies do not report optimizer-model tokens, target-model tokens, wall time, and deployment latency together.
+
+## Aligning Evaluation Units
+
+"100 evaluations" means very different things depending on whether it denotes 100 candidates or 100 case-runs. Running one workflow candidate on 50 tasks produces 50 case-runs. Distinguish the following units.
+
+- Proposal count
+- Candidate count
+- Full validation pass
+- Case-run
+- Target-model token
+- Optimizer-model token
+- Tool or environment action
+- Wall-clock time and concurrency
+
+AgentSquare and MIPRO can reduce the number of full rollouts by using surrogates, but the accounting should include predictor inference cost and final direct evaluations [@shang2025agentsquare; @opsahlong2024mipro]. Do not exclude costs spent on invalid candidates.
+
+## Invalid Candidates
+
+The broader the edit surface, the more likely a candidate is to fail before execution.
+
+| Invalidity | Check |
+|---|---|
+| Syntax / parse | Parser, formatter |
+| Type / schema | Type checker, JSON schema |
+| Interface | Contract test, required hook |
+| Runtime | Sandbox, timeout, resource limit |
+| Permission | File, network, tool allowlist |
+| Semantic | Unit test, task evaluator |
+
+Report the invalid rate
+
+$$
+\iota=\frac{N_{\mathrm{invalid}}}{N_{\mathrm{proposed}}}
+$$
+
+Reporting performance only for valid candidates overestimates the search efficiency of a broad surface.
+
+Harness-R1 rejects invalid patches using a patch compiler and sandbox [@shao2026harnessr1]. DGM also executes candidate code before adding it to the archive. Successful compilation, however, does not imply task correctness or safety.
+
+## Safety Regressions
+
+A harness changes a model's permissions and information flow. Safety includes at least the following.
+
+- Expansion of tool permissions
+- Compliance with prompt injection
+- Inclusion of secrets or private data in context
+- Removal or bypass of validators
+- Unsafe retries or fallbacks
+- Duplicate external side effects
+- Modification of evaluators or tests
+- Data-retention violations through logging
+
+GEPA's PUPA experiment is a limited example that addresses personally identifiable information leakage and task quality together [@agrawal2026gepa]. In contrast, ProTeGi's "Jailbreak" is a task for classifying jailbreak inputs, not an experiment that measures whether a runtime harness remains safe under attack [@pryzant2023protegi].
+
+AgentDojo provides a dynamic environment for indirect prompt injection against tool-using agents and measures utility separately from attack success [@debenedetti2024agentdojo]. Harness safety evaluations should include this kind of untrusted tool output in the regression suite.
+
+## Separating Containment from Safety Evidence
+
+Sandboxes, read-only paths, and hook schemas are mechanisms for limiting the scope of damage. They are distinct from evidence that
+
+- Attack success decreased
+- No permission violation occurred
+- No secret was exposed
+- Quality was preserved under adversarial input
+
+The use of sandboxes by DGM and Harness-R1 is important for safely testing candidate code. It does not, however, demonstrate the semantic safety of the generated harness. A safety claim requires attack tasks, a threat model, an evaluator, and results.
+
+## Evaluator Overoptimization
+
+Because the optimizer maximizes the evaluator score, it can exploit evaluator imperfections. Research on reward overoptimization shows that stronger optimization of a reward model can reduce true performance outside the proxy [@gao2023overoptimization].
+
+In harness optimization, this can take the following forms.
+
+- Generate verbose answers preferred by the judge
+- Add a hard-coded branch that passes only the unit tests
+- Return an incomplete answer immediately before the timeout
+- Avoid keywords used by the safety evaluator
+- Treat evaluator failure as success
+
+When a large language model (LLM) is also used as the optimizer's judge, consider self-preference. Research shows that LLM evaluators tend to prefer their own generations [@panickssery2024selfpreference]. Separating the proposal and judge models does not necessarily eliminate this bias.
+
+As countermeasures, combine executable verifiers, blind human evaluation, multiple independent evaluators, and adversarial audits. Report evaluator disagreement as well.
+
+## Acceptance Rule
+
+Let the evaluation record be
+
+$$
+r(H)=
+\left(
+q_{\mathrm{test}},
+\rho_{\mathrm{preserve}},
+C_{\mathrm{deploy}},
+L_{95},
+\iota,
+s_{\mathrm{unsafe}}
+\right)
+$$
+
+For example, fix the following promotion contract in advance.
+
+$$
+V(H',H_t)=\mathrm{accept}
+$$
+
+iff
+
+$$
+\begin{aligned}
+q_{\mathrm{test}}(H')-q_{\mathrm{test}}(H_t)&\geq\delta,\\
+\rho_{\mathrm{preserve}}(H')&\leq\epsilon,\\
+C_{\mathrm{deploy}}(H')&\leq C_{\max},\\
+L_{95}(H')&\leq L_{\max},\\
+s_{\mathrm{unsafe}}(H')&=0.
+\end{aligned}
+$$
+
+Do not change the thresholds $\delta,\epsilon$ after seeing the results. If a confidence interval crosses a threshold, do not force acceptance or rejection. Mark the result as inconclusive.
+
+Treat critical safety tasks as hard gates rather than including them in an average. Design the contract so that a single permission violation can cause rejection even when quality improves substantially.
+
+## Rollback
+
+Some regressions are discovered only after promotion. Rollback capability is part of artifact persistence.
+
+Preserve the following.
+
+- Incumbent binary, code, or prompt
+- Candidate diff and parent
+- Database or memory schema migration
+- Environment compatibility
+- Evaluator and acceptance record
+- Rollback trigger and operator
+
+A candidate that changes a memory schema or database state cannot be rolled back by reverting code alone. Prepare a backward migration or shadow write.
+
+In a canary deployment, route only part of the traffic to the candidate and compare quality, cost, latency, and safety events against the incumbent in paired observations. Separate human incident response from automatic optimization before using the online evaluator as feedback for the next optimizer update.
+
+## Variance and Tail Risk
+
+Agent execution has a long tail. Report the following in addition to mean latency and mean score.
+
+- Median and 95th / 99th percentile latency
+- Timeout rate
+- Distribution of tool retries
+- Variance across seeds
+- Worst case by task family
+- Catastrophic failure count
+
+Pairing candidate evaluations with the same seeds can reduce variance, but it should not hide the diversity of sampling in deployment. In the final evaluation, use multiple seeds and compare the candidate and incumbent on the same environment snapshot.
+
+## Minimal Promotion Report
+
+| Dimension | Required Reporting |
+|---|---|
+| Quality | Mean, by task, newly fixed |
+| Regression | Newly broken, preservation rate |
+| Search cost | Candidates, case-runs, optimizer / target tokens |
+| Deployment cost | Tokens, tools, latency, retries |
+| Validity | Invalid rate and rejection reasons |
+| Safety | Threat model, attack success, permission events |
+| Stability | Seeds, confidence interval, tails |
+| Operations | Version, rollback, canary results |
+
+A single "improvement rate" is not enough to justify promotion.
+
+## Key Points
+
+Measure improvement on targeted failures separately from preservation of existing capabilities. Separate search, verification, and deployment costs, and include invalid candidates in the budget. A sandbox provides containment, not safety evidence. Adopt only candidates that pass a predefined promotion contract for quality, regressions, cost, latency, and safety.

@@ -1,0 +1,190 @@
+---
+pagetitle: "Target and Environment Generalization"
+---
+
+# Target and Environment Generalization
+
+The same harness behaves differently when the target model, tool application programming interface (API), runtime, or task distribution changes. These interactions arise when a prompt depends on model-specific instruction following, a workflow assumes a particular tool error format, or a validator accepts only an outdated schema. Harness generalization must be measured not only across task instances but also along the **target and environment dimensions**.
+
+## Separating the Dimensions of Generalization
+
+Consider harness performance as the following function.
+
+$$
+J(H;\theta,E,\mathcal{D},v),
+$$
+
+Here, $\theta$ is the target model, $E$ is the environment including tools and runtime, $\mathcal{D}$ is the task distribution, and $v$ is the version of the harness interface. Distinguish evaluations that change only one factor from those that change several factors at once.
+
+| Dimension | Example Change | Primary Failure |
+|---|---|---|
+| Target model | Model family, size, provider | Instruction interpretation, tool-call format, context limit |
+| Model version | API update, checkpoint update | Sampling, refusal, schema adherence |
+| Environment | Website, database, simulator | Observation, state transition, latency |
+| Tool contract | Name, argument, return schema | Invalid call, silent misparsing |
+| Permission | Read/write/network scope | Denial, privilege violation, faulty fallback |
+| Task distribution | Domain, difficulty, language | Benchmark-specific shortcut |
+| Harness interface | Hook, memory schema, runtime | Patch incompatibility |
+
+A cross-target evaluation changes $\theta$ while using the same $H$. An experiment that compares $H_\theta$ obtained by rerunning the search for each target is multi-target optimization, not artifact transfer.
+
+## Three Types of Transfer
+
+Harness optimizer transfer takes three forms.
+
+1. **Artifact transfer:** Apply the same harness to a new target or environment
+2. **Optimizer transfer:** Use the same optimizer to search for a harness for a new target
+3. **Design transfer:** Use a module or pattern found in one campaign to initialize another campaign
+
+Conflating these forms makes it impossible to determine what generalized. Even if a learned editor can generate a patch for a new target, the original patch itself has not necessarily transferred.
+
+## Cross-Model Prompt Transfer
+
+Prompt surfaces differ across models in tokenization, pretraining, and instruction tuning. RLPrompt evaluates a transfer matrix for discrete prompts between frozen RoBERTa and GPT-2 models [@deng2022rlprompt]. Because a prompt learned on a source model is applied unchanged to another target, this is a clear example of artifact-level cross-target transfer.
+
+The results show that transfer is not symmetric. Even if $H_{\theta_1}$ works with $\theta_2$, $H_{\theta_2}$ may not work equally well with $\theta_1$. For $m$ targets, the evaluation should therefore measure the full matrix, including off-diagonal entries.
+
+$$
+T_{ij}=J(H_{\theta_i};\theta_j,E,\mathcal{D}).
+$$
+
+Reporting only the diagonal $T_{ii}$ reveals only the result of reoptimization for each target.
+
+APE, OPRO, ProTeGi, MIPRO, and GEPA sometimes run experiments with multiple models, but they often recreate candidates for each model [@zhou2023ape; @yang2024opro; @pryzant2023protegi; @opsahlong2024mipro; @agrawal2026gepa]. Distinguish improvement across multiple targets from the transfer of a single prompt across targets.
+
+## Agent Design Transfer
+
+ADAS's Meta Agent Search includes evaluations that apply agent designs discovered through search to other domains and foundation models [@hu2025adas]. Code artifacts have broader structure than prompts, so planning, verification, and debate patterns may persist even when the model changes.
+
+However, design transfer has two confounders.
+
+- Whether prompts or API adapters were changed for the new target
+- Whether the best design was selected again after examining tasks at the transfer destination
+
+Even when the "same agent architecture" is used, retuning a model-specific prompt means that the evaluation is not pure artifact transfer. Show in a diff which changes were permitted during transfer.
+
+AgentSquare searches for agent modules across six distinct tasks, but it runs the search separately for each task [@shang2025agentsquare]. Task breadth is not cross-environment evidence for a single artifact.
+
+## Cross-Model and Cross-Benchmark Evaluation of Code Archives
+
+DGM searches coding-agent code around a fixed foundation model and evaluates it on SWE-bench and Polyglot [@zhang2026dgm]. The paper also examines transfer to different models and benchmarks.
+
+Again, two cases must be distinguished.
+
+- Move code discovered on SWE-bench to Polyglot unchanged
+- Run a new DGM search for Polyglot
+
+The former is artifact transfer, while the latter is the result of reusing the optimizer in another environment. Because the DGM archive is formed through repeated reuse of scores from the same benchmark, the score obtained after moving the artifact to another benchmark is important. The best value of 50.0% on the search benchmark alone cannot evaluate transfer.
+
+Code artifacts depend on tool paths, containers, test commands, and repository layouts. Even if only the model is changed in a cross-model evaluation, runtime portability remains untested when the environment stays the same.
+
+## Differences Across Meta-Harness Settings
+
+Meta-Harness searches harness source code for text classification, mathematical reasoning, and agentic coding [@lee2026metaharness]. In text classification, it separates search and test data and also addresses shifts in the input distribution. In the coding setting, however, it repeatedly reuses the same set of Terminal-Bench tasks for search and evaluation.
+
+Success in three domains demonstrates the scope of the optimizer design, but it does not mean that the same optimized harness transferred across all three domains. Because separate code is searched in each domain, this is optimizer transfer.
+
+When comparing coding proposers such as Meta-Harness in a new environment, examine the following conditions.
+
+- Transfer of existing candidate history
+- Changes to the proposer prompt
+- Changes to the interface validator
+- Use of the same search budget
+
+Hold all of them fixed.
+
+## Cross-Target Evaluation of Harness-R1
+
+Harness-R1 reports a cross-target experiment in which runtime patches created by its specialized editor are applied to 20 target agents [@shao2026harnessr1]. The target agents are frozen, and the patches operate through a shared hook schema. Across 63 target-benchmark combinations, most improve, while a small number of regressions are also reported.
+
+This provides initial evidence that one editor can generate and apply effective patches for different targets. However, the following elements are fixed or limited.
+
+- Three environments: WebShop, ALFWorld, and DBBench
+- The same runtime hook design
+- The same patch compiler and sandbox
+- Three seeds
+- A newly released, unreviewed preprint
+
+It is therefore most accurate to describe this result as **cross-target within a shared runtime**. It does not demonstrate cross-environment generalization to a new tool API, browser, database schema, or permission model.
+
+## Changing the Environment
+
+A cross-environment evaluation holds the target model fixed while changing the tools and state transitions.
+
+$$
+G_E(H)=J(H;\theta,E_{\mathrm{new}},\mathcal{D})
+-J(H_0;\theta,E_{\mathrm{new}},\mathcal{D}).
+$$
+
+Environment differences can be organized into levels.
+
+| Level | Change | Example |
+|---|---|---|
+| Patch-level | Bug fix, minor version | Change in an error message |
+| Contract-compatible | New field, ordering, latency | Optional schema field |
+| Contract-breaking | Tool name, argument, authentication | API migration |
+| Behavioral | Website policy, simulator dynamics | Change in the result of the same action |
+| Adversarial | Prompt injection, malicious tool output | Untrusted observation |
+
+Among the primary studies covered here, almost none systematically evaluate contract-breaking tool APIs or permission changes. Cross-environment generalization remains an open problem.
+
+## Measuring Interactions
+
+The effects of a harness and a target need not be additive. For two targets $\theta_1,\theta_2$ and two harnesses $H_0,H_1$, define the interaction as
+
+$$
+I =
+\bigl[J(H_1;\theta_2)-J(H_0;\theta_2)\bigr]
+-
+\bigl[J(H_1;\theta_1)-J(H_0;\theta_1)\bigr]
+$$
+
+A large $I$ indicates that the harness improvement is target-specific.
+
+Measure environment interactions in the same way. Report not only the mean improvement but also the target-by-environment matrix and the worst case.
+
+$$
+G_{\min}(H)=
+\min_{\theta\in\Theta,\,E\in\mathcal{E}}
+\left[J(H;\theta,E)-J(H_0;\theta,E)\right].
+$$
+
+Even if the mean is positive, $G_{\min}<0$ means that the harness regresses in a particular deployment.
+
+## Robustness to Version Updates
+
+Provider models and tool APIs can change even when their names remain the same. A cross-target study should record not only the model ID but also the checkpoint, API date, decoding parameters, and system policy.
+
+Use the following canary protocol in production.
+
+1. Reevaluate the current $H_t$ and candidate $H'$ on the new version
+2. Check whether the improvement observed on the old version remains
+3. Break down output schema, tool calls, latency, and refusals
+4. If a regression occurs, manage the harness as a target-specific variant
+5. Do not promote it automatically to the global default
+
+Rather than treating a harness as a single universal artifact, attach a compatibility matrix to its version metadata.
+
+## Cross-Language and Cross-Domain Transfer
+
+Task language and domain also create interactions similar to those of an environment. In transfers such as using an English prompt for Japanese-language tasks or applying a verification loop discovered on a coding benchmark to web tasks, not only the output format but also the failure distribution changes.
+
+Even when the same accuracy metric can be used, evaluator quality may differ across languages or domains. For cross-domain evaluation, use a human-verified subset or a domain-specific executable verifier.
+
+## Minimal Transfer Protocol
+
+To evaluate the transfer of a single artifact $H^*$, hold the following conditions fixed.
+
+1. Finalize $H^*$ using only development data from the source target and environment
+2. Freeze the candidate sources, history, and scores
+3. Measure zero-shot transfer without editing prompts or code at the destination
+4. If needed, measure adapted transfer using a small destination validation set separately
+5. Evaluate the incumbent $H_0$ at the destination as well
+6. Report the mean, worst case, regression count, and invalid count
+7. Include a separate case in which the target model and environment change simultaneously
+
+Do not place zero-shot transfer and adapted transfer in the same table column.
+
+## Key Points
+
+Evaluate cross-target, cross-environment, and cross-task generalization as separate dimensions. Rerunning the same method for each target measures optimizer transfer, not the transfer of a single artifact. Current primary research offers limited examples of cross-model and cross-domain transfer, but provides almost no cross-environment evidence that includes new tool APIs, runtimes, and permissions.

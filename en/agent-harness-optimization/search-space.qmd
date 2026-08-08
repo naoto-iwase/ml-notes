@@ -30,7 +30,7 @@ If the same failure can be fixed in multiple ways, start with the narrowest edit
 
 DSPy holds the program structure fixed while selecting instructions and demonstrations to optimize an evaluation metric [@khattab2024dspy]. Its limited edit surface makes candidates easy to compare and the causes of failures easy to trace.
 
-GEPA uses natural-language feedback on execution results to revise prompts and retains multiple candidates that perform well on different problems [@agrawal2026gepa]. Because it does not select a single candidate based only on average score, it can preserve candidates that fix one failure but not another.
+GEPA uses natural-language feedback on execution results to revise prompts and retains the union of candidates that perform well on different validation instances [@agrawal2026gepa]. Because it does not select a single candidate based only on average score, it can preserve candidates that fix one failure but not another.
 
 If prompt changes can fix the problem, there is no need to expand the edit surface to the workflow or harness implementation. However, prompts alone are insufficient when the order of tool calls or retry conditions causes the problem.
 
@@ -63,5 +63,3 @@ Expanding the edit surface also increases risks such as breaking interfaces on r
 ## Key Points
 
 A larger search space is not inherently better. Search only the scope needed to fix the failure, proceeding from prompt to workflow to harness implementation.
-
-## References {.unnumbered}

@@ -1,0 +1,175 @@
+---
+pagetitle: "Editors and Learned Optimizers"
+---
+
+# Editors and Learned Optimizers
+
+Using a large language model (LLM) to generate candidates is not the same as learning an optimizer. APE, OPRO, GEPA, AFlow, and Meta-Harness use a trained LLM as a proposal model but do not update its model weights during each search campaign. By contrast, RLPrompt and Harness-R1 learn the candidate generator itself from rewards obtained across multiple executions.
+
+This book excludes updates to target-model weights, but includes **learning an optimizer separate from the target model**. The final artifact that is updated and saved must be a harness external to the model, and that artifact must pass external evaluation.
+
+## Three Types of Editors
+
+| Editor | Weights updated during campaign | Input | Output |
+|---|---|---|---|
+| Prompted LLM editor | No | Incumbent, feedback, history | Text or code candidate |
+| Search policy | Usually no | Search state, candidate scores | Next operator or parent to evaluate |
+| Learned optimizer | Yes | Evidence from multiple optimization episodes | Candidate-generation policy |
+
+Meta-Harness's coding proposer is the first type. It reads source code, scores, and traces and generates new harness code, but the proposer weights do not change during search [@lee2026metaharness]. GEPA's reflective mutation is also a prompted editor, and what is learned is the population of candidate prompts [@agrawal2026gepa].
+
+For a learned optimizer, distinguish the optimizer parameters $\phi$ from the target-model parameters $\theta$.
+
+$$
+\phi^* = \arg\max_{\phi}
+\mathbb{E}_{(H,Z)\sim\mathcal{D}_{\mathrm{edit}}}
+\left[R\bigl(O_\phi(H,Z)\bigr)\right],
+\qquad \theta\ \text{is fixed}.
+$$
+
+At deployment, the learned $O_{\phi^*}$ creates a candidate from a new target, failure, and harness.
+
+$$
+H' = O_{\phi^*}(H,Z).
+$$
+
+Evaluate the training performance of $\phi$ separately from the held-out performance of $H'$.
+
+## RLPrompt: Learning a Discrete Prompt Generator
+
+RLPrompt learns a policy that generates discrete-token prompts for a frozen target model using soft Q-learning, a form of reinforcement learning (RL) [@deng2022rlprompt]. It requires neither target-model gradients nor weight updates and returns task rewards to the policy.
+
+Two artifacts persist in this method.
+
+- Policy weights that generate prompts
+- The selected discrete prompt
+
+The paper evaluates a prompt transfer matrix between RoBERTa and GPT-2 to study transfer when the target model changes. This is relatively early cross-target evidence for learned optimizers. However, it is limited to prompt surfaces for classification and style transfer, not the ability to edit workflows or runtime code.
+
+The fact that RLPrompt "does not change target weights" is not a reason to include weight learning in general within this book's scope. The relevant question is whether the learned policy is the target agent itself or an optimizer that creates harness candidates.
+
+## The Boundary with Query-Specific Generators
+
+FlowReasoner post-trains a meta-agent with a reward that combines execution quality, complexity, and efficiency, then generates a multi-agent system for each user query [@gao2025flowreasoner]. It is relevant because execution feedback is used to learn an optimizer policy.
+
+However, the generated workflow is specific to each query, and the selected workflow artifact is not carried forward as a version for the next independent task. The persistent improvement lies primarily in the meta-agent weights. This book therefore describes it as adjacent work on learned optimizers, but does not count it as a core example of persistent harness updates.
+
+This boundary is determined not by whether a trained model exists, but by the following questions.
+
+1. Which artifact does the candidate change?
+2. Are candidates compared through external execution?
+3. Is the adopted artifact saved for future runs?
+4. Can the system roll back to the incumbent?
+
+Per-query planning, test-time workflow synthesis, and sample-and-select fall under test-time scaling if their outputs are discarded.
+
+## Learning Runtime Patches
+
+Harness-R1 trains a specialized harness engineer that generates patches for executable runtime hooks from failure trajectories [@shao2026harnessr1]. The target agent remains frozen, while the editor is post-trained with supervised fine-tuning and online reinforcement learning.
+
+The edit surface consists of five hooks in the runtime lifecycle. Rather than freely rewriting the entire repository, the editor produces patches for limited interfaces such as context construction, tool mediation, action validation, and recovery. Candidates are compiled, and the same task is rerun in a sandbox to compute the reward.
+
+The main paired reward is the difference obtained by rerunning the task batch that produced the failures before and after the patch.
+
+$$
+R_{\mathrm{edit}}
+=
+J_{B}(H')-J_{B}(H)
+-\lambda_{\mathrm{invalid}}I_{\mathrm{invalid}}
+-\lambda_{\mathrm{cost}}\Delta k.
+$$
+
+Here, $B$ is an observed task batch. This reward makes the local effect of a patch easy to measure, but it is transductive optimization on the same tasks. The paper also reports a separate held-out task analysis and cross-target evaluation on 20 target agents, so same-batch improvement and transfer results must be read separately.
+
+The authors report that the average success rate across WebShop, ALFWorld, and DBBench increases from 44.3% to 53.6%. In the cross-target table, most of the 63 target-and-benchmark combinations improve, and combinations that regress are also reported. This suggests that a specialized editor can sometimes be more stable than a larger general-purpose editor, but the results cover only three domains, a limited hook schema, and a newly released, unreviewed preprint. Cross-environment transfer to new tool APIs or permission configurations has not been verified.
+
+Harness-R1 is a **limited recent example** of a learned runtime editor, not the core of learned-optimizer research or an established standard. Its lineage includes earlier work on learning prompt generators, such as RLPrompt, and query-level meta-agents, such as FlowReasoner. Its novelty is expanding the edit surface to runtime code.
+
+## How to Design the Reward
+
+A learned optimizer's reward provides coarse credit assignment if it includes only the final task score. It must also handle patches that fail to compile, change tool permissions, or increase only cost.
+
+| Reward component | Purpose | Failure example |
+|---|---|---|
+| Task delta | Difference in success before and after the patch | Memorization of the same task |
+| Validity | Parsing, compilation, schema | Executable but semantically unsafe |
+| Cost | Tokens, tools, latency | Arbitrary weighting of the trade-off with quality |
+| Preservation | Retention of previously successful tasks | Capability loss outside the suite |
+| Safety | Permissions, injection, data exposure | Insufficient coverage |
+| Simplicity | Diff size, number of hooks | Unfairly penalizing a necessary broad fix |
+
+When rewards are combined as a weighted sum, the coefficients become an implicit acceptance rule. Dense signals can be used for the training reward, but deployment promotion should measure quality, regressions, cost, and safety as separate vectors.
+
+## Training Data and Target Leakage
+
+Editor training data has distributions over tasks, target models, seed harnesses, environments, and failure types. Holding out only tasks provides narrow generalization if the target model and hook schema remain the same.
+
+At minimum, consider the following splits.
+
+- Held-out instance
+- Held-out task family
+- Held-out target model
+- Held-out seed harness
+- Held-out tool API / environment
+- Held-out failure class
+
+Continuing online RL on failure batches from the same benchmark allows the editor to learn benchmark-specific patch patterns. Record the provenance of the editor training corpus and the final harness evaluation set.
+
+When a learned optimizer is trained on a public benchmark and evaluated on different instances from the same benchmark, the setup remains transductive at the benchmark level. Cross-target results should not be called cross-environment results.
+
+## Patch Representations
+
+The output format of a learned editor affects both performance and safety.
+
+| Representation | Advantage | Limitation |
+|---|---|---|
+| Full file | Highly expressive | Large diffs that can easily remove existing logic |
+| Unified diff | Makes changes from the parent explicit | Patch context mismatch |
+| AST edit | More likely to preserve syntactic validity | Language- and schema-dependent |
+| Hook body | Fixes the interface | Cannot repair failures outside the hooks |
+| DSL / operator | Easy to validate | Search space is constrained by the designer |
+
+Harness-R1 constrains the surface with hooks and a patch compiler. Meta-Harness uses a coding agent to edit single-file harness code. DGM changes the entire codebase. When comparing editor capabilities, match not only the model but also the patch representation and permission scope.
+
+## Validation Pipeline
+
+Validate the output of a learned editor in the following order.
+
+1. **Static validity:** Parsing, types, schema, forbidden paths
+2. **Interface validity:** Hook inputs and outputs, tool contracts
+3. **Sandbox execution:** Timeouts, resources, networks, credentials
+4. **Targeted rerun:** Effect on the observed failure
+5. **Preservation:** Previously successful tasks
+6. **Held-out evaluation:** Tasks not used to generate the candidate
+7. **Safety evaluation:** Injection, permissions, data boundaries
+8. **Promotion:** Acceptance rule fixed in advance
+
+The compilation gate guarantees only the first and second stages. A sandbox is also a mechanism for limiting external effects, not evidence that the generated behavior is safe.
+
+## Evaluating the Optimizer Directly
+
+The final agent score alone confounds editor capability, the target model, seed harness, edit surface, and budget. Use two evaluations for a learned optimizer.
+
+- **End-to-end:** Run candidates and measure held-out target performance
+- **Step-level:** Measure predictions of the failure site, change priority, patch validity, and regression risk
+
+Priority Ranking is a recent preprint that measures the optimizer's step-level capabilities by asking it to rank which of the prompt, tool, workflow, or memory should be changed first across 182 human-verified scenarios [@ong2026priority]. It does not directly measure the correctness or safety of the final patch, but attempts to separate diagnostic ability from accidental trial and error.
+
+## Do Not Let the Editor Learn Acceptance
+
+Allowing the editor to decide "whether to adopt this patch" reconnects proposal and acceptance. Editor confidence can be one feature for the evaluator, but must not be a sufficient condition for promotion.
+
+Place the following in locations that the learned optimizer cannot modify.
+
+- Evaluator implementation
+- Sealed test identity
+- Tool permissions and credentials
+- Acceptance threshold
+- Incumbent artifact
+- Rollback operation
+
+This boundary becomes more important as the editor improves. A high-performance editor can generate broader changes, which also expands the impact of an incorrect patch.
+
+## Key Points
+
+Distinguish prompted LLM editors, search policies, and learned optimizers. Methods that hold the target model fixed while learning a separate optimizer are within this book's scope, but methods that only generate per-query outputs without saving artifacts are outside its boundary. Harness-R1 is a very recent and limited example of a failure-conditioned runtime editor, not a replacement for external validation and acceptance.

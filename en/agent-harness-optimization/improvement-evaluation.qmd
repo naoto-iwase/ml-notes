@@ -51,7 +51,7 @@ A harness changes not only accuracy but also cost and safety. Record at least th
 | Safety | Permission violations, privilege boundary crossings from untrusted input |
 | Stability | Variation across seeds, tasks, and model versions |
 
-AFlow compares accuracy and execution cost on HumanEval [@zhang2025aflow]. GEPA retains multiple candidates that perform well on different tasks rather than selecting candidates using only a single average score [@agrawal2026gepa].
+AFlow compares accuracy and post-promotion workflow execution cost on HumanEval [@zhang2025aflow]. This cost does not include the entire optimization search. GEPA retains the union of candidates that perform well on different validation instances rather than selecting candidates using only a single average score [@agrawal2026gepa].
 
 The search budget must also be recorded. Comparing the best of 1,000 candidates with the best of 10 using only the final evaluation score hides the advantage of trying more candidates.
 
@@ -59,9 +59,9 @@ The search budget must also be recorded. Comparing the best of 1,000 candidates 
 
 | Method | What It Verifies | Remaining Limitation |
 |---|---|---|
-| DGM [@zhang2026dgm] | Compiles the modified harness implementation and evaluates it on coding benchmarks | Improvement may not extend beyond the same benchmark suite |
-| Failure-Driven Workflow Refinement [@zhang2026failure] | Checks the target task and side effects on related tasks | Improvement on unseen tasks must be verified separately |
-| Harness-R1 [@shao2026harnessr1] | Separates validation, test, and held-out tasks | Effectiveness with new environments or tool APIs remains uncertain |
+| DGM [@zhang2026dgm] | Compiles the modified harness implementation and evaluates it on coding benchmarks | Archive selection repeatedly uses the same benchmark family, making benchmark-external improvement a separate question |
+| Failure-Driven Workflow Refinement [@zhang2026failure] | Proposes edits from clustered execution failures | The public version does not provide a verified measured effect size for regressions on related tasks |
+| Harness-R1 [@shao2026harnessr1] | Reports validation, test, and held-out-task analyses separately | Its main online reward reruns the same observed task batch, and transfer to new environments or tool APIs remains uncertain |
 
 These differences do not rank the methods. They reflect the scope that each experiment verified.
 
@@ -83,5 +83,3 @@ For each version, retain the before-and-after diff, rationale for the change, ve
 ## Key Points
 
 Separate the mechanism that creates candidates from the mechanism that decides whether to accept them. Promote only candidates that improve performance on unseen tasks without regressing existing successes or worsening cost or safety.
-
-## References {.unnumbered}

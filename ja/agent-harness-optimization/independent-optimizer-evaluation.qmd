@@ -1,0 +1,264 @@
+---
+pagetitle: "Optimizer の独立評価"
+---
+
+# Optimizer の独立評価
+
+最終agent scoreだけでは、optimizerの能力を直接測れない。強いtarget model、良いseed harness、広いedit surface、多いbudgetを与えれば、弱いoptimizerでも高いscoreへ到達できる。逆に、優れたfailure attributionを持つoptimizerでも、狭すぎるsurfaceでは改善できない。
+
+評価対象を「完成したagent」から「同じ条件でharnessを改善するalgorithm」へ移す必要がある。
+
+## 最終scoreの交絡
+
+Optimization campaignの出力を
+
+$$
+H^*=
+\mathcal{A}
+\left(
+H_0,
+\theta,
+E,
+\mathcal{D}_{\mathrm{dev}},
+\mathcal{D}_{\mathrm{val}},
+B,
+F
+\right)
+$$
+
+とする。$\mathcal{A}$がoptimizer、$H_0$がseed harness、$\theta$がtarget model、$E$がenvironment、$B$がbudget、$F$がfeedback disclosure policyである。Final score
+
+$$
+J_{\mathrm{test}}(H^*)
+$$
+
+はこれらすべてに依存する。Optimizerだけを比較するには、他の要素を固定またはfactorialに変える。
+
+「Method AのagentがMethod Bより高得点」だけでは、Aのoptimizerが優れているとは言えない。Aが高い初期harnessから始めた、testを多く見た、candidateを多く試した可能性がある。
+
+## 固定すべき条件
+
+| 条件 | 固定しない場合の交絡 |
+|---|---|
+| Target modelとdecoding | Base capabilityとsampling差 |
+| Seed harness | 改善余地と初期quality差 |
+| Edit surface | 変更可能なfailure class差 |
+| Environment image | Tool、latency、state差 |
+| Development / validation | Feedback量とtask難度差 |
+| Evaluator | Score definitionとjudge bias差 |
+| Disclosure policy | Trace、label、critiqueの情報量差 |
+| Budget | Candidate数、case-run、token差 |
+| Acceptance rule | 採用基準とregression許容差 |
+| Randomness | Lucky campaign選択 |
+
+すべてを一つのsettingに固定すると外的妥当性が低い。まずcontrolled comparisonを行い、その後target、seed、surface、environmentを一つずつ変える。
+
+## End improvement以外の指標
+
+Optimizerの更新trajectoryを直接測る。
+
+| 指標 | 定義 | 分かること |
+|---|---|---|
+| Proposal validity | 実行可能candidate / proposal | Edit surfaceを扱えるか |
+| Improvement hit rate | Incumbentを上回るcandidate率 | Proposal quality |
+| Regression rate | 旧成功を壊すcandidate率 | 変更の局所性 |
+| Sample efficiency | Case-runあたりのheld-out gain | Budget効率 |
+| Best-so-far curve | Budget $b$に対する最良validation score | Search speed |
+| Test regret | Oracle candidateとの差 | Selection quality |
+| Attribution accuracy | 真のfailure site / priorityとの一致 | 診断能力 |
+| Calibration | Predicted improvementと実差分 | 自己評価の信頼性 |
+| Robustness | Seed / target / environment間の分散 | Transfer安定性 |
+
+Final scoreが同じでも、片方が10 proposalで到達し、もう片方が1,000 proposalを使ったならoptimizer efficiencyは異なる。
+
+## Candidate生成とselectionを分解する
+
+Optimizerには少なくとも二つの能力がある。
+
+1. 良いcandidateを集合に含める能力
+2. そのcandidateを限られた評価から選ぶ能力
+
+生成集合を$\mathcal{C}$、真のheld-out scoreを$J_{\mathrm{test}}$とすると、generatorの上限は
+
+$$
+J^*_{\mathcal{C}}
+=
+\max_{H\in\mathcal{C}}J_{\mathrm{test}}(H)
+$$
+
+である。Optimizerが選んだ$\hat H$との差
+
+$$
+\operatorname{regret}
+=
+J^*_{\mathcal{C}}-J_{\mathrm{test}}(\hat H)
+$$
+
+はselection lossを表す。$J^*_{\mathcal{C}}$の計算にtestを使うのはanalysis専用であり、optimizerへ返してはならない。
+
+Candidate集合に良いartifactがなければproposalの問題である。良いartifactがあるのに選べなければsurrogate、validation、acceptanceの問題である。
+
+## Evaluatorとacceptance rule
+
+Evaluatorはmeasurementを返し、acceptance ruleはdecisionを返す。
+
+$$
+r(H)=E(H),
+\qquad
+V\bigl(r(H'),r(H_t)\bigr)\in
+\{\mathrm{accept},\mathrm{reject},\mathrm{inconclusive}\}.
+$$
+
+一つのLLM judgeに「candidateは改善したか」と聞き、そのyes/noをpromotionに使うと、測定、集約、閾値が隠れる。Evaluatorはraw componentを返す。
+
+- Executable test結果
+- Per-task score
+- Costとlatency
+- Invalid event
+- Safety event
+- Human ratingとuncertainty
+
+Acceptance ruleはこれらに事前の閾値を適用する。Optimizerはevaluator code、judge prompt、test、thresholdを変更できない。
+
+従来のoptimizer研究では、development metricとfeedbackをoptimizerが直接使うことが多く、evaluatorとacceptanceの分離が確立した標準とは言えない。この分離は、評価過適合とpromotion理由の不明確さを避けるための推奨protocolである。
+
+## Judgeの独立性
+
+Target model、optimizer model、evaluator modelを別にしても、judge biasは残る。大規模言語モデル（large language model, LLM）のevaluatorが自身のgenerationを好むself-preferenceは実証されている [@panickssery2024selfpreference]。Prompt wordingの小さな差でmodel scoreが大きく変わることも報告されている [@sclar2024spurious]。
+
+LLM judgeを使う場合は、次を行う。
+
+- Candidate identityとoptimizer名をblindにする
+- Answer順をrandomizeする
+- Judge promptとmodel versionを固定する
+- Executable verifierがあるtaskではそちらを優先する
+- Human-verified subsetでjudge agreementを測る
+- 複数judgeのdisagreementを報告する
+- Optimizerと同じmodel familyだけに依存しない
+
+Judge explanationをoptimizerへ返す場合、そのjudgeはdevelopment feedback generatorである。Final acceptance evaluatorとは分ける。
+
+## Priority Rankingによる直接評価
+
+Towards Direct Evaluation of Harness Optimizers via Priority Rankingは、optimizerにharness componentの改善優先順位をつけさせる最近のpreprintである [@ong2026priority]。SHORはprompt、tool、workflow、memoryなどを含む182のhuman-verified scenarioから成る。
+
+この評価では、full multi-step optimizationを毎回実行せず、どのcomponentを先に変えるべきかというstep-level判断を測る。論文はranking性能と実際のoptimization能力の相関を報告するため、trial-and-errorで偶然改善したoptimizerと診断能力を区別しようとする。
+
+ただしPriority Rankingは次を直接測らない。
+
+- 具体的editの正しさ
+- Candidateの実行可能性
+- 最終agent score
+- Costと安全性
+- Cross-environment transfer
+
+Human priorityをoracleとするため、複数箇所の相互作用や人間が見落とす改善も扱いにくい。End-to-end評価を置き換えるのではなく、diagnosticとして使う。
+
+## Controlled end-to-end evaluation
+
+HarnessOpt-Benchは、development、validation、hidden test、case-pass、target-model token budgetを固定し、OfficeQA、BrowseComp-Plus、Terminal-Bench、GAIAでoptimizerを比較する最近のpreprintである [@ursekar2026harnessopt]。
+
+重要な設計は次である。
+
+- Target model、environment、verifierを固定
+- Developmentではcase-level結果とtraceを開示
+- Validationでは集約scoreを返す
+- Hidden testをsearchから遮断
+- Final candidateとseedをtestで反復評価
+- Optimizer configuration自体も複数campaignで評価
+
+これはfinal scoreの交絡を減らすが、四benchmarkのshared protocolである。実運用のpermission、secret、長期memory migration、environment updateをすべて再現するものではない。また2026年8月公開の未査読preprintであり、標準として確立したとは言えない。
+
+## Test-time scalingとの比較
+
+Rethinking the Evaluation of Harness Evolutionは、harness evolutionの同一task上の改善が、追加試行を使うtest-time scalingで説明できる場合を調べる [@wang2026rethinking]。Optimizer、target、budgetを揃え、unit testを使う設定、使わない設定、disjoint splitを比較する。
+
+この研究は、final scoreだけでなく次を問う。
+
+- Persistent harnessが本当に次の独立taskを改善したか
+- 同じtaskを追加samplingしただけではないか
+- Test feedbackがsearchへ漏れていないか
+- Harness editがtarget modelの一時的な推論増加より効率的か
+
+単一Terminal-Bench環境のpreprintであるため一般結論にはしないが、optimizer評価にtest-time compute baselineが必要であることを示す。
+
+## Benchmarkを二層にする
+
+一つのtask benchmark内でharnessをsearchするだけでは、optimizer generalizationを測りにくい。Meta-levelにoptimization problem集合を置く。
+
+$$
+\mathcal{P}
+=
+\{(H_0^{(i)},\theta^{(i)},E^{(i)},
+\mathcal{D}^{(i)},\mathcal{H}^{(i)})\}_{i=1}^{M}.
+$$
+
+各$i$が一つのharness optimization problemである。Optimizerを一部problemで設計し、held-out problemで評価する。
+
+- Held-out seed harness
+- Held-out edit surface
+- Held-out target model
+- Held-out environment
+- Held-out failure mode
+
+これにより、一つのoptimized harnessのgeneralizationと、optimizer algorithmのgeneralizationを分けられる。
+
+## Acceptanceをbenchmark側に置く
+
+Benchmarkがfinal scoreだけを返し、各methodが独自にcandidateを選ぶと、acceptance ruleもmethodの一部になる。二種類のtrackを分ける。
+
+### End-to-end track
+
+Proposal、search、selectionを含むoptimizer全体を評価する。Acceptance ruleの自由度もalgorithmとして記録する。
+
+### Fixed-acceptance track
+
+Candidate集合または一つのcandidateを提出し、benchmark側の固定promotion contractで採否を決める。Evaluator overfittingを減らし、proposal能力を比較しやすい。
+
+両trackが必要である。固定acceptanceだけでは実際のoptimizer運用を測れず、end-to-endだけではcandidate qualityとselectionを分解できない。
+
+## Reproducibility
+
+Optimizer studyには最終artifactだけでなく更新履歴を公開する。
+
+- Seed harnessとhash
+- Edit surfaceとforbidden path
+- Optimizer prompt / checkpoint
+- Candidate lineageとdiff
+- Development / validationの照会log
+- Evaluator version
+- Budget counter
+- Random seed
+- Selected candidateと棄却candidate
+- Hidden testを実行した時点
+
+API modelやdynamic websiteを使う場合、完全再現ができないことを明記し、timestamp、response cache、environment snapshotを保存する。
+
+## 最小benchmark contract
+
+Optimizer-independent evaluationには、次のcontractが必要である。
+
+1. **Unit:** 一つのharness optimization problemを定義する
+2. **Boundary:** Target、environment、edit surface、forbidden surfaceを固定する
+3. **Feedback:** Developmentとvalidationで返す情報を定義する
+4. **Budget:** Candidateではなくcase-run、token、tool、wall timeで上限を置く
+5. **Sealing:** Hidden testをoptimizerとresearcherのadaptive selectionから守る
+6. **Baselines:** Incumbent、best-of-$N$、test-time scalingを置く
+7. **Diagnostics:** Validity、hit rate、regression、sample efficiencyを測る
+8. **Promotion:** Evaluatorとacceptance ruleを分ける
+9. **Transfer:** Held-out target / environment problemを置く
+10. **Safety:** Permissionとadversarial taskを含める
+11. **Statistics:** 複数campaign、paired run、uncertaintyを報告する
+12. **Artifacts:** Candidate lineageと実行記録を保存する
+
+![HarnessOpt-Benchのtrusted evaluation architecture。Optimizerはtarget agent codeだけを書き換え、development traceとvalidation aggregateを受け取る。Hidden testはtrusted server内に封印し、全model callのbudgetとcandidate executionを外側から強制する。出典: [@ursekar2026harnessopt] Figure 1（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)、原図をrasterize）](images/harnessopt-heldout-architecture.png){#fig-harnessopt-heldout-architecture}
+
+## 現在分かっていること
+
+Prompt、workflow、code searchには、採択済み一次研究による複数のoptimizer familyがある。一方、optimizerを独立に評価するPriority Ranking、Rethinking Evaluation、HarnessOpt-Benchは2026年の新しいpreprintである。これらは共通の問題設定を示し始めたが、まだ独立追試や分野横断的な合意ではない。
+
+したがって、Part IIIのprotocolは「既存研究が一貫して実施している標準」ではなく、既存手法の評価上の欠落と、最近の直接評価研究を組み合わせた推奨である。
+
+## 要点
+
+Final agent scoreはoptimizer、target、seed、surface、budget、evaluatorを交絡する。Controlled end-to-end評価とstep-level diagnosticを併用し、candidate生成とselectionを分解する。Evaluatorは測定、acceptance ruleは採用を担当し、両者をoptimizerから固定する。最近の直接評価preprintは有用な設計を提示するが、確立済み標準として扱わない。

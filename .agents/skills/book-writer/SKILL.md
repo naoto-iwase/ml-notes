@@ -173,7 +173,7 @@ See [references/style-consistency.md](references/style-consistency.md) for detai
 
 ## Phase 2: Prebuild the Bibliography + Figures (Survey-Heavy Books Only)
 
-For books with many citations (surveys, multi-paper summaries, and similar works; approximately 30+ references), it is strongly recommended to **create `references.bib` and `/tmp/arxiv_figures/` in one place** before entering Phase 3.
+For books with many citations (surveys, multi-paper summaries, and similar works; approximately 30+ references), **create `references.bib` and `/tmp/arxiv_figures/` in one place before entering Phase 3**. Treat this as a required phase gate unless the user explicitly waives source-figure inspection.
 
 Why this matters:
 
@@ -188,8 +188,9 @@ For books with few citations, such as a guide to a single paper, skip this phase
 ### Procedure Summary
 
 1. **Launch a bibliography prebuild subagent** — use the template in `assets/subagent-prompts/bib-prebuild.md`. Have it read primary sources (survey Markdown / paper list) and build `references.bib` in one place
-2. **Fetch all figures in a batch** — run `fetch_arxiv_figures_batch.py --bib {book}/references.bib --parallel 8` to unpack every paper's e-print under `/tmp/arxiv_figures/<id>/`
-3. **Validate the bibliography** — run `lint_chapters.py {book}` and confirm there are zero `[DUP]`, `[NOTE_LEAK]`, `[ANON_AUTHOR]`, and `[TITLE_MISMATCH]` findings
+2. **Fetch all figures in a batch** — run `fetch_arxiv_figures_batch.py --bib {book}/references.bib --parallel 8` to unpack every paper's e-print under `/tmp/arxiv_figures/<id>/` and generate `{book}/chapter-bib/_figure_manifest.md`
+3. **Pass the phase gate** — confirm the batch completed and the manifest exists before drafting chapters. A zero-figure book is valid only after inspecting the available source figures; “no figure quota” never means “skip figure review”
+4. **Validate the bibliography** — run `lint_chapters.py {book}` and confirm there are zero `[DUP]`, `[NOTE_LEAK]`, `[ANON_AUTHOR]`, and `[TITLE_MISMATCH]` findings
 
 See [references/bib-and-figures.md](references/bib-and-figures.md) for detailed procedures and pitfalls.
 

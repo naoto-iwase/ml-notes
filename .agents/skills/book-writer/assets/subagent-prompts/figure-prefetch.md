@@ -25,23 +25,9 @@ Extract the arXiv e-print for every entry in `{book_dir}/references.bib` under `
        --parallel 8
    ```
 
-3. After it finishes, create `{book_dir}/chapter-bib/_figure_manifest.md`:
+3. Confirm that the script created `{book_dir}/chapter-bib/_figure_manifest.md`. The script writes the deterministic inventory; do not recreate it manually.
 
-```markdown
-# Figure Manifest
-
-List each paper's arXiv ID and fetched image files. Chapter subagents use this manifest to select candidate figures for their chapters.
-
-## yue2025rlbeyond (2504.13837)
-- /tmp/arxiv_figures/2504.13837/figs/teaser.pdf (215 KB) ★ graphical abstract
-- /tmp/arxiv_figures/2504.13837/figs/passk-crossover.pdf (180 KB)
-- /tmp/arxiv_figures/2504.13837/figs/aime-results.png (95 KB)
-
-## wen2025cotpass (2506.14245)
-- ...
-```
-
-Sort by descending size and then by file name. Mark likely message-bearing figures with ★ when file names suggest a `graphical abstract`, `teaser`, `overview`, `pipeline`, or `results` figure.
+The manifest sorts assets by descending size and marks filenames that suggest message-bearing figures. It is an inventory, not a selection. Chapter writers must inspect captions and surrounding source text before deciding whether to keep a figure.
 
 ## Error Handling
 

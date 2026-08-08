@@ -1,0 +1,175 @@
+---
+pagetitle: "Editor と学習型 Optimizer"
+---
+
+# Editor と学習型 Optimizer
+
+大規模言語モデル（large language model, LLM）を使ってcandidateを生成することと、optimizerを学習することは同じではない。APE、OPRO、GEPA、AFlow、Meta-Harnessは、学習済みLLMをproposal modelとして使うが、各search campaign中にそのmodel weightを更新しない。一方、RLPromptやHarness-R1は、複数のexecution rewardからcandidate generator自体を学習する。
+
+本書ではtarget modelのweight更新を除外するが、**target modelとは別のoptimizerを学習すること**は対象に含める。最終的に更新・保存されるartifactがmodel外部のharnessであり、そのartifactが外部評価を通ることが条件である。
+
+## 三種類のeditor
+
+| Editor | Campaign中にweightを更新するか | 入力 | 出力 |
+|---|---|---|---|
+| Prompted LLM editor | しない | Incumbent、feedback、history | Textまたはcode candidate |
+| Search policy | 通常はしない | Search state、candidate score | 次に評価するoperatorやparent |
+| Learned optimizer | する | 複数optimization episodeのevidence | Candidate生成policy |
+
+Meta-Harnessのcoding proposerは第一種である。Source、score、traceを読み、新しいharness codeを生成するが、proposer weightはsearch中に変えない [@lee2026metaharness]。GEPAのreflective mutationもprompted editorであり、学習されるのはcandidate promptのpopulationである [@agrawal2026gepa]。
+
+Learned optimizerでは、optimizer parameterを$\phi$、target model parameterを$\theta$と分ける。
+
+$$
+\phi^* = \arg\max_{\phi}
+\mathbb{E}_{(H,Z)\sim\mathcal{D}_{\mathrm{edit}}}
+\left[R\bigl(O_\phi(H,Z)\bigr)\right],
+\qquad \theta\ \text{is fixed}.
+$$
+
+Deploymentでは、学習済み$O_{\phi^*}$が新しいtarget、failure、harnessからcandidateを作る。
+
+$$
+H' = O_{\phi^*}(H,Z).
+$$
+
+$\phi$のtraining performanceと、$H'$のheld-out performanceを別々に評価する。
+
+## RLPrompt: 離散prompt generatorを学習する
+
+RLPromptは、凍結したtarget modelに付ける離散token promptを生成するpolicyを強化学習（reinforcement learning, RL）のsoft Q-learningで学習する [@deng2022rlprompt]。Target modelのgradientやweight更新を必要とせず、task rewardをpolicyへ返す。
+
+この方法では二つのartifactが持続する。
+
+- Promptを生成するpolicy weight
+- 選択済みの離散prompt
+
+論文はRoBERTaとGPT-2の間でprompt transfer matrixを評価し、target modelが変わった場合のtransferを調べる。これはlearned optimizer系で比較的早いcross-target evidenceである。ただし、分類やstyle transferのprompt surfaceに限られ、workflowやruntime codeを編集する能力ではない。
+
+RLPromptが「target weightを変えない」ことは、weight learning一般を本書へ含める理由にはならない。学習されるpolicyがtarget agentそのものか、harness candidateを作るoptimizerかを確認する。
+
+## Query-specific generatorとの境界
+
+FlowReasonerは、execution quality、complexity、efficiencyを組み合わせたrewardでmeta-agentをpost-trainし、user queryごとにmulti-agent systemを生成する [@gao2025flowreasoner]。Execution feedbackでoptimizer policyを学ぶ点は関連する。
+
+しかし、生成workflowは各query専用であり、選択したworkflow artifactを次の独立taskへversionとして持ち越さない。持続する改善は主にmeta-agent weightである。したがって、本書ではlearned optimizerの隣接研究として説明するが、persistent harness updateの中核例には数えない。
+
+この境界は「学習済みmodelがあるか」ではなく、次で決まる。
+
+1. Candidateがどのartifactを変更するか
+2. Candidateを外部実行で比較するか
+3. 採用したartifactを将来のrunへ保存するか
+4. Incumbentへrollbackできるか
+
+Per-query planning、test-time workflow synthesis、sample-and-selectは、出力を破棄するならtest-time scaling側である。
+
+## Runtime patchを学習する
+
+Harness-R1は、失敗trajectoryからexecutable runtime hookのpatchを生成する専用harness engineerを学習する [@shao2026harnessr1]。Target agentは凍結し、editorをsupervised fine-tuningとonline reinforcement learningでpost-trainする。
+
+Edit surfaceはruntime lifecycleの五つのhookである。Repository全体を自由に書き換えるのではなく、context construction、tool mediation、action validation、recoveryなどの限定されたinterfaceへpatchを出す。Candidateはcompileされ、sandbox内で同じtaskを再実行してrewardを計算する。
+
+主要なpaired rewardは、失敗を得たtask batchをpatch前後で再実行した差である。
+
+$$
+R_{\mathrm{edit}}
+=
+J_{B}(H')-J_{B}(H)
+-\lambda_{\mathrm{invalid}}I_{\mathrm{invalid}}
+-\lambda_{\mathrm{cost}}\Delta k.
+$$
+
+ここで$B$は観測済みtask batchである。このrewardはpatchの局所効果を測りやすい一方、同じtaskへのtransductive optimizationである。Paperは別のheld-out task analysisと20のtarget agentへのcross-target評価も報告するため、same-batch improvementとtransfer resultを分けて読む。
+
+著者報告では、WebShop、ALFWorld、DBBenchの平均成功率が44.3%から53.6%へ上がる。Cross-target tableでは63のtargetとbenchmarkの組合せの大半が改善し、悪化した組合せも報告される。これは専用editorがより大きな汎用editorより安定する場合があることを示すが、三domain、限定されたhook schema、公開直後の未査読preprintによる結果である。新しいtool APIやpermission構成へのcross-environment transferは未検証である。
+
+Harness-R1はlearned runtime editorの**限定的な最新例**であり、learned optimizer研究全体の中核や確立済み標準ではない。系譜としてはRLPromptのようなprompt generator学習、FlowReasonerのquery-level meta-agent学習が先にあり、runtime codeまでsurfaceを広げた点が新しい。
+
+## Rewardをどう作るか
+
+Learned optimizerのrewardは、最終task scoreだけではcredit assignmentが粗い。Patchがcompileしない、tool permissionを変える、costだけを増やす場合も扱う必要がある。
+
+| Reward component | 目的 | 失敗例 |
+|---|---|---|
+| Task delta | Patch前後の成功差 | 同じtaskへのmemorization |
+| Validity | Parse、compile、schema | 実行可能だが意味的にunsafe |
+| Cost | Token、tool、latency | Qualityとのtrade-off重みが恣意的 |
+| Preservation | 既存成功taskの保持 | Suite外の能力低下 |
+| Safety | Permission、injection、data exposure | Coverage不足 |
+| Simplicity | Diff size、hook数 | 必要な広い修正を不当に罰する |
+
+Rewardを加重和にすると、係数がimplicit acceptance ruleになる。Training rewardにはdense signalを使っても、deployment promotionではquality、regression、cost、安全性を別vectorで測る。
+
+## Training dataとtarget leakage
+
+Editor training dataには、task、target model、seed harness、environment、failure typeの分布がある。Held-out taskだけを分けても、同じtarget modelと同じhook schemaなら狭いgeneralizationである。
+
+少なくとも次のsplitを考える。
+
+- Held-out instance
+- Held-out task family
+- Held-out target model
+- Held-out seed harness
+- Held-out tool API / environment
+- Held-out failure class
+
+同じbenchmarkのfailure batchでonline RLを続けると、editorはそのbenchmark専用のpatch patternを学べる。Editor training corpusとfinal harness evaluation setのprovenanceを記録する。
+
+Learned optimizerをpublic benchmark上で学習し、同じbenchmarkの別instanceで評価する場合は、benchmark-levelにはtransductiveである。Cross-target resultがあっても、cross-environment resultとは呼ばない。
+
+## Patch representation
+
+Learned editorの出力形式は性能と安全性を左右する。
+
+| 表現 | 利点 | 限界 |
+|---|---|---|
+| Full file | 表現力が高い | Diffが大きく、既存logicを消しやすい |
+| Unified diff | Parentとの差分が明確 | Patch context mismatch |
+| AST edit | 構文validityを保ちやすい | 言語・schema依存 |
+| Hook body | Interfaceを固定できる | Hook外のfailureを直せない |
+| DSL / operator | 検証しやすい | 探索空間が設計者に制約される |
+
+Harness-R1はhookとpatch compilerでsurfaceを制約する。Meta-Harnessはsingle-file harness codeをcoding agentが編集する。DGMはcodebase全体を変更する。Editor能力を比較するときは、modelだけでなくpatch representationと権限差を揃える。
+
+## Validation pipeline
+
+Learned editorの出力は、次の順で検証する。
+
+1. **Static validity:** Parse、type、schema、forbidden path
+2. **Interface validity:** Hookの入出力、tool contract
+3. **Sandbox execution:** Timeout、resource、network、credential
+4. **Targeted rerun:** 観測済みfailureへの効果
+5. **Preservation:** 以前成功したtask
+6. **Held-out evaluation:** Candidate生成に使っていないtask
+7. **Safety evaluation:** Injection、permission、data boundary
+8. **Promotion:** 事前に固定したacceptance rule
+
+Compile gateは一段目と二段目しか保証しない。Sandboxも外部への影響を制限する仕組みであり、生成された行動が安全であるという実証ではない。
+
+## Optimizerを直接評価する
+
+最終agent scoreだけでは、editor能力、target model、seed harness、edit surface、budgetが交絡する。Learned optimizerには二つの評価を置く。
+
+- **End-to-end:** Candidateを実行し、held-out target performanceを測る
+- **Step-level:** Failure site、変更priority、patch validity、regression riskの予測を測る
+
+Priority Rankingは、prompt、tool、workflow、memoryのどこを先に変更すべきかを182のhuman-verified scenarioで順位づけさせ、optimizerのstep-level能力を測る最近のpreprintである [@ong2026priority]。これは最終patchの正しさや安全性を直接測るものではないが、偶然のtrial-and-errorと診断能力を分ける試みである。
+
+## Acceptanceを学習させない
+
+Editorに「このpatchを採用するか」まで自己判定させると、proposalとacceptanceが再び結合する。Editor confidenceはevaluatorの一featureにはできるが、promotionの十分条件にしない。
+
+Learned optimizerが変更できない場所に、次を置く。
+
+- Evaluator implementation
+- Sealed test identity
+- Tool permissionとcredential
+- Acceptance threshold
+- Incumbent artifact
+- Rollback操作
+
+Editorを改善するほど、この境界は重要になる。高性能editorは広い変更を生成できるため、誤ったpatchの影響範囲も広い。
+
+## 要点
+
+Prompted LLM editor、search policy、learned optimizerを区別する。Target modelを固定して別のoptimizerを学習する方法は本書の対象だが、per-query生成だけでartifactを保存しない方法は境界外である。Harness-R1はfailure-conditioned runtime editorの非常に新しい限定例であり、外部validationとacceptanceを置き換えるものではない。

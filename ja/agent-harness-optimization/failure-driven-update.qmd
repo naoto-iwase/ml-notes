@@ -37,7 +37,7 @@ Failure-Driven Workflow Refinementは、詳細な実行記録を残し、似た�
 - workflowの修正候補を作り、評価して選ぶ
 - 修正候補を作るeditor自体を学習する
 
-Reflexionは失敗後のreflectionをmemoryへ保存し、次の試行で読むcontextを変える [@shinn2023reflexion]。Model weightは変更しない。
+Reflexionは失敗後のreflectionをmemoryへ保存し、同じtask内の次の試行で読むcontextを変える [@shinn2023reflexion]。Model weightは変更しないが、独立した将来taskへ更新artifactを持ち越す評価ではない。
 
 Harness-R1は、固定したtarget agentとは別にeditorを置く。Editorは失敗の記録を読み、事前に決めたhookだけを変更する [@shao2026harnessr1]。同じtask集合を修正前後で再実行し、その差からeditorを学習する。
 
@@ -64,5 +64,3 @@ Editorにrepository全体を自由に書き換えさせる必要はない。修�
 ## 要点
 
 失敗からの改善では、実行記録を保存し、最初の誤りを見つけ、その原因だけを修正する。Editorを学習する場合でも、修正の採否はeditorの外側で決める。
-
-## 参考文献 {.unnumbered}

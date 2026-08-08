@@ -1,0 +1,188 @@
+---
+pagetitle: "Task Splits"
+---
+
+# Task Splits
+
+A harness optimizer is a learning algorithm that generates, evaluates, and selects candidates. Looking only at the final harness and concluding that it was "not trained" overlooks the fact that the optimizer repeatedly ran validation tasks. Once execution feedback from a task is used for either proposal or selection, that task is seen by the optimizer.
+
+## Data Splits for the Outer Loop
+
+Divide the task set into at least three partitions.
+
+| Partition | What the optimizer can see | Purpose |
+|---|---|---|
+| Development $\mathcal{D}_{\mathrm{dev}}$ | Tasks, trajectories, errors, scores | Failure analysis and candidate generation |
+| Validation $\mathcal{D}_{\mathrm{val}}$ | Limited scores, or aggregate values if needed | Search, hyperparameters, stopping |
+| Sealed test $\mathcal{D}_{\mathrm{test}}$ | Nothing until the candidate is finalized | Final generalization evaluation |
+
+The important distinction is information flow, not folder names. If the optimizer can read test scores, rerun the test, or put test failures into the next prompt, then that set has become validation.
+
+Let $\mathcal{A}$ be the outer-loop optimizer, and write the process of creating a harness from development and validation data as
+
+$$
+\widehat H
+=
+\mathcal{A}\bigl(\mathcal{D}_{\mathrm{dev}},
+\mathcal{D}_{\mathrm{val}},B\bigr)
+$$
+
+$\mathcal{A}$ does not access $\mathcal{D}_{\mathrm{test}}$, which is used to measure generalization.
+
+$$
+\widehat J_{\mathrm{gen}}
+=
+J_{\mathcal{D}_{\mathrm{test}}}(\widehat H).
+$$
+
+Even if individual candidates did not see the test, the research campaign as a whole has adapted to it if the optimizer designer viewed test results and adjusted the algorithm, prompt, or budget.
+
+## Levels of Held-Out Evaluation
+
+The phrase "held-out task" alone does not specify what is unknown.
+
+| Level | Unknown element | Example |
+|---|---|---|
+| Instance-held-out | Another instance in the same benchmark | A different MATH problem |
+| Template-held-out | Another format or constraint in the same domain | An unseen instruction constraint |
+| Task-family-held-out | Another task type | Search on math and evaluate on code |
+| Target-held-out | Another model or model version | Search on GPT-family models and evaluate on Llama-family models |
+| Environment-held-out | Another tool API, runtime, permission set, or website | A change to a browser API or database schema |
+| Temporal-held-out | Tasks arising after the search | Future issues or an updated website |
+
+A random split of the same benchmark is instance-held-out and does not eliminate benchmark-family leakage. Even a cross-model evaluation is cross-target, not cross-task, if it uses the same tasks. Report each axis separately.
+
+## Transductive Optimization
+
+This book uses transductive optimization to refer to settings in which the optimizer repeatedly reuses the same task set or benchmark distribution targeted for deployment. This is not necessarily improper. If the goal is to improve a fixed internal workflow using past logs from that workflow, the setup is reasonable.
+
+The problem is reporting a transductive result as generalization to unknown tasks.
+
+Harness-R1's main reward reruns the same task batch on which failures were observed before and after the patch [@shao2026harnessr1]. This is a paired transductive evaluation that measures the effect of a local fix. The paper separately evaluates held-out tasks and cross-target transfer, so the three results must be read separately.
+
+DGM also repeatedly reuses development tasks from the same coding benchmark for archive search [@zhang2026dgm]. Even when it includes transfer experiments on another benchmark or model, each search campaign adapts to its corresponding evaluation distribution.
+
+A transductive study should state the following.
+
+- How many tasks were reused and how many times
+- Whether the optimizer saw only scores or also trajectories and expected answers
+- Whether task-specific exception handling was allowed
+- Which artifact will be deployed to production
+- When and by whom future tasks will be evaluated
+
+## Overusing Validation
+
+Because validation is used for selection, each iteration returns information to the optimizer. Selecting the validation maximum from candidates $H_1,\ldots,H_N$ adapts to observation noise and validation-specific patterns.
+
+Overfitting of the model selection procedure itself has long been recognized [@cawley2010overfitting]. For the problem of making repeated adaptive submissions to a public leaderboard, designs such as Ladder have been proposed to return limited feedback [@blum2015ladder]. The same problem occurs in harness optimization.
+
+Record at least the following information about validation.
+
+- Number of candidate-level queries
+- Number of full validation passes
+- Amount of information returned
+- Number of times it was used for stopping decisions
+- Number of times a human viewed the results and changed the optimizer
+- Whether the best campaign was selected from multiple seeds
+
+If a human monitors a validation-score plot at every iteration and changes the search prompt when performance deteriorates, the human is also part of the optimizer.
+
+## Reading the Splits Used by Existing Methods
+
+Many prompt and workflow optimizers use train, validation, and test partitions, but these partitions do not play the same roles.
+
+| Method | Data used for search | Final evaluation | Caveat |
+|---|---|---|---|
+| ProTeGi | 50 development examples | 150 test examples | The test curve is plotted at every optimization step, so this is not a sealed test [@pryzant2023protegi] |
+| RLPrompt | Training reward, validation selection | Test | Reports multiple splits and cross-model transfer [@deng2022rlprompt] |
+| MIPRO | Training proposals, Bayesian search on validation | Held-out test | Defines splits and budgets for each program [@opsahlong2024mipro] |
+| AFlow | 20% for workflow search | Average of three runs on the 80% test set | Searches for a separate workflow on each benchmark [@zhang2025aflow] |
+| GEPA | Training/feedback and Pareto validation | Held-out test | Uses an archive indexed by validation-instance scores for search [@agrawal2026gepa] |
+| Meta-Harness | Varies by setting | Separate for text classification | Repeatedly reuses the same task set for search and evaluation in coding [@lee2026metaharness] |
+| Harness-R1 | Failure batches and paired reruns | Validation, test, separate held-out analysis | Distinguish same-batch rewards from transfer [@shao2026harnessr1] |
+
+The existence of a split does not mean the test is sealed. If the test is used for figures, ablations, or hyperparameter selection in the paper, the final value includes selection.
+
+OPRO uses training scores for search, but its analysis tables show the instruction with the highest test accuracy in each setting [@yang2024opro]. This establishes the existence of an optimizer, but cannot be read as fully test-independent candidate selection.
+
+## Using Test-Time Scaling as a Baseline
+
+Harness search uses many target-agent runs. It must be compared with spending the same compute on test-time sampling without producing a persistent harness.
+
+For a budget $B$, compare at least the following three conditions.
+
+1. Run the incumbent once
+2. Run the incumbent multiple times within $B$ and select / vote
+3. Spend $B$ on harness optimization, then run the finalized harness once
+
+If the third condition does not outperform the second, the gain may come from additional attempts rather than a persistent artifact.
+
+Rethinking the Evaluation of Harness Evolution is a recent preprint that compares harness evolution and test-time scaling under the same conditions on Terminal-Bench 2.1 [@wang2026rethinking]. Under a disjoint 45/10/34 train/validation/test setup, it reports that the average held-out improvement is limited to 0.6 points. This is early evidence from a single benchmark, but it concretely shows that same-task scores alone cannot establish harness generalization.
+
+## Decomposing Benchmark Leakage
+
+Leakage can occur through several paths.
+
+### Target Model Contamination
+
+The target model saw benchmark problems or answers during pretraining. This is ordinary benchmark contamination and can occur independently of the harness optimizer.
+
+### Optimizer Model Contamination
+
+The proposal model knows the benchmark name, known solutions, or public agent implementations. An "improvement" generated by the optimizer may reproduce a memorized solution rather than use execution feedback.
+
+### Feedback Leakage
+
+Hidden answers, unit tests, judge rationales, or failure trajectories are returned to the optimizer. Even without revealing labels directly, repeated scores carry information.
+
+### Researcher Adaptation
+
+Multiple optimizers, prompts, seeds, and budgets are compared using test results, and only the best is reported. The test becomes validation for the human.
+
+### Temporal Leakage
+
+Data intended to evaluate future tasks was public before the training cutoff of the optimizer or target model.
+
+Do not collapse these paths into a single "contaminated/not contaminated" label. Even with a known benchmark, sealed instances, limited feedback, and temporal splits can be combined to reduce information flow.
+
+## Implementing a Sealed Test
+
+A sealed test requires more than omitting its name from the optimizer prompt.
+
+- Store test data in storage or a process separate from the optimizer
+- Do not give the optimizer read permission
+- Have the evaluator accept candidate artifacts and return only aggregate results
+- Run it only once after finalizing the candidate
+- Do not restart search based on the test result
+- Pin and record the environment image and tool versions
+- Hide candidate identity from human evaluators
+- Prepare a new test set if reevaluation is necessary
+
+If only a public benchmark is available, fix the instance split and its hash before the study begins and have a separate operator manage the test. Treat changes made after viewing the test score as a new study.
+
+## The Design of HarnessOpt-Bench
+
+HarnessOpt-Bench is a recent preprint that makes the development, validation, hidden test, target-model token budget, and case-pass budget explicit when evaluating harness optimizers [@ursekar2026harnessopt]. It uses OfficeQA, BrowseComp-Plus, Terminal-Bench, and GAIA while fixing the target model, environment, and verifier. The final candidate is evaluated multiple times on the hidden test, and the optimizer configuration itself is also repeated.
+
+This design is a step toward standardizing end-to-end comparisons. However, it is a single preprint released in August 2026, and rankings on this benchmark should not be treated as evidence of generalization to real-world operations. Cross-environment performance, safety, and long-term regressions in particular require separate evaluation.
+
+## Final Reporting Table
+
+Summarize each experiment in one row with the following information.
+
+| Item | What to report |
+|---|---|
+| Optimization data | Tasks, number of instances, feedback, number of iterations |
+| Validation | Size, information disclosure, number of queries, use for stopping |
+| Test | Sealing method, time of execution, whether it was reused |
+| Budget | Candidates, case runs, tokens, tools, wall time |
+| Baselines | Incumbent, Best-of-$N$, test-time scaling |
+| Randomness | Seeds, number of runs, confidence intervals |
+| Persistence | Saved artifact and future runs to which it applies |
+| Generalization level | Instance, task family, target, environment, time |
+
+Before concluding that performance "improved on held-out data," state in the table which level was held out.
+
+## Key Points
+
+Treat the entire harness optimizer as an outer-loop learning algorithm, and separate development, validation, and sealed test data by information flow. Repeated improvement on the same benchmark is transductive and differs from generalization to unknown tasks. Report test-time scaling, validation overuse, and target/optimizer contamination explicitly, and decompose the levels of held-out evaluation.

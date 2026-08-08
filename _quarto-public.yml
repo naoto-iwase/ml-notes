@@ -234,36 +234,84 @@ website:
     - id: agent-harness-optimization-ja
       title: "ML Notes"
       style: "docked"
-      collapse-level: 2
+      collapse-level: 3
       contents:
         - section: "Agent Harness Optimization"
           href: ja/agent-harness-optimization/index.qmd
           contents:
-            - text: "最適化の対象"
-              href: ja/agent-harness-optimization/optimization-target.qmd
-            - text: "探索空間"
-              href: ja/agent-harness-optimization/search-space.qmd
-            - text: "失敗から Harness を改善する"
-              href: ja/agent-harness-optimization/failure-driven-update.qmd
-            - text: "Harness の改善を評価する"
-              href: ja/agent-harness-optimization/improvement-evaluation.qmd
+            - section: "I 基礎"
+              contents:
+                - text: "最適化の対象"
+                  href: ja/agent-harness-optimization/optimization-target.qmd
+                - text: "探索空間"
+                  href: ja/agent-harness-optimization/search-space.qmd
+                - text: "失敗から Harness を改善する"
+                  href: ja/agent-harness-optimization/failure-driven-update.qmd
+                - text: "Harness の改善を評価する"
+                  href: ja/agent-harness-optimization/improvement-evaluation.qmd
+            - section: "II 研究の潮流と手法群"
+              contents:
+                - text: "最適化ループ"
+                  href: ja/agent-harness-optimization/optimization-loop.qmd
+                - text: "編集対象"
+                  href: ja/agent-harness-optimization/edit-surfaces.qmd
+                - text: "実行結果と失敗分析"
+                  href: ja/agent-harness-optimization/execution-feedback.qmd
+                - text: "探索と進化"
+                  href: ja/agent-harness-optimization/search-evolution.qmd
+                - text: "Editor と学習型 Optimizer"
+                  href: ja/agent-harness-optimization/learned-optimizers.qmd
+            - section: "III 評価上の未解決問題"
+              contents:
+                - text: "タスク分割"
+                  href: ja/agent-harness-optimization/task-splits.qmd
+                - text: "Target・Environment 間の汎化"
+                  href: ja/agent-harness-optimization/target-environment-generalization.qmd
+                - text: "回帰・コスト・安全性"
+                  href: ja/agent-harness-optimization/regression-cost-safety.qmd
+                - text: "Optimizer の独立評価"
+                  href: ja/agent-harness-optimization/independent-optimizer-evaluation.qmd
 
     - id: agent-harness-optimization-en
       title: "ML Notes"
       style: "docked"
-      collapse-level: 2
+      collapse-level: 3
       contents:
         - section: "Agent Harness Optimization"
           href: en/agent-harness-optimization/index.qmd
           contents:
-            - text: "What to Optimize"
-              href: en/agent-harness-optimization/optimization-target.qmd
-            - text: "Search Space"
-              href: en/agent-harness-optimization/search-space.qmd
-            - text: "Improving a Harness from Failures"
-              href: en/agent-harness-optimization/failure-driven-update.qmd
-            - text: "Evaluating Harness Improvements"
-              href: en/agent-harness-optimization/improvement-evaluation.qmd
+            - section: "I Foundations"
+              contents:
+                - text: "What to Optimize"
+                  href: en/agent-harness-optimization/optimization-target.qmd
+                - text: "Search Space"
+                  href: en/agent-harness-optimization/search-space.qmd
+                - text: "Improving a Harness from Failures"
+                  href: en/agent-harness-optimization/failure-driven-update.qmd
+                - text: "Evaluating Harness Improvements"
+                  href: en/agent-harness-optimization/improvement-evaluation.qmd
+            - section: "II Research Trends and Method Families"
+              contents:
+                - text: "Optimization Loops"
+                  href: en/agent-harness-optimization/optimization-loop.qmd
+                - text: "What to Edit"
+                  href: en/agent-harness-optimization/edit-surfaces.qmd
+                - text: "Execution Feedback and Failure Analysis"
+                  href: en/agent-harness-optimization/execution-feedback.qmd
+                - text: "Search and Evolution"
+                  href: en/agent-harness-optimization/search-evolution.qmd
+                - text: "Editors and Learned Optimizers"
+                  href: en/agent-harness-optimization/learned-optimizers.qmd
+            - section: "III Open Problems in Evaluation"
+              contents:
+                - text: "Task Splits"
+                  href: en/agent-harness-optimization/task-splits.qmd
+                - text: "Target and Environment Generalization"
+                  href: en/agent-harness-optimization/target-environment-generalization.qmd
+                - text: "Regressions, Cost, and Safety"
+                  href: en/agent-harness-optimization/regression-cost-safety.qmd
+                - text: "Independent Optimizer Evaluation"
+                  href: en/agent-harness-optimization/independent-optimizer-evaluation.qmd
 
     - id: recursive-reasoning-ja
       title: "ML Notes"

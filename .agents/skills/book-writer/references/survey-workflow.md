@@ -35,6 +35,7 @@ Key points:
   - Prompt template: `assets/subagent-prompts/bib-prebuild.md`
 - Use **figure pre-fetch** to extract the e-prints for every paper in `references.bib` into `/tmp/arxiv_figures/` in one batch.
   - `fetch_arxiv_figures_batch.py --bib {book}/references.bib --parallel 8`
+- Confirm `{book}/chapter-bib/_figure_manifest.md` was generated before chapter drafting. During drafting, record keep/reject decisions in the parent-owned `_figure_triage.md`; selecting no figures is valid, but skipping figure inspection is not.
 - **Always use the survey's `main.bib` as the primary source** for bibliography entries; do not rely on descriptions in the survey prose.
 - Normalize key names to the book convention, `{lastname}{year}{shortname}`.
 - Do not confuse a method name with a paper title. For example, "Elastic-Cache" is a method name, not the paper title.
@@ -86,7 +87,7 @@ Include the following in the subagent instructions. The detailed prompt template
 - **Raw bibliography-key exposure**: subagents tend to write tables or prose such as the Japanese lint fixture `引用キー: [@key]` ("citation key: `[@key]`"). Detect this mechanically with `lint_chapters.py`.
 - **Distributed invention of bibliography keys by chapter**: when chapter subagents create keys freely, the same paper often receives different keys or author names. **Centralizing the bibliography in Phase 2** solves the problem at its source.
 - **Hallucinated titles**: subagents may turn a survey description containing a method name into the title. Cross-check against the survey's `main.bib`.
-- **Figure decisions deferred until later**: a chapter subagent may write prose without inspecting available primary-source figures, forcing a costly retrofit. Require the writer to inspect and decide on figures during chapter drafting, but do not impose a count. Keep only figures that add information; see `assets/subagent-prompts/chapter-writer.md`.
+- **Figure decisions deferred until later**: a chapter subagent may write prose without inspecting available primary-source figures, forcing a costly retrofit. Require the Phase 2 manifest before drafting and a recorded keep/reject decision during chapter drafting. Do not impose a count, but do not accept “no figure needed” without inspection. Keep only figures that add information; see `assets/subagent-prompts/chapter-writer.md`.
 - **Reusing an existing chapter's figure in a new chapter**: inserting one survey figure into several chapters creates repetition. As a rule, assign each figure exclusively to one chapter.
 - **End-of-chapter navigation blockquotes**: subagents tend to add literal Japanese navigation such as `> 次章: ...` ("Next chapter: ..."). Remove it because the sidebar provides navigation.
 - **Missing English synchronization**: translating only the new chapters leaves updates to existing chapters absent from English. Translate every updated file.

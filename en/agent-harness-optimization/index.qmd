@@ -11,7 +11,9 @@ image: "images/dgm-concept.png"
 toc: false
 ---
 
-The same model can produce different results under different prompts, tools, context construction, memory policies, control flow, validators, and recovery logic. This book calls the executable system surrounding the model an **executable harness**. It explains how to produce harness updates from execution results and decide whether to accept them through external evaluation.
+The same model can produce different results under different prompts, tools, context construction, memory policies, control flow, validators, and recovery logic. This book calls the executable system surrounding the model an **executable harness**. It examines methods that turn execution results into candidate harness updates, decide whether to accept them through external evaluation, and carry accepted changes into future executions.
+
+Prompt engineering, workflow optimization, and self-evolving agents each span broad research areas [@sahoo2024promptengineering; @gao2026selfevolving; @yue2026workflow]. This book does not attempt to cover all of them. It focuses on persistent harness-update loops around a fixed or managed target model.
 
 ## Problem Formulation
 
@@ -39,6 +41,50 @@ Without the final condition, the optimizer could change both the harness and the
 
 ## Scope
 
-A harness can include the system prompt, context assembly, retrieval, durable memory, tool mediation, workflow, verification, retries, and rollback [@weng2026harness]. This book excludes model-weight updates, test-time scaling and self-refinement confined to a single episode, and unconstrained recursive self-improvement in general.
+A harness can include the system prompt, context assembly, retrieval, durable memory, tool mediation, workflow, verification, retries, and rollback [@weng2026harness]. This book excludes model-weight updates, test-time scaling and self-refinement confined to a single episode, and unconstrained recursive self-improvement in general. Autonomous research is a task-domain label rather than an optimization method; it is included only when it contains an externally evaluated, persistent harness-update loop.
 
 The boundary is whether a change persists to future executions. Changing memory content or a read/write policy for subsequent episodes updates harness state. Generating and discarding alternatives within one response does not constitute harness optimization.
+
+## Unit of Comparison
+
+The unit of comparison is not an individual model or agent framework, but the following update loop:
+
+$$
+\text{Target}
+\rightarrow \text{Edit surface}
+\rightarrow \text{Optimizer}
+\rightarrow \text{Execution evidence}
+\rightarrow \text{Acceptance / rollback}
+\rightarrow \text{Persistence}
+\rightarrow \text{Evaluation}.
+$$
+
+Two prompt optimizers provide different strengths of evidence when one selects candidates on training examples alone and the other uses a sealed test. Likewise, a workflow editor that fixes a targeted failure differs from one whose promotion gate also checks prior successes and safety.
+
+## Structure of This Book
+
+### I Foundations
+
+The existing four chapters define the problem and the minimal update loop.
+
+1. [What to Optimize](optimization-target.qmd): Boundaries among the model, harness, optimizer, and evaluator
+2. [Search Space](search-space.qmd): Prompts, workflows, and runtime implementations
+3. [Improving a Harness from Failures](failure-driven-update.qmd): Producing candidates from trajectories
+4. [Evaluating Harness Improvements](improvement-evaluation.qmd): Acceptance, rejection, and rollback
+
+### II Research Trends and Method Families
+
+5. [Optimization Loops](optimization-loop.qmd): The outer loop spanning proposal, search, selection, and persistence
+6. [What to Edit](edit-surfaces.qmd): Edit contracts from prompts to runtime code
+7. [Execution Feedback and Failure Analysis](execution-feedback.qmd): Scalars, critiques, trajectories, and interventions
+8. [Search and Evolution](search-evolution.qmd): Beam, tree, surrogate, population, and archive methods
+9. [Editors and Learned Optimizers](learned-optimizers.qmd): Prompted editors and trained candidate generators
+
+### III Open Problems in Evaluation
+
+10. [Task Splits](task-splits.qmd): Outer-loop splits, leakage, and transductive optimization
+11. [Target and Environment Generalization](target-environment-generalization.qmd): Transfer of artifacts and optimizers
+12. [Regressions, Cost, and Safety](regression-cost-safety.qmd): Preservation, budgets, and promotion contracts
+13. [Independent Optimizer Evaluation](independent-optimizer-evaluation.qmd): Controlled comparisons and evaluator–acceptance separation
+
+Part II separates what can be changed from how candidates are searched. Part III does not treat improvements on tasks seen by the optimizer as generalization; it evaluates held-out performance, transfer, regressions, cost, and safety separately.

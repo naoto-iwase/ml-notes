@@ -55,7 +55,7 @@ $$
 | 実行結果からcompute allocation policyを更新し、将来へ保存する | Harness optimizationに含める |
 | Fine-tuningやRLでmodel weight $\theta$を変える | Model optimizationであり、Harness optimizationとは分ける |
 
-Reflexionは失敗後のreflectionをmemoryへ保存し、次の試行で利用する [@shinn2023reflexion]。これは将来へ残るstate更新の例であるが、その変更が一般に改善かを判断するには別の外部評価が必要である。
+Reflexionは失敗後のreflectionを同じtask内の次の試行で利用する [@shinn2023reflexion]。これはtask-localなstate更新の境界例であり、独立した将来taskへversionとして持ち越すpersistent harness updateとは分ける。
 
 Harness-R1ではtarget modelを固定し、別のeditorが更新候補 $H'_t$を生成する。学習するのはeditorだが、最終的に更新される対象はHarnessである [@shao2026harnessr1]。
 
@@ -72,5 +72,3 @@ Harness-R1ではtarget modelを固定し、別のeditorが更新候補 $H'_t$を
 ## 要点
 
 Harness optimizationでは、modelとenvironmentを原則固定し、許可した範囲のHarnessだけを変更する。候補生成と外部評価を分離し、採用した変更を将来のtaskへ持ち越す。
-
-## 参考文献 {.unnumbered}

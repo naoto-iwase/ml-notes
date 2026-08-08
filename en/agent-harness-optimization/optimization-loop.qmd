@@ -1,0 +1,125 @@
+---
+pagetitle: "Optimization Loops"
+---
+
+# Optimization Loops
+
+A harness optimizer is not a model that generates a promising prompt once. It is an **outer loop that receives the current harness, execution evidence, search history, and evaluation budget, then produces and compares rerunnable candidates**. Even when the target model is fixed, the design of this loop changes the harness it ultimately reaches.
+
+Broad surveys of self-evolving agents and workflow optimization present taxonomies based on what is changed and when updates occur [@gao2026selfevolving; @yue2026workflow]. This book isolates the cases that persistently update artifacts outside the model and organizes them by the components of the optimizer.
+
+## Separating the Five Roles
+
+Harness optimization involves at least five roles.
+
+| Role | Input | Output | Change Authority |
+|---|---|---|---|
+| Target agent | Task, harness, environment | Trajectory, answer, action | Changes only within the scope authorized in advance by the harness |
+| Optimizer | Incumbent, trajectory, score, search history | Candidate harness | Changes only within the edit surface |
+| Evaluator | Candidate execution results | Evaluation records for quality, cost, safety, and other dimensions | Cannot be modified by the optimizer |
+| Acceptance rule | Evaluation records for the incumbent and candidate | Accept, reject, inconclusive | Fixed before the experiment |
+| Artifact store | Version, diff, evidence, evaluation records | Reusable and rollback-capable history | Stores accepted artifacts and search history |
+
+The evaluator and the acceptance rule are not the same. The evaluator measures how many tests passed, how many tool calls occurred, and whether any permission violations occurred. The acceptance rule decides from those records that a candidate should be accepted if quality improves, the cost cap is respected, and no regression occurs. If measurement and acceptance are combined in a judge that returns a scalar score, it becomes impossible to trace the conditions under which an update was made.
+
+## Update Loop
+
+At round $t$, the optimizer produces a candidate set from the incumbent $H_t$, search history $S_t$, and execution evidence $Z_t$.
+
+$$
+\mathcal{C}_t = O(H_t, S_t, Z_t; B_t),
+$$
+
+Here, $B_t$ is the search budget, including the number of candidates, target-model calls, tokens, and wall time. Each candidate $c\in\mathcal{C}_t$ is executed in a fixed environment, and the evaluator returns an evaluation record.
+
+$$
+r(c)=E(c;\mathcal{D}_{\mathrm{dev}},\xi),
+$$
+
+The variable $\xi$ represents stochasticity from model sampling, environmental variation, and seeds. Ranking candidates from a single score mistakes this variation for a search signal. The required number of repetitions and aggregation method should be determined in advance.
+
+The optimizer can use $r(c)$ to update its search state, but the acceptance rule $V$ determines the next version.
+
+$$
+H_{t+1}=
+\begin{cases}
+c^*_t & V\bigl(r(c^*_t),r(H_t)\bigr)=\mathrm{accept},\\
+H_t & \text{otherwise}.
+\end{cases}
+$$
+
+It is important to separate candidate generation, selection during search, and version promotion. A top candidate during search may not pass the sealed test and regression suite.
+
+## Seven Axes That Define an Optimizer
+
+Even with the same edit surface, different choices along the following axes constitute different optimizers.
+
+| Axis | Main Options | Question to Ask |
+|---|---|---|
+| Search state | Incumbent only, beam, tree, population, archive | How much of the candidate history should be retained? |
+| Proposal operator | Random, template, LLM edit, mutation, learned policy | What information should produce the next change? |
+| Evidence | Scalar score, incorrect answers, critiques, trajectories, runtime diagnostics | Which structure of the failure should be exposed to the optimizer? |
+| Candidate evaluator | Full rollout, subset, surrogate, static check | Where should expensive executions be allocated? |
+| Selection | Argmax, bandit, Pareto, parent retention | How should capabilities beyond the mean be preserved? |
+| Stopping rule | Budget, convergence, validation plateau, risk gate | When should the search stop? |
+| Promotion | Score threshold, multi-objective contract, human review | Which version should be distributed for future use? |
+
+APE and OPRO generate the next instruction from previous instructions and their scores [@zhou2023ape; @yang2024opro]. ProTeGi produces a natural-language "gradient" from incorrect answers and updates prompts with beam search [@pryzant2023protegi]. AFlow represents workflow code as nodes and applies Monte Carlo tree search, while ADAS uses an archive of evaluated agent code for subsequent proposals [@zhang2025aflow; @hu2025adas]. These methods differ not in whether they use an LLM, but in **what they retain as state and which execution evidence they use to update proposals and selection**.
+
+## Limits of a Scalar Objective
+
+Collapsing quality into a single scalar allows different failures to offset one another. A candidate that improves Task A by 20 points and degrades Task B by 20 points shows no change under the mean alone. If cost and safety are included in the same scalar, changing the weights alone changes the candidate ranking.
+
+GEPA retains the union of candidates that are strong on individual validation instances as a Pareto archive [@agrawal2026gepa]. This design avoids discarding candidates during search based on a single average score. However, remaining in the archive does not imply acceptance for deployment. The final candidate must be evaluated under a separate acceptance rule.
+
+Write a multi-objective evaluation record as
+
+$$
+r(c)=\bigl(q(c),-k(c),-\ell(c),-u(c)\bigr)
+$$
+
+where $q$ is quality, $k$ is cost, $\ell$ is latency, and $u$ records unsafe events. Rather than converting these values into a weighted sum after the fact, treating them as a promotion contract such as "quality improvement is at least the threshold," "the cost increase is below the cap," and "unsafe events are zero" makes the reason for acceptance explicit.
+
+## Defining the Search Budget
+
+"10 iterations" does not have a consistent meaning across methods. In some prompt optimizers, one candidate requires only one LLM call. In others, evaluating one workflow runs multiple agents and tools. At minimum, distinguish the following.
+
+- Optimizer-model tokens and calls
+- Target-agent tokens and calls
+- Environment and tool executions
+- Number of candidates and case runs
+- Number of static checks, compilations, and sandbox executions
+- Wall time and parallelism
+- Per-task execution cost after promotion
+
+MIPRO allocates expensive program evaluations with Bayesian optimization, while AgentSquare reduces candidate evaluations with an in-context performance predictor [@opsahlong2024mipro; @shang2025agentsquare]. A surrogate makes search cheaper, but it risks systematically avoiding regions where the surrogate is wrong. Reevaluate the final candidate in the actual environment.
+
+## When the Optimizer Is Learned
+
+Some methods learn the candidate generator itself, as with the RLPrompt policy and the Harness-R1 editor [@deng2022rlprompt; @shao2026harnessr1]. In this case, distinguish the learned optimizer parameters $\phi$ from the harness $H$ that is ultimately distributed.
+
+$$
+\phi \leftarrow \operatorname{Train}(\phi;\mathcal{R}),
+\qquad
+H' = O_{\phi}(H,Z).
+$$
+
+Even when the editor is learned, the compilation, execution, evaluation, and promotion of $H'$ should remain outside it. Unconditionally accepting the output of a learned optimizer turns the optimizer's training objective directly into the deployment policy.
+
+## Search Records to Preserve
+
+The artifact store should retain more than the best score. It should also retain the following.
+
+- Parent version and candidate diff
+- Trajectories, feedback, and scores used for proposals
+- Versions of the optimizer, target model, tools, and environment
+- Whether the candidate was executable and why it was rejected
+- Number of queries to development and validation
+- Results on the sealed test and regression suite
+- Promotion and rollback destinations
+
+DGM does not monotonically retain only the best candidate. It maintains a branching archive of evaluated code [@zhang2026dgm]. This design preserves stepping stones for search, but it does not guarantee that candidates in the archive will generalize to future tasks. Preserving history and justifying acceptance must be evaluated separately.
+
+## Key Points
+
+A harness optimizer consists not only of a proposal model, but also of search state, execution feedback, a candidate evaluator, selection, a budget, and promotion. Separate the optimizer, evaluator, acceptance rule, and artifact store, and do not treat the best candidate during search as the next version by default.

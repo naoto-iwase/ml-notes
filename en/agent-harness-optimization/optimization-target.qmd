@@ -55,7 +55,7 @@ If the two are conflated, methods that only increase thinking time within one re
 | Update the compute allocation policy from execution results and save it for future use | Included in harness optimization |
 | Change target model weights $\theta$ through fine-tuning or reinforcement learning (RL) | Target model optimization; separate from harness optimization |
 
-Reflexion stores reflections after failures in memory and uses them in subsequent trials [@shinn2023reflexion]. This is an example of a state update that persists into the future, but separate external evaluation is needed to determine whether the change improves performance in general.
+Reflexion stores reflections after failures in memory and uses them in subsequent trials [@shinn2023reflexion]. This is an example of persistence across trials within the same task, not an evaluation of an artifact promoted across independent future tasks. Separate external evaluation is needed to determine whether the change improves performance in general.
 
 Harness-R1 keeps the target model fixed and uses a separate editor to generate a candidate $H'_t$. The editor is trained, but the harness is the final object being updated [@shao2026harnessr1].
 
@@ -72,5 +72,3 @@ The boundary should be explicit enough to state, for example, that "the pre-acti
 ## Key Points
 
 Harness optimization keeps the target model and environment fixed in principle and changes only the harness within the permitted scope. It separates candidate generation from external evaluation and carries accepted changes forward to future tasks.
-
-## References {.unnumbered}

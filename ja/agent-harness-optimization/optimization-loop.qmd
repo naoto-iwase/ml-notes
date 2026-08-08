@@ -1,0 +1,125 @@
+---
+pagetitle: "最適化ループ"
+---
+
+# 最適化ループ
+
+Harness optimizerは、良さそうなpromptを一度生成するmodelではない。現行harness、実行evidence、探索履歴、評価予算を受け取り、**再実行可能なcandidateを作って比較する外側のloop**である。Target modelが固定されていても、このloopの設計によって到達するharnessは変わる。
+
+広いself-evolving agentやworkflow optimizationのsurveyは、変更対象や更新時点によるtaxonomyを提示している [@gao2026selfevolving; @yue2026workflow]。本書では、その中からmodel外部のartifactを永続的に更新する場合だけを取り出し、optimizerの構成要素で整理する。
+
+## 五つの役割を分ける
+
+Harness optimizationには少なくとも五つの役割がある。
+
+| 役割 | 入力 | 出力 | 変更権限 |
+|---|---|---|---|
+| Target agent | task、harness、environment | trajectory、answer、action | Harnessだけが事前に許可した範囲で変わる |
+| Optimizer | incumbent、trajectory、score、探索履歴 | candidate harness | Edit surface内だけを変更する |
+| Evaluator | candidateの実行結果 | quality、cost、安全性などの評価記録 | Optimizerから変更できない |
+| Acceptance rule | incumbentとcandidateの評価記録 | accept、reject、inconclusive | 実験前に固定する |
+| Artifact store | version、diff、evidence、評価記録 | 再利用・rollback可能な履歴 | 採用済みartifactと探索履歴を保存する |
+
+Evaluatorとacceptance ruleは同じではない。Evaluatorは「testを何件通過したか」「tool callが何回か」「権限違反があったか」を測る。Acceptance ruleは、それらの記録に対して「qualityが上がり、cost上限を守り、regressionがなければ採用する」と判断する。Scalar scoreを返すjudgeに測定と採用をまとめると、どの条件で更新したかを追跡できない。
+
+## 更新loop
+
+Round $t$で、optimizerはincumbent $H_t$、探索履歴 $S_t$、実行evidence $Z_t$からcandidate集合を作る。
+
+$$
+\mathcal{C}_t = O(H_t, S_t, Z_t; B_t),
+$$
+
+ここで$B_t$は候補数、target-model call、token、wall timeなどを含む探索予算である。各candidate $c\in\mathcal{C}_t$を固定したenvironmentで実行し、evaluatorが評価記録を返す。
+
+$$
+r(c)=E(c;\mathcal{D}_{\mathrm{dev}},\xi),
+$$
+
+$\xi$はmodel sampling、environmentの揺らぎ、seedによる確率性を表す。一回のscoreだけでcandidateを順位づけると、この揺らぎを探索信号と誤認する。必要な反復回数と集計方法を先に決める。
+
+Optimizerは$r(c)$を使って探索状態を更新できるが、次versionを決めるのはacceptance rule $V$である。
+
+$$
+H_{t+1}=
+\begin{cases}
+c^*_t & V\bigl(r(c^*_t),r(H_t)\bigr)=\mathrm{accept},\\
+H_t & \text{otherwise}.
+\end{cases}
+$$
+
+Candidate生成、探索中のselection、versionのpromotionを分けることが重要である。探索中の上位candidateが、sealed testとregression suiteを通過するとは限らない。
+
+## Optimizerを決める七つの軸
+
+同じedit surfaceでも、次の軸が違えば別のoptimizerである。
+
+| 軸 | 主な選択肢 | 問うべきこと |
+|---|---|---|
+| Search state | incumbentだけ、beam、tree、population、archive | 過去のcandidateをどこまで残すか |
+| Proposal operator | random、template、LLM edit、mutation、learned policy | どの情報から次の変更を作るか |
+| Evidence | scalar score、誤答、批評、trajectory、runtime diagnostics | 失敗のどの構造をoptimizerへ見せるか |
+| Candidate evaluator | full rollout、subset、surrogate、static check | 高価な実行を何に割り当てるか |
+| Selection | argmax、bandit、Pareto、parent retention | 平均値以外の能力をどう保持するか |
+| Stopping rule | budget、収束、validation plateau、risk gate | いつ探索を止めるか |
+| Promotion | score threshold、multi-objective contract、human review | どのversionを将来へ配るか |
+
+APEやOPROは、過去のinstructionとscoreから次のinstructionを生成する [@zhou2023ape; @yang2024opro]。ProTeGiは誤答から自然言語の「gradient」を作り、beam searchでpromptを更新する [@pryzant2023protegi]。AFlowはworkflow codeをnodeとしてMonte Carlo tree searchを行い、ADASは評価済みagent codeのarchiveを次の提案に使う [@zhang2025aflow; @hu2025adas]。これらの差は、大規模言語モデル（large language model, LLM）を使うかではなく、**何をstateとして保持し、どのexecution evidenceでproposalとselectionを更新するか**にある。
+
+## Scalar objectiveの限界
+
+Qualityを一つのscalarへ潰すと、異なる失敗を相殺できる。Task Aで20点改善し、Task Bで20点悪化したcandidateは、平均だけなら変化なしである。Costや安全性まで同じscalarへ入れる場合、重みを変えるだけでcandidate順位が変わる。
+
+GEPAはvalidation instanceごとに強いcandidateの和集合をPareto archiveとして保持する [@agrawal2026gepa]。これは探索中に一つの平均scoreだけでcandidateを捨てない設計である。ただし、archiveに残ることはdeploymentへの採用を意味しない。最終candidateは別のacceptance ruleで評価する必要がある。
+
+Multi-objectiveな評価記録を
+
+$$
+r(c)=\bigl(q(c),-k(c),-\ell(c),-u(c)\bigr)
+$$
+
+と書く。$q$はquality、$k$はcost、$\ell$はlatency、$u$はunsafe eventである。これらを事後的な加重和へ変換するより、「quality改善が閾値以上」「cost増加は上限以下」「unsafe eventはゼロ」のようなpromotion contractとして扱う方が、採用理由を明示できる。
+
+## 探索予算を定義する
+
+「10 iteration」の意味は手法間で揃わない。一つのcandidateが1回のLLM callで済むprompt optimizerもあれば、一つのworkflowを評価するために複数agentとtoolを動かすoptimizerもある。少なくとも次を分ける。
+
+- Optimizer modelのtokenとcall
+- Target agentのtokenとcall
+- Environmentやtoolの実行回数
+- Candidate数とcase-run数
+- Static check、compile、sandbox実行の回数
+- Wall timeと並列数
+- 採用後の一taskあたり実行cost
+
+MIPROは高価なprogram評価をBayesian optimizationで割り当て、AgentSquareはin-context performance predictorでcandidate評価を減らす [@opsahlong2024mipro; @shang2025agentsquare]。Surrogateは探索を安くする一方、surrogateが誤る領域をsystematically避ける危険がある。最終candidateは実environmentで再評価する。
+
+## Optimizerを学習する場合
+
+RLPromptのpolicyやHarness-R1のeditorのように、candidate generator自体を学習する方法もある [@deng2022rlprompt; @shao2026harnessr1]。この場合、学習されるoptimizer parameter $\phi$と、最終的に配布されるharness $H$を分ける。
+
+$$
+\phi \leftarrow \operatorname{Train}(\phi;\mathcal{R}),
+\qquad
+H' = O_{\phi}(H,Z).
+$$
+
+Editorが学習済みでも、$H'$のcompile、実行、評価、promotionは外側に残す。Learned optimizerの出力を無条件に採用すると、optimizerのtraining objectiveがそのままdeployment policyになる。
+
+## 保存すべき探索記録
+
+Artifact storeには最良scoreだけでなく、次を保存する。
+
+- Parent versionとcandidate diff
+- Proposalに使ったtrajectory、feedback、score
+- Optimizer、target model、tool、environmentのversion
+- Candidateが実行可能だったか、棄却理由は何か
+- Developmentとvalidationへの照会回数
+- Sealed testとregression suiteの結果
+- 採用先とrollback先
+
+DGMは単調に最良candidateだけを残さず、評価済みcodeの分岐archiveを保持する [@zhang2026dgm]。これは探索上のstepping stoneを残す設計であるが、archive内のcandidateが将来のtaskへ一般化する保証ではない。履歴の保存と、採用の正当性は別に評価する。
+
+## 要点
+
+Harness optimizerは、proposal modelだけでなく、search state、execution feedback、candidate evaluator、selection、budget、promotionから成る。Optimizer、evaluator、acceptance rule、artifact storeを分離し、探索中の最良candidateをそのまま次versionとみなさない。

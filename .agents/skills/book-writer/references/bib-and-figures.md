@@ -1,6 +1,6 @@
 # Pre-Build the Bibliography and Figures (Phase 2)
 
-For a citation-heavy book, especially a survey with an expected 30 or more references, it is strongly recommended to build `references.bib` and `/tmp/arxiv_figures/` **in one place** before entering Phase 3, overview writing. This is Phase 2.
+For a citation-heavy book, especially a survey with an expected 30 or more references, build `references.bib` and `/tmp/arxiv_figures/` **in one place** before entering Phase 3, overview writing. This is Phase 2 and is a required gate unless the user explicitly waives source-figure inspection.
 
 ## Why Pre-Build Them
 
@@ -48,10 +48,30 @@ uv run .agents/skills/book-writer/scripts/fetch_arxiv_figures_batch.py \
 - Automatically extract arXiv IDs from `url = {https://arxiv.org/abs/XXXX.XXXXX}` fields in `references.bib`.
 - Download in parallel and skip existing downloads.
 - Continue after failures; a few failed papers must not stop the batch.
+- With `--bib`, generate `{book}/chapter-bib/_figure_manifest.md` automatically. The manifest inventories image assets even for sources that were already downloaded.
 
 For 100 or more papers, log tracking is easier if the parent runs the script directly rather than delegating it to a subagent.
 
 Delegating this step is optional. If you do, use the prompt template `assets/subagent-prompts/figure-prefetch.md`.
+
+### Step 2.5: Triage Figures Before and During Drafting
+
+Do not treat a successful batch download as completion. The writer must inspect the manifest, then inspect the caption and surrounding source text for candidate figures relevant to each chapter.
+
+Record decisions in the parent-owned `{book}/chapter-bib/_figure_triage.md`:
+
+```markdown
+| Chapter | Paper | Source figure | Decision | Reason |
+|---|---|---|---|---|
+| evaluation | `paper-key` | Figure 3 | keep | Shows the held-out protocol more clearly than prose |
+| evaluation | `other-key` | Figure 1 | reject | Generic overview that duplicates the chapter table |
+```
+
+- A chapter may retain zero figures, but only after its relevant source figures have been inspected.
+- “No figure-count quota” controls selection; it does not permit skipping inspection.
+- Inspect captions and the claims supported by the figure, not only filenames or thumbnails.
+- Chapter subagents report their decisions to the parent rather than racing to edit the shared triage file.
+- Before publication, every chapter must have a recorded figure decision, including an explicit “no useful figure” decision when appropriate.
 
 ### Step 3: Validate the Bibliography
 
@@ -179,11 +199,13 @@ Book directory after completing Phase 2:
 ├── references.bib              # Completed in Phase 2
 ├── chapter-bib/
 │   ├── _paper_index.md         # Mapping from bib key to intended chapter
+│   ├── _figure_manifest.md      # Generated inventory of extracted figure assets
+│   ├── _figure_triage.md        # Parent-owned keep/reject decisions with reasons
 │   └── (empty or per-chapter stash)
 └── images/                     # Filled by chapter subagents in Phase 4
 ```
 
-Every paper's e-print is then extracted under `/tmp/arxiv_figures/<id>/`. Chapter subagents select figures there, convert them to PNG with `pdftoppm`, and copy them into `{book}/images/`.
+Every paper's e-print is then extracted under `/tmp/arxiv_figures/<id>/`. Chapter subagents inspect candidate figures there and report keep/reject decisions. Selected figures are converted to PNG with `pdftoppm` and copied into `{book}/images/`.
 
 ## Rebuilding an Existing Book
 

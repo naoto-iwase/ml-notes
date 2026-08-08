@@ -1,0 +1,188 @@
+---
+pagetitle: "タスク分割"
+---
+
+# タスク分割
+
+Harness optimizerは、candidateを生成・評価・選択する一つの学習algorithmである。最終harnessだけを見て「trainingしていない」と考えると、optimizerがvalidation taskを何度も実行した事実を見落とす。実行feedbackを一度でもproposalやselectionに使えば、そのtaskはoptimizerにとってseenである。
+
+## Outer-loopのdata split
+
+Task集合を少なくとも三つに分ける。
+
+| Partition | Optimizerが見られるもの | 用途 |
+|---|---|---|
+| Development $\mathcal{D}_{\mathrm{dev}}$ | Task、trajectory、error、score | Failure解析とcandidate生成 |
+| Validation $\mathcal{D}_{\mathrm{val}}$ | 制限したscore、必要なら集約値 | Search、hyperparameter、stopping |
+| Sealed test $\mathcal{D}_{\mathrm{test}}$ | Candidate確定まで何も見せない | 最終generalization評価 |
+
+重要なのはfolder名ではなくinformation flowである。Optimizerがtest scoreを読める、testを再実行できる、test failureを次のpromptへ入れるなら、そのsetはvalidationになっている。
+
+Outer-loop optimizerを$\mathcal{A}$とし、developmentとvalidationからharnessを作る過程を
+
+$$
+\widehat H
+=
+\mathcal{A}\bigl(\mathcal{D}_{\mathrm{dev}},
+\mathcal{D}_{\mathrm{val}},B\bigr)
+$$
+
+と書く。Generalizationは、$\mathcal{A}$がアクセスしなかった$\mathcal{D}_{\mathrm{test}}$で測る。
+
+$$
+\widehat J_{\mathrm{gen}}
+=
+J_{\mathcal{D}_{\mathrm{test}}}(\widehat H).
+$$
+
+個々のcandidateがtestを見ていなくても、optimizer designerがtest結果を見てalgorithm、prompt、budgetを調整したなら、研究campaign全体ではtestへ適合している。
+
+## Held-outには段階がある
+
+「Held-out task」とだけ書くと、何が未知か分からない。
+
+| Level | 未知の要素 | 例 |
+|---|---|---|
+| Instance-held-out | 同じbenchmark内の別instance | MATHの別問題 |
+| Template-held-out | 同じdomainの別形式・constraint | 未見instruction constraint |
+| Task-family-held-out | 別のtask type | Mathで探索し、codeで評価 |
+| Target-held-out | 別modelまたはmodel version | GPT系で探索し、Llama系で評価 |
+| Environment-held-out | 別tool API、runtime、権限、website | Browser APIやdatabase schemaの変更 |
+| Temporal-held-out | 探索後に発生したtask | 将来のissue、更新後website |
+
+同じbenchmarkのrandom splitはinstance-held-outであり、benchmark-family leakageを除かない。Cross-modelであっても同じtaskを使うならcross-targetであり、cross-taskではない。各軸を別々に報告する。
+
+## Transductive optimization
+
+Optimizerがdeployment対象と同じtask集合またはbenchmark distributionを反復利用する設定を、本書ではtransductive optimizationと呼ぶ。これは必ずしも不正ではない。固定された社内workflowを、そのworkflowの過去logで改善する目的なら合理的である。
+
+問題は、transductive resultを未知taskへの一般化として報告することである。
+
+Harness-R1の主要rewardは、failureを観測した同じtask batchをpatch前後で再実行する [@shao2026harnessr1]。これは局所修正の効果を測るpaired transductive evaluationである。Paperは別にheld-out taskとcross-target評価を行うため、三つを分けて読む。
+
+DGMも同じcoding benchmarkのdevelopment taskをarchive searchに反復利用する [@zhang2026dgm]。別benchmarkや別modelへのtransfer実験があっても、各search campaignは対応する評価分布へ適合する。
+
+Transductive studyでは、次を明示する。
+
+- 何件のtaskを何回再利用したか
+- Scoreだけか、trajectoryとexpected answerも見たか
+- Task-specificな例外処理を許したか
+- どのartifactをproductionへ配るか
+- 将来taskをいつ、誰が評価するか
+
+## Validationを使いすぎる
+
+Validationはselectionに使うため、反復するほどoptimizerへ情報を返す。Candidate $H_1,\ldots,H_N$からvalidation最大を選ぶと、観測noiseとvalidation特有のpatternへ適合する。
+
+Model selection procedure自体のoverfittingは古くから指摘されている [@cawley2010overfitting]。Public leaderboardにadaptiveに提出し続ける問題に対しては、limited feedbackを返すLadderのような設計が提案されている [@blum2015ladder]。Harness optimizationでも同じ問題が起きる。
+
+Validationについて少なくとも次を記録する。
+
+- Candidate-level query数
+- Full validation pass数
+- 返した情報量
+- Stopping判断に使った回数
+- 人間が結果を見てoptimizerを変更した回数
+- 複数seedから最良campaignを選んだか
+
+Validation scoreを毎iterationのplotとして確認し、悪化したらsearch promptを変更するなら、人間もoptimizerの一部である。
+
+## 既存手法のsplitを読む
+
+Prompt・workflow optimizerの多くはtrain、validation、testを置くが、役割は同じではない。
+
+| Method | Searchに使うdata | Final evaluation | 注意点 |
+|---|---|---|---|
+| ProTeGi | 50 development examples | 150 test examples | Optimization stepごとのtest曲線を描くためsealed testではない [@pryzant2023protegi] |
+| RLPrompt | Train reward、validation selection | Test | 複数splitとcross-model transferを報告 [@deng2022rlprompt] |
+| MIPRO | Train proposal、validationでBayesian search | Held-out test | Programごとにsplitとbudgetを定義 [@opsahlong2024mipro] |
+| AFlow | 20%をworkflow search | 80% testを3回平均 | Benchmarkごとに別workflowを探索 [@zhang2025aflow] |
+| GEPA | Train/feedbackとPareto validation | Held-out test | Validation instance別archiveをsearchに使う [@agrawal2026gepa] |
+| Meta-Harness | 設定により異なる | Text分類では分離 | Codingでは同じtask群をsearchと評価へ反復利用 [@lee2026metaharness] |
+| Harness-R1 | Failure batchとpaired rerun | Validation、test、別held-out analysis | Same-batch rewardとtransferを分ける [@shao2026harnessr1] |
+
+Splitが存在することと、testがsealedであることは別である。Paper内のfigure、ablation、hyperparameter選択にtestを使えば、最終値にはselectionが入る。
+
+OPROはtraining scoreを探索に使うが、分析表では設定ごとにtest accuracyが最高のinstructionを示す [@yang2024opro]。これはoptimizerの存在証拠にはなるが、完全にtest-independentなcandidate selectionとしては読めない。
+
+## Test-time scalingをbaselineにする
+
+Harness searchは多くのtarget-agent runを使う。同じ計算量を、一つのharnessを改善せずtest-time samplingへ使った場合と比較する必要がある。
+
+Budget $B$について、少なくとも三つを比較する。
+
+1. Incumbentを一回実行
+2. Incumbentを$B$内で複数回実行してselect / vote
+3. $B$をharness optimizationへ使い、確定したharnessを一回実行
+
+三番が二番を上回らなければ、改善はpersistent artifactではなく追加試行の効果かもしれない。
+
+Rethinking the Evaluation of Harness Evolutionは、Terminal-Bench 2.1上でharness evolutionとtest-time scalingを同じ条件で比較する最近のpreprintである [@wang2026rethinking]。Disjointな45/10/34のtrain/validation/test設定では、held-out改善が平均0.6 pointに留まると報告する。単一benchmarkの初期証拠だが、same-task scoreだけでharness generalizationを判断できないことを具体的に示す。
+
+## Benchmark leakageを分解する
+
+Leakageには複数の経路がある。
+
+### Target model contamination
+
+Target modelがbenchmark問題や解答をpretrainingで見ている。これは通常のbenchmark contaminationであり、harness optimizerとは独立に起こる。
+
+### Optimizer model contamination
+
+Proposal modelがbenchmarkの名前、known solution、public agent implementationを知っている。Optimizerが生成した「改善」が、execution feedbackではなく記憶したsolutionの再生かもしれない。
+
+### Feedback leakage
+
+Hidden answer、unit test、judge rationale、failure trajectoryをoptimizerへ返す。Labelを直接示さなくても、繰り返すscoreは情報を持つ。
+
+### Researcher adaptation
+
+複数optimizer、prompt、seed、budgetをtest結果で比較し、最良だけを報告する。Testが人間のvalidationになる。
+
+### Temporal leakage
+
+将来taskとして評価するdataが、optimizerまたはtarget modelのtraining cutoffより前に公開されている。
+
+これらを一つの「contaminationあり／なし」へまとめない。Known benchmarkでも、sealed instance、limited feedback、temporal splitを組み合わせて情報流入を減らせる。
+
+## Sealed testを実装する
+
+Sealed testは「optimizer promptに名前を書かない」だけではない。
+
+- Test dataをoptimizerと別storage / processへ置く
+- Optimizerにread permissionを与えない
+- Evaluatorはcandidate artifactを受け取り、集約結果だけ返す
+- Candidate確定後に一度だけ実行する
+- Test resultで再探索しない
+- Environment imageとtool versionを固定・記録する
+- Human evaluatorへcandidate identityを隠す
+- 再評価が必要な場合は新しいtest setを用意する
+
+Public benchmarkしかない場合、研究開始前にinstance splitとhashを固定し、testを別operatorが管理する。Test scoreを見た後の変更は次のstudyとして扱う。
+
+## HarnessOpt-Benchの設計
+
+HarnessOpt-Benchは、harness optimizerを評価するためにdevelopment、validation、hidden test、target-model token budget、case-pass budgetを明示する最近のpreprintである [@ursekar2026harnessopt]。OfficeQA、BrowseComp-Plus、Terminal-Bench、GAIAを使い、target model、environment、verifierを固定する。Final candidateをhidden testで複数回評価し、optimizer configuration自体も反復する。
+
+この設計はend-to-end比較を標準化する一歩である。ただし2026年8月公開の単一preprintであり、このbenchmark上の順位を実運用一般化の証拠とみなさない。とくにcross-environment、安全性、長期regressionは別評価が必要である。
+
+## 最終reporting table
+
+各実験で次を一行にまとめる。
+
+| 項目 | 報告内容 |
+|---|---|
+| Optimization data | Task、instance数、feedback、反復回数 |
+| Validation | Size、情報開示、query数、stoppingへの利用 |
+| Test | Sealing方法、実行時点、再利用の有無 |
+| Budget | Candidate、case-run、token、tool、wall time |
+| Baselines | Incumbent、best-of-$N$、test-time scaling |
+| Randomness | Seed、run数、confidence interval |
+| Persistence | 保存artifactと適用する将来run |
+| Generalization level | Instance、task family、target、environment、time |
+
+「Held-outで改善した」と結論する前に、どのlevelがheld outかを表に書く。
+
+## 要点
+
+Harness optimizer全体をouter-loop learning algorithmとして扱い、development、validation、sealed testをinformation flowで分ける。同じbenchmarkへの反復改善はtransductiveであり、未知taskへのgeneralizationとは別である。Test-time scaling、validation overuse、target / optimizer contaminationを明示し、held-outのlevelを分解して報告する。

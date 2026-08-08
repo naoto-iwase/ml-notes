@@ -157,6 +157,7 @@ After running the automatic fixes, confirm the following.
 - [ ] Images are placed in the `images/` directory.
 - [ ] **Figure-caption sources use the Japanese literal form `出典: [@key]` ("Source: `[@key]`"), including citation brackets.** `lint_chapters.py` checks this with `[FIG_SRC]`.
 - [ ] There is no figure-count quota. Every retained figure adds information that prose or a table would convey less clearly; Mermaid was not added merely to fill space.
+- [ ] For a survey-heavy book, `_figure_manifest.md` exists and `_figure_triage.md` records a keep/reject decision for every chapter. A zero-figure decision identifies what was inspected and why it was rejected.
 - [ ] Every custom SVG parses as XML and has been inspected at the rendered article width for clipping, overlap, baselines, arrowheads, `viewBox`, aspect ratio, and panel alignment.
 - [ ] Mathematical labels inside custom SVGs match the page's rendered math style. SVGs embedded through `<img>` do not rely on inheriting page fonts or fetching an unverified external font.
 

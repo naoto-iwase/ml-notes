@@ -70,8 +70,8 @@ Refer to the figure in the prose with `@fig-{chapter_prefix}-X`.
 
 ## Inserting Images
 
-1. The parent has already extracted the sources under `/tmp/arxiv_figures/<arxiv_id>/`. Inspect them with `ls /tmp/arxiv_figures/<id>/`
-2. Select one or two of the best figures that convey the paper's main message
+1. Read `{book_dir}/chapter-bib/_figure_manifest.md`, then inspect the relevant sources under `/tmp/arxiv_figures/<arxiv_id>/`
+2. Inspect captions and surrounding source text, then select zero or more figures according to information value. Do not decide from filenames alone
 3. For a PDF, convert it to PNG with `pdftoppm -r 200 -png /tmp/arxiv_figures/<id>/<file>.pdf <output>`. The output gains a `-1.png` suffix, so rename it with `mv`
 4. For PNG or JPG input, copy it to `{book_dir}/images/{chapter_prefix}-<shortname>-<desc>.png`
 5. **Always auto-trim whitespace after placement**:
@@ -95,6 +95,7 @@ Refer to the figure in the prose with `@fig-{chapter_prefix}-X`.
 ## Figure Selection
 
 - Do not target a figure count. A chapter may contain no figure when no figure adds information
+- “No figure adds information” is a conclusion reached after inspection, not permission to skip the source figures
 - Prioritize major figures from papers directly related to the chapter, such as graphical abstracts, method overviews, and scaling curves
 - Keep each figure only if it explains a relationship, result, or mechanism more clearly than prose or a table
 - Do not create Mermaid solely because a paper lacks a reusable figure. Mermaid is off by default and must pass the checklist below
@@ -155,10 +156,11 @@ Also, a Unicode arrow `→` (U+2192) inside Mermaid causes a syntax error and pr
 2. Run `python3 {skill_root}/scripts/fix_spacing.py {book_dir}`
 3. Run `python3 {skill_root}/scripts/lint_chapters.py {book_dir}` and confirm that your chapter produces no errors
 4. Confirm that every section advances the chapter's question; remove method details and repeated summaries that do not change the reader's understanding
+5. Report the paper IDs inspected and the keep/reject decision for each candidate figure to the parent. Do not edit the shared `_figure_triage.md`
 
 ## Completion Report
 
-Briefly report the output path, lint result, and which figures and citations were used.
+Briefly report the output path, lint result, papers whose figures were inspected, keep/reject decisions, and citations used. A report of zero retained figures must state what was inspected and why it was rejected.
 ```
 
 ---

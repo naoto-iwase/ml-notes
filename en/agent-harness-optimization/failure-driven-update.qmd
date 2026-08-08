@@ -37,7 +37,7 @@ There are at least three ways to use information from failures.
 - Generate candidate workflow changes, evaluate them, and select one
 - Train the editor that generates candidate updates
 
-Reflexion stores a reflection after a failure in memory, changing the context read on the next attempt [@shinn2023reflexion]. It does not change the model weights.
+Reflexion stores a reflection after a failure in memory, changing the context read on the next attempt within the same task [@shinn2023reflexion]. It does not change the model weights. Because the paper does not evaluate promotion of this memory artifact across independent future tasks, Reflexion is a boundary case rather than a core example of persistent harness optimization.
 
 Harness-R1 places an editor alongside a fixed target model. The editor reads failure trajectories and changes only predefined hooks [@shao2026harnessr1]. It reruns the same task set before and after the change, then trains the editor from the difference.
 
@@ -64,5 +64,3 @@ If narrow changes are insufficient, expand the verifiable scope one step at a ti
 ## Key Points
 
 To improve a harness from failures, preserve trajectories, find the first error, and fix only its cause. Even when training an editor, keep the acceptance rule outside the editor.
-
-## References {.unnumbered}
