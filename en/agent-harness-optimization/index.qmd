@@ -1,12 +1,12 @@
 ---
 title: "Agent Harness Optimization"
-description: "How to optimize agent harnesses through failures and external evaluation"
+description: "A systematic account of agent harness optimization and evaluation"
 date: "2026-08-08"
 date-modified: last-modified
 author:
   name: "Naoto Iwase"
   url: "https://iwase.dev"
-categories: [AI Agents, Optimization]
+categories: [LLM, AI Agents, Optimization]
 image: "images/dgm-concept.png"
 toc: false
 ---

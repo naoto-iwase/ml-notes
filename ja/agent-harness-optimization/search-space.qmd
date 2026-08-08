@@ -1,3 +1,7 @@
+---
+pagetitle: "探索空間"
+---
+
 # 探索空間
 
 Agent harnessの最適化における探索空間とは、optimizerが更新候補として生成できるharnessの集合である。実務上は、**edit surface（変更を許可する範囲）**を決めると、探索空間も決まる。

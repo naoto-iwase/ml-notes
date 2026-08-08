@@ -61,7 +61,7 @@ The editor does not need permission to rewrite the entire repository. Limit its 
 
 If narrow changes are insufficient, expand the verifiable scope one step at a time.
 
-## Key Takeaways
+## Key Points
 
 To improve a harness from failures, preserve trajectories, find the first error, and fix only its cause. Even when training an editor, keep the acceptance rule outside the editor.
 

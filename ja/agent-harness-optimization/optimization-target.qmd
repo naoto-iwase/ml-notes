@@ -1,3 +1,7 @@
+---
+pagetitle: "最適化の対象"
+---
+
 # 最適化の対象
 
 Agent harnessの最適化では、固定したtarget modelの周囲にある実行系を変更する。最初に決めるべきなのは、**何を変えてよいか、何を固定するか、誰が改善を判定するか**である。
@@ -6,7 +10,7 @@ Agent harnessの最適化では、固定したtarget modelの周囲にある実�
 
 | 役割 | 例 | Optimizerが変更してよいか |
 |---|---|---|
-| Model | LLM weight、decoding policy | 原則固定。変更する場合は別versionとして扱う |
+| Target model | LLM weight、decoding policy | 原則固定。変更する場合は別versionとして扱う |
 | Harness | prompt、context、tool wrapper・tool policy、workflow、memory、recovery | はい。ただし変更範囲を事前に決める |
 | Environment | browser、database、compiler、simulator | 原則固定 |
 | Evaluator | score、cost、安全性の測定 | いいえ。optimizerの外側に置く |
