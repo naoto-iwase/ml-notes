@@ -6,7 +6,7 @@ author:
   name: "Naoto Iwase"
   url: "https://iwase.dev"
 date-modified: last-modified
-categories: [LLM, Generative Models]
+categories: [LLM, Generative Model]
 image: "images/dllm.png"
 toc: false
 ---

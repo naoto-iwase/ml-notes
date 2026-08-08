@@ -6,7 +6,7 @@ author:
   name: "Naoto Iwase"
   url: "https://iwase.dev"
 date-modified: last-modified
-categories: [Deep Learning, Generative Models]
+categories: [Deep Learning, Generative Model]
 image: "images/one-step-generation.png"
 toc: false
 ---

@@ -12,6 +12,17 @@ In Phase 6, create the book landing page, `index.qmd`, and register it in the si
 
 The default repository pattern is front matter plus one or two lead paragraphs. Avoid bibliography citations such as `[@key]`; a claim that needs evidence belongs in `overview.qmd`. Direct links serve a different purpose and are allowed: after the introduction, one compact line may link to the primary paper, code, demo, dataset, or official project page. For a compact book with no overview, a brief problem statement may remain in the index only when existing entries use that pattern. For a multi-part or survey book, move problem formulation, scope, notation, and the unit of comparison into `overview.qmd`. Do not add a “Structure of This Book” section, a chapter list, or a standalone “Read the overview” link; the sidebar already provides that navigation.
 
+### Write a Strong Lead Without Turning It into Marketing
+
+Minimal does not mean generic. The lead should make the subject worth reading before it summarizes the book.
+
+- Open with a concrete capability, tension, consequence, or unresolved question that the intended reader can recognize. Prefer specific choices and outcomes over a generic sentence such as “This book surveys X.”
+- Establish why the subject matters before introducing unfamiliar terminology. Define the central object in the first paragraph, after showing what is distinctive about it or what changes when it is used differently.
+- Use the second paragraph to frame the central question or reader payoff and connect the scope through one organizing idea. For optimization or evaluation books, also state how genuine progress will be distinguished from apparent gains. Do not replace this arc with a chapter-topic list.
+- Favor one precise contrast and varied sentence lengths. Avoid marketing adjectives, unsupported superlatives, false either-or claims, and quantitative claims that would require a citation.
+- Source introductions may be used to understand motivation and terminology, but draft the landing page independently. Do not reuse their sentence structure, metaphor, example sequence, or distinctive phrasing.
+- For Japanese, compose directly in natural **de aru** style rather than translating an English lead literally. A restrained question can create momentum, but the surrounding sentences should remain concrete and technically precise.
+
 ### Minimal Template
 
 ```yaml
@@ -64,10 +75,10 @@ For a cover-only index, do not place any `## ...` heading in the index. A compac
   - Keep it **identical across Japanese and English**.
   - Examples: `Olmo 3`, `Molmo2`, `Diffusion Language Models`, `CoT Verification`.
 - **description**: a one-line description.
-  - In Japanese, end with a **noun phrase**, not an inflected verb. For example, change the literal `整理する` ("organizes") to `整理` ("organization").
+  - In Japanese, prefer a compact noun phrase for a neutral summary. An active verb is also allowed when it states the reader benefit or distinctive angle more clearly than a nominalized phrase.
   - Do not add a final period.
   - Do not use a colon. Express scope or qualification in parentheses.
-  - Make the field and distinctive angle clear in one line so readers know what the book covers.
+  - Make the subject and distinctive angle clear in one line. Do not merely repeat the title or use an empty phrase such as “a systematic overview.”
   - Target length: **20–35 Japanese characters** for `ja`, **60–85 characters** for `en`.
   - Japanese example: `拡散言語モデル（DLLM）の主要文献を体系的に整理` ("Systematic organization of the key literature on diffusion language models (DLLMs)").
   - Japanese example: `1ステップ生成モデルの最前線（Flow Matching から Drifting Models まで）` ("The frontier of one-step generative models, from Flow Matching to Drifting Models").
@@ -82,8 +93,10 @@ For a cover-only index, do not place any `## ...` heading in the index. A compac
     ```bash
     python .agents/skills/book-writer/scripts/list_categories.py .
     ```
-  - Prefer an existing category; add a new one only when necessary.
-  - Examples: `[LLM, Reasoning]`, `[VLM, Multimodal]`, `[Deep Learning, Statistical Physics]`.
+  - Prefer an existing category; add a new one only when necessary. Avoid a one-entry category unless it is likely to be reused.
+  - Treat categories as a small browsing taxonomy, not as exhaustive keywords. Prefer broad, reusable topics; omit redundant parent/child labels and details already clear from the title.
+  - Use singular forms for countable topic labels, such as `AI Agent` and `Generative Model`; do not mix them with `AI Agents` or `Generative Models`.
+  - Examples: `[LLM, Reasoning]`, `[LLM, AI Agent]`, `[Deep Learning, Generative Model]`.
 - **image**: path to the cover image within the `images/` directory.
 - **toc**: always `false`. A book's `index.qmd` is a landing page, so this is required to suppress the right-hand table-of-contents sidebar.
 

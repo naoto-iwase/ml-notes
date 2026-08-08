@@ -6,7 +6,7 @@ author:
   name: "Naoto Iwase"
   url: "https://iwase.dev"
 date-modified: last-modified
-categories: [VLM, Multimodal]
+categories: [VLM]
 image: "images/molmo2.png"
 toc: false
 ---

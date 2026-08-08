@@ -119,6 +119,7 @@ After running the automatic fixes, confirm the following.
 
 - [ ] `_metadata.yml` exists and includes `sidebar`. Do not add `lang:` because the parent `_metadata.yml` already sets it.
 - [ ] `index.qmd` exists and follows two or three existing repository entries. The default is front matter plus one or two lead paragraphs, with no `##` headings, chapter list, “Structure of This Book” section, or manual link to the first chapter. It has no bibliography citations; claims that require evidence belong in `overview.qmd`. One compact line of direct primary-resource links (paper, code, demo, dataset, or official page) is allowed.
+- [ ] The index lead earns attention without hype: it starts from a concrete capability, tension, consequence, or question; defines the subject after establishing relevance; and gives the book one coherent organizing idea rather than a chapter-topic list. Source introductions informed the framing but were not copied in wording or structure.
 - [ ] The `index.qmd` front matter includes `date-modified: last-modified`.
 - [ ] The `index.qmd` front matter includes `toc: false`, so the landing page does not display the right-hand table-of-contents sidebar.
 - [ ] The `_quarto-public.yml` or `_quarto-private.yml` sidebar registers **every chapter**.

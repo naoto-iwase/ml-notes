@@ -1,0 +1,16 @@
+---
+title: "Harness Optimization"
+description: "Optimization and evaluation of executable harnesses around LLM agents"
+date: "2026-08-08"
+date-modified: last-modified
+author:
+  name: "Naoto Iwase"
+  url: "https://iwase.dev"
+categories: [LLM, AI Agent]
+image: "images/dgm-concept.png"
+toc: false
+---
+
+An LLM agent's capabilities are shaped outside the model weights. What stays in context, how tools are exposed, when outputs are checked, and how execution recovers after failure all matter. Together, prompts, memory, control flow, validators, and recovery logic form the **executable harness**; changing them can alter which tasks the same model solves, at what cost, and with which failure modes.
+
+Can execution itself teach an AI system to improve that harness? This book treats prompt updates, workflow and memory adaptation, and runtime-code edits as one optimization problem. The challenge is not merely to propose changes, but to identify real gains under limited budgets and noisy evaluations, then carry forward only candidates that pass evaluation appropriate to their intended use. Claims of generalization require testing on tasks withheld from optimization.

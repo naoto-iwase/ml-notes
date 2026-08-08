@@ -6,7 +6,7 @@ date-modified: last-modified
 author:
   name: "Naoto Iwase"
   url: "https://iwase.dev"
-categories: [Reasoning, Latent Reasoning, Small Models]
+categories: [Deep Learning, Reasoning]
 image: "images/gram-overview.png"
 toc: false
 ---
