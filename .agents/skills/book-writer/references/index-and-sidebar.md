@@ -7,7 +7,9 @@ In Phase 6, create the book landing page, `index.qmd`, and register it in the si
 ### Division of Responsibilities: index.qmd vs overview.qmd
 
 - **index.qmd = the book's "cover"**: what the book is about, what its sources are, and when it was written. A reader arriving from a listing should be able to decide within five seconds whether the book is relevant. **Keep it minimal.**
-- **overview.qmd = the book's "big picture"**: the main questions, structure, and importance. It contains the structural diagram, performance comparison tables, and each chapter's role.
+- **overview.qmd = an optional "big picture" chapter**: use it only when the main questions, structure, and importance need a substantial treatment that would overload the landing page.
+
+For a compact book, omit `overview.qmd` and let `index.qmd` contain a short problem statement, scope boundary, and notation after the landing-page summary. Do not create an overview merely to repeat the sidebar or chapter introductions.
 
 ### Minimal Template
 
@@ -34,11 +36,11 @@ A brief description of the model or technique (one or two paragraphs explaining 
 **Demo**: URL (if available)
 ```
 
-Even for a multi-paper survey, do not put a paper-list table in the index. The sidebar already conveys chapter order, the opening of each chapter provides paper information, and `overview.qmd` provides the recommended reading order; do not duplicate those functions in the index.
+Even for a multi-paper survey, do not put a paper-list table in the index. The sidebar already conveys chapter order and the opening of each chapter provides paper information; do not duplicate those functions in the index.
 
-### Content That Does Not Belong in index.qmd (Put It in overview.qmd)
+### Content That Usually Does Not Belong in index.qmd
 
-Do **not** put the following in `index.qmd`; write it in `overview.qmd` instead:
+Do **not** put the following in `index.qmd` unless the compact-book exception above requires a brief version:
 
 - A bullet list of main contributions or features.
 - A list of model variants or model sizes.
@@ -49,7 +51,7 @@ Do **not** put the following in `index.qmd`; write it in `overview.qmd` instead:
 - A literal `## 目次` ("Table of Contents") section, because it duplicates the sidebar completely.
 - A paper-list table, even for a multi-paper survey, because the sidebar and chapter openings provide this information.
 
-Do not place any `## ...` heading in the index. Always include `toc: false` in the front matter so the right-hand table-of-contents sidebar stays hidden even if a heading is added accidentally.
+For a cover-only index, do not place any `## ...` heading in the index. A compact book that combines its overview with the index may use a small number of functional headings. In either case, include `toc: false` so the right-hand table-of-contents sidebar stays hidden.
 
 ### Field Descriptions
 
@@ -132,6 +134,20 @@ If an English edition exists, add a separate sidebar in the same way with an `-e
 - For a book with many chapters, nest `section:` entries by Part or Section; see `murphy1` and `olmo-3`.
 - Use existing sidebar entries such as `olmo-3` and `molmo2` as references.
 - Add a private book to `private/_quarto-private.yml`.
+
+### Renaming a Book or Chapter Slug
+
+A slug rename is a cross-file operation. Before editing, search for the old directory name, filename, `.qmd` path, and generated `.html` path. Then update and verify all applicable locations:
+
+1. Rename the source directory or chapter file.
+2. Update every sidebar `href` in `_quarto-public.yml` or `_quarto-private.yml`.
+3. If the book directory or sidebar ID changes, update `sidebar:` in the book's `_metadata.yml` and keep the sidebar `id` synchronized.
+4. Update relative links in QMD files and any public listings.
+5. Remove stale generated output under `_site/` unless an explicit redirect policy requires it.
+6. Render the book once after the rename.
+7. Verify that the new index and chapter URLs return success, the old URL follows the chosen 404/redirect policy, and previous/next navigation points to the new path.
+
+Do not keep a weak slug merely to avoid a rename. Prefer a one-to-three-word functional noun phrase that matches the chapter H1, and perform the full cross-file check above.
 
 ### Naming Nested `section:` Entries: Use Functional Terms
 

@@ -231,6 +231,40 @@ website:
                 - text: "Reasoning in Diffusion LLMs"
                   href: en/reliable-reasoning/diffusion-llm.qmd
 
+    - id: agent-harness-optimization-ja
+      title: "ML Notes"
+      style: "docked"
+      collapse-level: 2
+      contents:
+        - section: "Agent Harness Optimization"
+          href: ja/agent-harness-optimization/index.qmd
+          contents:
+            - text: "最適化の対象"
+              href: ja/agent-harness-optimization/optimization-target.qmd
+            - text: "探索空間"
+              href: ja/agent-harness-optimization/search-space.qmd
+            - text: "失敗から Harness を改善する"
+              href: ja/agent-harness-optimization/failure-driven-update.qmd
+            - text: "Harness の改善を評価する"
+              href: ja/agent-harness-optimization/improvement-evaluation.qmd
+
+    - id: agent-harness-optimization-en
+      title: "ML Notes"
+      style: "docked"
+      collapse-level: 2
+      contents:
+        - section: "Agent Harness Optimization"
+          href: en/agent-harness-optimization/index.qmd
+          contents:
+            - text: "What to Optimize"
+              href: en/agent-harness-optimization/optimization-target.qmd
+            - text: "Search Space"
+              href: en/agent-harness-optimization/search-space.qmd
+            - text: "Improving a Harness from Failures"
+              href: en/agent-harness-optimization/failure-driven-update.qmd
+            - text: "Evaluating Harness Improvements"
+              href: en/agent-harness-optimization/improvement-evaluation.qmd
+
     - id: recursive-reasoning-ja
       title: "ML Notes"
       style: "docked"

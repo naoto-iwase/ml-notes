@@ -115,11 +115,12 @@ After running the automatic fixes, confirm the following.
 ### YAML / Metadata
 
 - [ ] `_metadata.yml` exists and includes `sidebar`. Do not add `lang:` because the parent `_metadata.yml` already sets it.
-- [ ] `index.qmd` exists and uses the minimal cover structure. It contains no `##` headings, including the literal Japanese `## 目次` ("Table of Contents"), and no paper-list table.
+- [ ] `index.qmd` exists. A cover-only index has no `##` headings; a compact book that combines overview content into the index uses only a small number of functional headings. Neither form contains a literal `## 目次` ("Table of Contents") or a paper-list table.
 - [ ] The `index.qmd` front matter includes `date-modified: last-modified`.
 - [ ] The `index.qmd` front matter includes `toc: false`, so the landing page does not display the right-hand table-of-contents sidebar.
 - [ ] The `_quarto-public.yml` or `_quarto-private.yml` sidebar registers **every chapter**.
 - [ ] Sidebar `text:` follows the language rules: English for an English sidebar; localized toward Japanese for a Japanese or private sidebar, while proper nouns remain in English.
+- [ ] If a book or chapter slug changed, the source path, sidebar `href`, `_metadata.yml` sidebar ID, relative links, generated `_site` output, and old/new URL policy have all been checked.
 
 ### Chapter Prose
 
@@ -137,6 +138,9 @@ After running the automatic fixes, confirm the following.
 - [ ] A chapter with citations does not add a literal Japanese `## 参考文献` ("References") heading or a `::: {#refs}` block; Pandoc inserts the bibliography automatically.
 - [ ] **Inter-chapter references do not use `第 N 章` ("Chapter N") or `Chapter N`.** Link a chapter name to its `.qmd` file, and use the Japanese `本章` ("this chapter") for self-reference. `lint_chapters.py` checks this with `[CHAPTER_NUM]`.
 - [ ] **Every callout has a `## Header`.** A headerless callout breaks consistency within the book.
+- [ ] A first-time reader encounters the chapter's question and a plain definition before a method taxonomy or paper list. Equations come after intuition unless the equation itself is the chapter's subject.
+- [ ] At least one concrete example explains the chapter's organizing categories when their boundary would otherwise be abstract.
+- [ ] Terms used as headings, table rows, or organizing axes are established source terms, repository conventions, or explicitly defined book-specific labels. Newly coined umbrella terms are not attributed to papers that do not use them.
 
 ### Bibliography, Citations, and Figures
 
@@ -152,6 +156,9 @@ After running the automatic fixes, confirm the following.
 - [ ] Every Quarto callout closes correctly, with matching `:::` delimiters.
 - [ ] Images are placed in the `images/` directory.
 - [ ] **Figure-caption sources use the Japanese literal form `出典: [@key]` ("Source: `[@key]`"), including citation brackets.** `lint_chapters.py` checks this with `[FIG_SRC]`.
+- [ ] There is no figure-count quota. Every retained figure adds information that prose or a table would convey less clearly; Mermaid was not added merely to fill space.
+- [ ] Every custom SVG parses as XML and has been inspected at the rendered article width for clipping, overlap, baselines, arrowheads, `viewBox`, aspect ratio, and panel alignment.
+- [ ] Mathematical labels inside custom SVGs match the page's rendered math style. SVGs embedded through `<img>` do not rely on inheriting page fonts or fetching an unverified external font.
 
 ### Markdown Bold Safety (Google Docs Compatibility)
 
@@ -222,7 +229,9 @@ Image reference; the Japanese caption means "Figure caption":
 ![図のキャプション](images/figure.png){#fig-name width="80%"}
 ```
 
-## Local Preview (Optional)
+## Rendering and Local Preview
+
+During interactive prose revision, batch coherent wording changes and run cheap source checks first. Do not render after every small wording edit. Render after structural, path, or asset changes; at user-requested checkpoints; and before publication.
 
 Preview locally with Quarto:
 
@@ -231,6 +240,8 @@ quarto preview
 ```
 
 Check the preview console for warnings such as `Citeproc: citation X not found`. Such a warning indicates that `@<symbol>` was mistaken for a citation; escape or rename it.
+
+After rendering, inspect the actual page rather than treating a successful command as sufficient. Confirm table wrapping, figure scale, clipping, chapter navigation, and new URLs after any slug rename.
 
 ## Clean Up Intermediate Files
 

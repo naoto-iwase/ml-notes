@@ -1,0 +1,87 @@
+---
+pagetitle: "Evaluating Harness Improvements"
+---
+
+# Evaluating Harness Improvements
+
+A higher evaluation score on familiar tasks does not guarantee better performance on unseen tasks. When evaluating harness improvements, examine **improvements, generalization to unseen tasks, and regressions** separately.
+
+## Break It Down into Three Questions
+
+Ask the following three questions when evaluating a candidate.
+
+1. Did it improve performance on tasks the optimizer saw?
+2. Did it also improve performance on tasks the optimizer did not see?
+3. Did it avoid regressing existing successes, increasing cost or latency, or expanding permissions?
+
+The first question alone is insufficient. If the same tasks are used repeatedly, the optimizer can tailor the harness to those tasks. This is adaptation to observed tasks, not improvement on unseen tasks.
+
+## Separate Evaluation Roles
+
+Separate evaluation tasks and mechanisms by their role and by the information exposed to the optimizer.
+
+| Component | Information Exposed to the Optimizer | Role |
+|---|---|---|
+| Development | Tasks and execution records | Create candidates |
+| Validation | Return only limited evaluation scores | Select from multiple candidates |
+| Sealed test | Reveal nothing until the candidate is finalized | Perform final verification on unseen tasks |
+| Evaluator | Cannot be changed by the optimizer | Measure evaluation scores, cost, and safety |
+| Acceptance rule $V$ | Cannot be changed by the optimizer and is fixed in advance | Decide whether to accept or reject a candidate |
+
+Simply splitting folders into train, validation, and test sets does not create a boundary. If the optimizer can read test failures, run the test repeatedly, or change the evaluator, that test is not unseen.
+
+The process is as follows.
+
+1. Create candidates from execution records on development tasks
+2. Narrow the candidates through validation and record the number of validation uses
+3. Run the sealed test after finalizing the candidate
+4. Prevent the optimizer from changing the evaluator, acceptance rule $V$, or sealed test
+5. Ensure that the incumbent harness can be restored if the candidate is rejected
+
+## Look Beyond Evaluation Scores
+
+A harness changes not only accuracy but also cost and safety. Record at least the following for each version.
+
+| Dimension | Examples |
+|---|---|
+| Quality | Success rate, evaluation scores by task, evaluation scores by failure type |
+| Cost | Tokens and tool calls used for search, execution cost after promotion |
+| Latency | Median, slow executions, timeout rate |
+| Reliability | Crashes, invalid actions, retries, rollback rate |
+| Safety | Permission violations, privilege boundary crossings from untrusted input |
+| Stability | Variation across seeds, tasks, and model versions |
+
+AFlow compares accuracy and execution cost on HumanEval [@zhang2025aflow]. GEPA retains multiple candidates that perform well on different tasks rather than selecting candidates using only a single average score [@agrawal2026gepa].
+
+The search budget must also be recorded. Comparing the best of 1,000 candidates with the best of 10 using only the final evaluation score hides the advantage of trying more candidates.
+
+## What Each Method Verifies
+
+| Method | What It Verifies | Remaining Limitation |
+|---|---|---|
+| DGM [@zhang2026dgm] | Compiles the modified harness implementation and evaluates it on coding benchmarks | Improvement may not extend beyond the same benchmark suite |
+| Failure-Driven Workflow Refinement [@zhang2026failure] | Checks the target task and side effects on related tasks | Improvement on unseen tasks must be verified separately |
+| Harness-R1 [@shao2026harnessr1] | Separates validation, test, and held-out tasks | Effectiveness with new environments or tool APIs remains uncertain |
+
+These differences do not rank the methods. They reflect the scope that each experiment verified.
+
+## Define Acceptance Conditions in Advance
+
+Changing the acceptance rule after seeing the results makes it possible to select a favorable candidate. Fix the promotion contract before the experiment.
+
+For example, accept a candidate only if it satisfies all of the following conditions.
+
+- Improvement on the sealed test meets a predefined threshold
+- Failures on existing tasks do not increase
+- The cost increase remains within budget
+- Tool permissions do not expand
+
+If the improvement is small and variation across seeds or tasks is large, do not force a decision. Mark the result as "inconclusive."
+
+For each version, retain the before-and-after diff, rationale for the change, versions of the model, tools, and environment, search budget, and evaluation results. This makes it possible to trace why a candidate was promoted and which incumbent harness to restore.
+
+## Key Points
+
+Separate the mechanism that creates candidates from the mechanism that decides whether to accept them. Promote only candidates that improve performance on unseen tasks without regressing existing successes or worsening cost or safety.
+
+## References {.unnumbered}

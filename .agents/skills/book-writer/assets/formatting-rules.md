@@ -834,6 +834,20 @@ Complex tables may use list tables as well; see `references/tables.md`.
 
 Always place images in the `images/` directory.
 
+### Custom SVG Figures
+
+Use a custom SVG only when it explains a relationship or boundary that is not available in a primary-source figure and is not clearer as a table. Keep it self-contained and portable.
+
+- Give colors stable semantic roles, such as fixed/runtime, editable/candidate, optimizer action, failure/rejection, and accepted/success. Do not recolor the same role between panels.
+- Separate label styles by function: role names in bold sans-serif, mathematical notation in a math typeface, and state descriptions in smaller sans-serif text.
+- Avoid `<foreignObject>` for text layout. Use explicit `<text>` and `<tspan>` positions so rendering does not depend on browser HTML support inside SVG.
+- An SVG loaded through an HTML `<img>` does **not** reliably inherit the surrounding page's fonts. Do not assume that naming the CSS font is enough.
+- When mathematical labels must match the rendered Quarto body, inspect the actual MathJax font in the browser. If external font loading inside the SVG is unreliable, subset only the required glyphs, embed the WOFF2 as a data URL in the SVG, and preserve the font's license notice.
+- Parse the final SVG as XML before rendering. Literal angle-bracket examples inside XML comments can make an otherwise valid-looking SVG fail to parse.
+- After Quarto rendering, inspect the SVG at the actual article width rather than only in a standalone viewer. Check text wrapping, clipping, overlap, baselines, arrowheads, `viewBox`, aspect ratio, panel alignment, and whether the figure is still legible at its displayed size.
+
+If SVG markers or external resources render inconsistently in the target browser, replace them with explicit self-contained geometry rather than adding browser-specific workarounds.
+
 ---
 
 ## 8. Mermaid Diagrams

@@ -1,0 +1,64 @@
+# 失敗から Harness を改善する
+
+失敗したという結果だけでは、Harnessのどこを変えるべきか分からない。必要なのは、実行記録から**最初に間違えた場所**を見つけ、その原因に対応する小さな修正を作ることである。
+
+## 最初に間違えた場所を見つける
+
+実行記録（trace）には、task、action、observation、tool result、最終判定を残す。この記録を次の順で調べる。
+
+1. 実行記録を改変せず保存する
+2. 期待した状態から最初に外れたstepを見つける
+3. 同じ原因で起きる失敗をまとめる
+4. 原因に対応する最小範囲だけを修正する
+5. 修正後に対象の失敗を再実行する
+6. 以前から成功していたtaskが悪化していないか確認する
+
+たとえば、誤ったdatabase tableを選んだ後にSQL syntax errorが出た場合、syntaxだけを直しても根本原因は残る。先に直すべきなのは、最初にtableを選び間違えたstepである。
+
+@fig-failure-to-update は、最初のずれを見つけ、その直前のhookだけを修正し、修正前後を別の評価系で比較する流れを示す。
+
+![実行記録から最初のずれを見つけ、pre-action hookだけを修正する。更新候補は、対象の失敗、既存の成功、未使用task、権限の四面で検証する。](images/failure-to-update.svg){#fig-failure-to-update fig-align="center" width="100%"}
+
+## 似た失敗をまとめる
+
+同じ原因が複数のtaskで現れることがある。各taskへ別々の例外処理を加えるより、共通する失敗の型を見つけ、その原因を一度だけ直す方がよい。
+
+Failure-Driven Workflow Refinementは、詳細な実行記録を残し、似た失敗をまとめてworkflowの修正候補を作る [@zhang2026failure]。ただし、このまとめ方は正解そのものではない。異なる原因を同じ型へまとめると、一つの修正で別のtaskを壊す可能性がある。失敗の分類は、**修正候補を絞るための近似**として扱う。
+
+## 何を更新するか
+
+失敗から得た情報の使い方には、少なくとも三つある。
+
+- 次回に読むmemoryを更新する
+- workflowの修正候補を作り、評価して選ぶ
+- 修正候補を作るeditor自体を学習する
+
+Reflexionは失敗後のreflectionをmemoryへ保存し、次の試行で読むcontextを変える [@shinn2023reflexion]。Model weightは変更しない。
+
+Harness-R1は、固定したtarget agentとは別にeditorを置く。Editorは失敗の記録を読み、事前に決めたhookだけを変更する [@shao2026harnessr1]。同じtask集合を修正前後で再実行し、その差からeditorを学習する。
+
+著者報告では、WebShop、ALFWorld、DBBenchの平均成功率が44.3%から53.6%へ上昇した。差は9.3 percentage pointsである。ただし、観測済みtaskで修正を学ぶため、この結果だけでは未知のtaskにも効くとは言えない。
+
+![少数の失敗から作った修正を未使用taskへ適用した著者報告。Harness-R1専用editorは平均改善した一方、より大きな汎用modelをeditorに使う比較は悪化している。Whiskerは3 seed間の標準偏差。](images/harness-r1-heldout.png){#fig-harness-r1-heldout fig-align="center" width="75%"}
+
+*出典: Shao et al., “Harness-R1” [@shao2026harnessr1] のheld-out-task analysis。*
+
+@fig-harness-r1-heldout は、editorが大きければ良いわけではないことを示す。ただし、3 seedと限られたdomainによる結果であり、別のenvironmentやharness implementationへ一般化する証拠ではない。
+
+## 修正できる範囲を制限する
+
+Editorにrepository全体を自由に書き換えさせる必要はない。修正範囲を次のように制限する。
+
+- hookごとに入力と出力の形式を固定する
+- toolの権限を変更できなくする
+- 壊れた修正は適用せず、元のHarnessへ戻す
+- 対象の失敗だけでなく、既存の成功も再実行する
+- 修正、根拠となる実行記録、評価結果を一緒に保存する
+
+狭い修正で足りなければ、検証できる範囲を一つずつ増やす。
+
+## 要点
+
+失敗からの改善では、実行記録を保存し、最初の誤りを見つけ、その原因だけを修正する。Editorを学習する場合でも、修正の採否はeditorの外側で決める。
+
+## 参考文献 {.unnumbered}

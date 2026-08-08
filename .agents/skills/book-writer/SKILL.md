@@ -53,6 +53,7 @@ For details about each phase, read the corresponding section in this file and, a
 | Run linting and the final checklist (Phase 7) | [references/lint-and-checklist.md](references/lint-and-checklist.md) |
 | Check consistency during later augmentation (extended Phase 7) | [references/augmentation-consistency.md](references/augmentation-consistency.md) |
 | Maintain style consistency (terminology, naming, and metaphor checks) | [references/style-consistency.md](references/style-consistency.md) |
+| Rewrite a technically correct but difficult chapter for first-time readers | [references/reader-first-revision.md](references/reader-first-revision.md) |
 
 ### Subagent Prompt Templates
 
@@ -204,6 +205,8 @@ For the full picture of adding chapters from a survey or creating a new survey b
 2. **Create the skeleton**: decide the heading structure (`## Section` → `### Subsection`)
 3. **Write the body**: describe the key point of each section concisely
 4. **Mark supplementary-document candidates**: for concepts and terms that need detailed explanation, temporarily insert `[→ 詳細:]{.detail-link} [Supplementary Document Title](path.qmd)`
+
+For a first-time-reader chapter, prefer **question → plain definition → one concrete example → structure → formalization → paper evidence → limits**. Do not begin with a method taxonomy or equations unless they are themselves the chapter's subject. Use [references/reader-first-revision.md](references/reader-first-revision.md) for revision details and terminology-provenance checks.
 
 ### Chapter-Title Format
 
@@ -375,13 +378,11 @@ Because `_shared/` starts with an underscore, Quarto automatically excludes it f
 
 For each concept or chapter marked in the main document, use subagents (the Task tool) to generate **body text + citations + figure insertion** in parallel as one assignment.
 
-Avoid the antipattern of “write only the text now and retrofit figures later.” It creates an extreme imbalance in figure counts across chapters (prior example: one chapter had eight figures while the others had none).
+Avoid the antipattern of “write only the text now and retrofit figures later.” Inspect source figures and decide whether each one adds information while drafting the chapter.
 
-### Warning: Resist the Urge to Make Figures “Optional”
+### Choose Figures by Information Need, Not by Quota
 
-Observed failure pattern: when a parent agent writes an agent prompt in a hurry, it adds escape clauses such as “figures may be omitted if the paper has none” or “figures may be omitted when not essential,” and every returned chapter consequently has zero figures. **Do not provide an escape clause.** Explicitly require a Mermaid concept diagram when the paper has no usable figure. If figures are not included during Phase 4 chapter generation, a later retrofit pass becomes necessary and both cost and quality worsen (real prior example: retrofit passes had to be run for 21 chapters afterward).
-
-The agent prompt must explicitly state: “**Insert 3–6 figures; zero figures is not allowed; if the paper has no figure, create a Mermaid concept diagram.**”
+Inspect paper figures while writing the chapter, but do not impose a per-chapter or per-book figure count. Keep a figure only when it explains a relationship, result, or mechanism more clearly than prose or a table. A chapter may contain no figure when no figure adds information. Never create Mermaid solely to satisfy a count; Mermaid remains off by default.
 
 ### Procedure
 
@@ -398,7 +399,8 @@ This template includes:
 - An instruction requiring the subagent to read `formatting-rules.md`
 - The assumption that `references.bib` has already been built (new bibliography entries are prohibited)
 - Instructions to select figures from `/tmp/arxiv_figures/<id>/`, convert them to PNG with `pdftoppm`, and place them in `images/`
-- A target of four to eight figures per chapter
+- A requirement to justify figures by information need rather than count
+- The reader-first order and a terminology-provenance check
 - Every CRITICAL rule, including no exposed bibliography keys, no exposed `.qmd` slugs, bold-syntax safety, and expansion of abbreviations at first use
 
 Fill in the `{...}` placeholders for each chapter.
@@ -471,7 +473,7 @@ Complete procedure, templates, and sidebar language rules: [references/index-and
 Key points:
 
 - **index.qmd is the book's “cover”**: what the book is, its source, and its date. Keep content minimal and always include `toc: false`
-- **overview.qmd is the book's “big picture”**: issues, structure, and importance. Include figures, performance comparisons, and chapter organization
+- **overview.qmd is optional**: create it only when the book needs a distinct big-picture chapter that is not duplicated by the index, sidebar, and chapter introductions
 - **Register every chapter in the `_quarto-public.yml` sidebar**: because index.qmd has no table of contents, the sidebar is the only entry point for chapter navigation
 
 ---

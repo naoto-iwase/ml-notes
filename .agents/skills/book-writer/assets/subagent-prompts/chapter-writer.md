@@ -11,9 +11,10 @@ You are a subagent using the book-writer skill. Write one Quarto chapter in Japa
 
 1. `{skill_root}/assets/formatting-rules.md` — the complete formatting rules
 2. `{skill_root}/references/style-consistency.md` — the checklist for consistent terminology, naming, and metaphor use. Read it to maintain consistency within this book and with existing books
-3. `{source_file}` — the primary source for this chapter, such as survey Markdown, a paper's `.tex` source, or notes
-4. `{book_dir}/references.bib` — the parent has already built this bibliography. Cite only bib keys already present in it. **Do not add entries**
-5. `{book_dir}/overview.qmd` — read the overview to keep chapters aligned
+3. `{skill_root}/references/reader-first-revision.md` — the chapter-introduction order and terminology-provenance check
+4. `{source_file}` — the primary source for this chapter, such as survey Markdown, a paper's `.tex` source, or notes
+5. `{book_dir}/references.bib` — the parent has already built this bibliography. Cite only bib keys already present in it. **Do not add entries**
+6. `{book_dir}/index.qmd` and the relevant sibling chapters — use them as the source of truth for scope, notation, and terminology. Read `overview.qmd` only if the book actually has one
 
 ## Chapter Assignment
 
@@ -37,7 +38,7 @@ pagetitle: "{Chapter Title}"
 
 # {Chapter Title in English}: {Japanese Subtitle}
 
-(Write a three-to-five-line lead paragraph that introduces the chapter's question.)
+(Open in the order defined by `reader-first-revision.md`: state the practical question and define the central concept before introducing methods or formalization.)
 
 ## {Main Section 1}
 
@@ -91,13 +92,12 @@ Refer to the figure in the prose with `@fig-{chapter_prefix}-X`.
 
 **Past example**: assigning `width="78%"` to a tall architecture figure with h/w=1.98 made its height 1.55 times the container height, producing an enormous rendering. Always check the aspect ratio. PDF-derived PNGs commonly lose 30–70% of their area when margins are trimmed, so trimming is mandatory.
 
-## Required Figure Count
+## Figure Selection
 
-- Include **3–6 figures per chapter**. Four to eight is ideal, but never go below three, and never submit a chapter with no figures
+- Do not target a figure count. A chapter may contain no figure when no figure adds information
 - Prioritize major figures from papers directly related to the chapter, such as graphical abstracts, method overviews, and scaling curves
-- Include at least one figure for every paper discussed extensively. A paper mentioned only briefly may have no figure
-- **If a paper has no usable figure**: create one or two conceptual diagrams in Mermaid, such as an architecture, signal-source axis, or equation structure, to meet the minimum. Submission with no figures is prohibited
-- Ignore any parent instruction saying figures are optional. Figure counts must remain consistent across a survey book; large chapter-to-chapter differences seriously harm the reading experience
+- Keep each figure only if it explains a relationship, result, or mechanism more clearly than prose or a table
+- Do not create Mermaid solely because a paper lacks a reusable figure. Mermaid is off by default and must pass the checklist below
 
 ## Critical Formatting Rules
 
@@ -154,11 +154,11 @@ Also, a Unicode arrow `→` (U+2192) inside Mermaid causes a syntax error and pr
 1. Run `python3 {skill_root}/scripts/fix_subfigures.py {book_dir}`
 2. Run `python3 {skill_root}/scripts/fix_spacing.py {book_dir}`
 3. Run `python3 {skill_root}/scripts/lint_chapters.py {book_dir}` and confirm that your chapter produces no errors
-4. Target 2,000–3,500 Japanese characters of body text for a compact but information-dense chapter
+4. Confirm that every section advances the chapter's question; remove method details and repeated summaries that do not change the reader's understanding
 
 ## Completion Report
 
-Briefly report the output path, number of figures inserted, number of bib citations, and approximate chapter length in characters.
+Briefly report the output path, lint result, and which figures and citations were used.
 ```
 
 ---

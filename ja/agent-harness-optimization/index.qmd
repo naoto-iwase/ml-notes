@@ -1,0 +1,44 @@
+---
+title: "Agent Harness Optimization"
+description: "Agent harnessの最適化と評価を体系化"
+date: "2026-08-08"
+date-modified: last-modified
+author:
+  name: "Naoto Iwase"
+  url: "https://iwase.dev"
+categories: [LLM, AI Agents, Optimization]
+image: "images/dgm-concept.png"
+toc: false
+---
+
+同じmodelでも、prompt、tool、context construction、memory policy、control flow、validator、recovery logicが違えば実行結果は変わる。本書では、このmodel外部の実行系を **executable harness** と呼ぶ。主題は、実行結果からharnessの更新候補を作り、外部評価に基づいて採否を決める方法である。
+
+## 問題設定
+
+Target agentを $A_{\theta,H}$ とする。$\theta$ はtarget modelのparameter、$H$ はexecutable harnessである。Round $t$ の実行結果を$\tau_t$、評価を$y_t$とする。
+
+Optimizer $O$ はincumbent（現行版）$H_t$ とevidence（更新根拠）$(\tau_t,y_t)$ からcandidate（更新候補）$H'_t$ を作る。外部evaluatorは両者の評価記録を生成し、事前に固定したacceptance rule $V$ が次versionを決める。式では評価記録を引数から省略し、採否判定を$V(H'_t,H_t)$と略記する。
+
+$$
+H'_t = O(H_t, \tau_t, y_t), \qquad
+H_{t+1} =
+\begin{cases}
+H'_t & V(H'_t, H_t)=\mathrm{accept},\\
+H_t & \text{otherwise}.
+\end{cases}
+$$
+
+本書で **self-improvement** と呼ぶには、少なくとも次の四条件を要求する。
+
+1. 実行から得たevidenceが更新を駆動する
+2. 更新が次のtaskへ持ち越される
+3. 比較対象となるincumbentがversionとして保存される
+4. 採否がoptimizer自身の説明だけで決まらない
+
+最後の条件がない場合、optimizerはharnessだけでなく「何を改善と数えるか」まで変更できる。したがって、candidate生成と採否判定は分離しなければならない。
+
+## 対象範囲
+
+Harnessには、system prompt、context assembly、retrieval、durable memory、tool mediation、workflow、verification、retry、rollbackが含まれる [@weng2026harness]。一方、model weightの更新、episode内だけのtest-time scalingとself-refinement、制約のないrecursive self-improvement一般は対象外である。
+
+境界は、変更が将来の実行へ残るかで決まる。Memory contentやread/write policyが次のepisodeへ残るならharness stateの更新である。一回答の途中で候補を生成して破棄するだけならharness optimizationではない。
