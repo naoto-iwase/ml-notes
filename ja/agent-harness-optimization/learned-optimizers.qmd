@@ -1,22 +1,22 @@
 ---
-pagetitle: "Editor と学習型 Optimizer"
+pagetitle: "候補生成器の学習"
 ---
 
-# Editor と学習型 Optimizer
+# 候補生成器の学習
 
-大規模言語モデル（large language model, LLM）を使ってcandidateを生成することと、optimizerを学習することは同じではない。APE、OPRO、GEPA、AFlow、Meta-Harnessは、学習済みLLMをproposal modelとして使うが、各search campaign中にそのmodel weightを更新しない。一方、RLPromptやHarness-R1は、複数のexecution rewardからcandidate generator自体を学習する。
+大規模言語モデル（large language model, LLM）に修正案を書かせるだけでは、最適化器を学習したことにならない。修正案を作るLLMのweightを固定したまま使う方法と、複数回の修正結果から候補生成器そのものを学習する方法は分けて考える必要がある。
 
-本書ではtarget modelのweight更新を除外するが、**target modelとは別のoptimizerを学習すること**は対象に含める。最終的に更新・保存されるartifactがmodel外部のharnessであり、そのartifactが外部評価を通ることが条件である。
+前章までの探索手法は、候補と探索履歴を更新しても、候補生成器のweightは更新しない。APE、OPRO、GEPA、AFlow、Meta-Harnessはこの例であり、RLPromptやHarness-R1は候補生成器自体を学習する例である。本書では対象model自体のweight更新は扱わないが、**対象modelとは別の最適化器を学習する方法**は扱う。最終的に作られるものがmodel外部のharnessであり、外部評価を通って保存されることが条件である。
 
-## 三種類のeditor
+## 何が学習されるか
 
-| Editor | Campaign中にweightを更新するか | 入力 | 出力 |
+| 区分 | Campaign中に更新するweight | 継続して残るもの | 例 |
 |---|---|---|---|
-| Prompted LLM editor | しない | Incumbent、feedback、history | Textまたはcode candidate |
-| Search policy | 通常はしない | Search state、candidate score | 次に評価するoperatorやparent |
-| Learned optimizer | する | 複数optimization episodeのevidence | Candidate生成policy |
+| 固定editor | なし | 候補と探索履歴 | Meta-Harness、GEPA |
+| 学習型候補生成器 | 最適化器のweight | 候補生成policyと選択済みharness | RLPrompt、Harness-R1 |
+| 対象modelの学習 | 対象modelのweight | 更新済みの対象model | 本書の対象外 |
 
-Meta-Harnessのcoding proposerは第一種である。Source、score、traceを読み、新しいharness codeを生成するが、proposer weightはsearch中に変えない [@lee2026metaharness]。GEPAのreflective mutationもprompted editorであり、学習されるのはcandidate promptのpopulationである [@agrawal2026gepa]。
+Meta-Harnessのcoding proposerは固定editorである。Source、score、traceを読み、新しいharness codeを生成するが、proposer weightはsearch中に変えない [@lee2026metaharness]。GEPAのreflective mutationも固定editorであり、更新されるのはcandidate promptのpopulationである [@agrawal2026gepa]。
 
 Learned optimizerでは、optimizer parameterを$\phi$、target model parameterを$\theta$と分ける。
 
@@ -131,7 +131,7 @@ Learned editorの出力形式は性能と安全性を左右する。
 
 Harness-R1はhookとpatch compilerでsurfaceを制約する。Meta-Harnessはsingle-file harness codeをcoding agentが編集する。DGMはcodebase全体を変更する。Editor能力を比較するときは、modelだけでなくpatch representationと権限差を揃える。
 
-## Validation pipeline
+## 候補を検証する流れ
 
 Learned editorの出力は、次の順で検証する。
 
@@ -170,6 +170,8 @@ Learned optimizerが変更できない場所に、次を置く。
 
 Editorを改善するほど、この境界は重要になる。高性能editorは広い変更を生成できるため、誤ったpatchの影響範囲も広い。
 
+以上でPart IIの方法分類を終える。しかし、探索中のscoreが上がっただけでは、未知task、別model・environment、回帰・cost・安全性、最適化器自体の優劣は分からない。Part IIIではこれらを順に切り分ける。
+
 ## 要点
 
-Prompted LLM editor、search policy、learned optimizerを区別する。Target modelを固定して別のoptimizerを学習する方法は本書の対象だが、per-query生成だけでartifactを保存しない方法は境界外である。Harness-R1はfailure-conditioned runtime editorの非常に新しい限定例であり、外部validationとacceptanceを置き換えるものではない。
+候補生成器のweightを固定する方法、候補生成器自体を学習する方法、対象modelを学習する方法を区別する。対象modelを固定して別の最適化器を学習する方法は本書の対象だが、per-query生成だけでartifactを保存しない方法は境界外である。Harness-R1はfailure-conditioned runtime editorの非常に新しい限定例であり、外部validationとacceptanceを置き換えるものではない。

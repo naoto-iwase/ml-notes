@@ -4,15 +4,15 @@ pagetitle: "探索と進化"
 
 # 探索と進化
 
-Harness optimizationは、candidate spaceから良いartifactを選ぶblack-box optimizationとして書ける。
+前三章では、誰が、何を、どの実行結果にもとづいて変えるかを整理した。次に必要なのは、複数の候補をどの順で試し、結果を見て何を試すかを決めることである。単純に$N$個を試す方法もあれば、良かった候補の近くを探索する方法や、複数の系統を残す方法もある。
 
 $$
 H^* = \arg\max_{H\in\mathcal{H}} J_{\mathcal{D}_{\mathrm{opt}}}(H).
 $$
 
-しかし$\mathcal{H}$は離散的で、candidate評価は高価かつ確率的である。Prompt、workflow、codeは小さな文字列差分でも挙動が不連続に変わる。本章では、proposalを作る手段ではなく、**candidateをどの順で評価し、どの履歴を残し、予算をどこへ配るか**でoptimizerを分類する。
+上式は、候補集合$\mathcal{H}$から評価値$J$が最大のharnessを選ぶ、という目的を表す。ただし、prompt、workflow、codeは小さな変更でも挙動が大きく変わり、評価には費用とばらつきがある。本章では、**候補をどの順で評価し、どの履歴を残し、予算をどこへ配るか**で探索法を整理する。
 
-## Best-of-$N$を基準にする
+## $N$個から選ぶ方法を基準にする
 
 最も単純なoptimizerは、$N$個のcandidateを独立に生成し、development scoreが最大のものを選ぶ。
 
@@ -31,7 +31,7 @@ $$
 
 Scoreにnoiseがあると、$N$を増やすだけで偶然高いcandidateを選びやすくなる。Best-of-$N$の改善には、artifactの質とselection noiseの両方が含まれる。
 
-## 履歴をpromptへ入れるLLM search
+## 履歴をpromptへ入れる探索
 
 APEはtask例からinstruction候補を生成し、部分集合でscoreを付けて再選択する [@zhou2023ape]。OPROは過去のcandidateとscoreをmeta-promptへ並べ、大規模言語モデル（large language model, LLM）であるoptimizerに次のcandidateを生成させる [@yang2024opro]。数値gradientを使わず、LLMが履歴のpatternを読む。
 
@@ -39,7 +39,7 @@ APEはtask例からinstruction候補を生成し、部分集合でscoreを付け
 
 LLMがcandidateを生成するだけでは、LLM自体がoptimizerとは限らない。Candidateの記録、評価、selection、stoppingを含む外側loopがoptimizerである。
 
-## Local searchとbeam search
+## 近傍探索とbeam search
 
 Local searchはincumbentの近傍を編集する。Prompt $p_t$に対するedit operatorを$M$とすると、
 
@@ -55,7 +55,7 @@ ProTeGiの一次論文は、iterationが進むとtraining performanceが上が�
 
 TextGradはcomputation graph上のtext variableへ自然言語feedbackを伝播し、局所editを繰り返す [@yuksekgonul2025textgrad]。Graphが固定されている場合はlocal parameter searchであり、workflow topology自体を探索する方法とは異なる。
 
-## Tree search
+## 木探索
 
 Tree searchは、candidateをnode、editをedgeとして履歴を分岐させる。AFlowはcodeで表したworkflowをnodeとし、Monte Carlo tree searchで新しいworkflowを生成・評価する [@zhang2025aflow]。
 
@@ -63,7 +63,7 @@ MCTSでは、既知scoreが高いbranchだけを深掘りすると局所解へ�
 
 AFlowは六つのbenchmarkで既存baselineに対する平均5.7%の改善を報告し、一部taskでは小さいmodelのworkflowがGPT-4oを4.55%の採用後inference costで上回る [@zhang2025aflow]。これは各benchmarkで個別にsearchした結果であり、同じworkflowが別environmentへtransferした証拠ではない。またFigureのcostは主に最終workflowをtest setで動かす費用であり、全探索costではない。
 
-## Surrogateを使うsearch
+## 予測器で評価を節約する
 
 Candidateをすべてfull rolloutで評価できない場合、少数評価からperformanceを予測するsurrogateを使う。
 
@@ -81,7 +81,7 @@ $$
 
 Selectionを$\tilde J$だけで行うと、surrogateの盲点へ探索が偏る。Finalistと不確実性が高いcandidateを実評価し、予測誤差も報告する。
 
-## Populationとevolution
+## 候補群を進化させる
 
 Evolutionary searchは複数candidateをpopulationとして保持し、selection、mutation、crossoverを繰り返す。
 
@@ -89,7 +89,7 @@ EvoPromptはLLMをgenetic algorithmまたはdifferential evolutionのoperatorと
 
 Populationの利点は、一つのincumbentに探索を固定しないことである。一方、fitnessを同じdevelopment setで繰り返し測ると、population全体がそのsetへ適合する。Population diversityはheld-out generalizationを保証しない。
 
-## Pareto archive
+## 複数の強みを履歴に残す
 
 一つの平均scoreでは、特定instanceに強いcandidateを早く捨てる。GEPAはvalidation instanceごとに最良となるcandidateの和集合をPareto archiveへ残し、そのcandidateからreflective mutationを作る [@agrawal2026gepa]。
 

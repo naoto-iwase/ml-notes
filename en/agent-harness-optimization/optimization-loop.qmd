@@ -4,9 +4,9 @@ pagetitle: "Optimization Loops"
 
 # Optimization Loops
 
-A harness optimizer is not a model that generates a promising prompt once. It is an **outer loop that receives the current harness, execution evidence, search history, and evaluation budget, then produces and compares rerunnable candidates**. Even when the target model is fixed, the design of this loop changes the harness it ultimately reaches.
+Suppose the current harness answers without checking a tool result. Producing one plausible revision does not establish an improvement. The revision must be executed, compared with the current version, accepted or rejected, and saved if accepted. This complete procedure is the **optimization loop**.
 
-Broad surveys of self-evolving agents and workflow optimization present taxonomies based on what is changed and when updates occur [@gao2026selfevolving; @yue2026workflow]. This book isolates the cases that persistently update artifacts outside the model and organizes them by the components of the optimizer.
+Part I presented the basic form of this process. This chapter calls the harness currently in use the **incumbent**, a revision under evaluation a **candidate**, and the mechanism that produces candidates the **optimizer**, then separates their roles. Broad surveys of self-evolving agents and workflow optimization classify methods by what changes and when [@gao2026selfevolving; @yue2026workflow]. This book considers only changes to an external harness that persist into future executions.
 
 ## Separating the Five Roles
 

@@ -1,14 +1,14 @@
 ---
-pagetitle: "Optimizer の独立評価"
+pagetitle: "最適化器の独立評価"
 ---
 
-# Optimizer の独立評価
+# 最適化器の独立評価
 
-最終agent scoreだけでは、optimizerの能力を直接測れない。強いtarget model、良いseed harness、広いedit surface、多いbudgetを与えれば、弱いoptimizerでも高いscoreへ到達できる。逆に、優れたfailure attributionを持つoptimizerでも、狭すぎるsurfaceでは改善できない。
+同じ最終scoreへ到達しても、10個の候補で見つけた方法と1,000個を試した方法は同じではない。出発点のharness、対象model、変更できる範囲、見せたdata、探索予算が違えば、最終scoreだけから最適化器の良し悪しは判断できない。
 
-評価対象を「完成したagent」から「同じ条件でharnessを改善するalgorithm」へ移す必要がある。
+ここまでの三章では、各候補について未使用task、別model・環境、回帰・cost・安全性を調べた。最後に、評価対象を完成したagentから、**条件を揃えたときにharnessをどれだけ確実かつ効率よく改善できるか**へ移す。
 
-## 最終scoreの交絡
+## 最終scoreに混ざる要因
 
 Optimization campaignの出力を
 
@@ -53,7 +53,7 @@ $$
 
 すべてを一つのsettingに固定すると外的妥当性が低い。まずcontrolled comparisonを行い、その後target、seed、surface、environmentを一つずつ変える。
 
-## End improvement以外の指標
+## 最終的な改善量以外の指標
 
 Optimizerの更新trajectoryを直接測る。
 
@@ -71,7 +71,7 @@ Optimizerの更新trajectoryを直接測る。
 
 Final scoreが同じでも、片方が10 proposalで到達し、もう片方が1,000 proposalを使ったならoptimizer efficiencyは異なる。
 
-## Candidate生成とselectionを分解する
+## 候補生成と選択を分ける
 
 Optimizerには少なくとも二つの能力がある。
 
@@ -98,7 +98,7 @@ $$
 
 Candidate集合に良いartifactがなければproposalの問題である。良いartifactがあるのに選べなければsurrogate、validation、acceptanceの問題である。
 
-## Evaluatorとacceptance rule
+## 評価器と採用規則
 
 Evaluatorはmeasurementを返し、acceptance ruleはdecisionを返す。
 
@@ -122,7 +122,7 @@ Acceptance ruleはこれらに事前の閾値を適用する。Optimizerはevalu
 
 従来のoptimizer研究では、development metricとfeedbackをoptimizerが直接使うことが多く、evaluatorとacceptanceの分離が確立した標準とは言えない。この分離は、評価過適合とpromotion理由の不明確さを避けるための推奨protocolである。
 
-## Judgeの独立性
+## 判定modelの独立性
 
 Target model、optimizer model、evaluator modelを別にしても、judge biasは残る。大規模言語モデル（large language model, LLM）のevaluatorが自身のgenerationを好むself-preferenceは実証されている [@panickssery2024selfpreference]。Prompt wordingの小さな差でmodel scoreが大きく変わることも報告されている [@sclar2024spurious]。
 
@@ -138,7 +138,7 @@ LLM judgeを使う場合は、次を行う。
 
 Judge explanationをoptimizerへ返す場合、そのjudgeはdevelopment feedback generatorである。Final acceptance evaluatorとは分ける。
 
-## Priority Rankingによる直接評価
+## 優先順位による直接評価
 
 Towards Direct Evaluation of Harness Optimizers via Priority Rankingは、optimizerにharness componentの改善優先順位をつけさせる最近のpreprintである [@ong2026priority]。SHORはprompt、tool、workflow、memoryなどを含む182のhuman-verified scenarioから成る。
 
@@ -154,7 +154,7 @@ Towards Direct Evaluation of Harness Optimizers via Priority Rankingは、optimi
 
 Human priorityをoracleとするため、複数箇所の相互作用や人間が見落とす改善も扱いにくい。End-to-end評価を置き換えるのではなく、diagnosticとして使う。
 
-## Controlled end-to-end evaluation
+## 条件を揃えた一貫評価
 
 HarnessOpt-Benchは、development、validation、hidden test、case-pass、target-model token budgetを固定し、OfficeQA、BrowseComp-Plus、Terminal-Bench、GAIAでoptimizerを比較する最近のpreprintである [@ursekar2026harnessopt]。
 
@@ -169,7 +169,7 @@ HarnessOpt-Benchは、development、validation、hidden test、case-pass、targe
 
 これはfinal scoreの交絡を減らすが、四benchmarkのshared protocolである。実運用のpermission、secret、長期memory migration、environment updateをすべて再現するものではない。また2026年8月公開の未査読preprintであり、標準として確立したとは言えない。
 
-## Test-time scalingとの比較
+## 推論時の追加計算との比較
 
 Rethinking the Evaluation of Harness Evolutionは、harness evolutionの同一task上の改善が、追加試行を使うtest-time scalingで説明できる場合を調べる [@wang2026rethinking]。Optimizer、target、budgetを揃え、unit testを使う設定、使わない設定、disjoint splitを比較する。
 
@@ -182,7 +182,7 @@ Rethinking the Evaluation of Harness Evolutionは、harness evolutionの同一ta
 
 単一Terminal-Bench環境のpreprintであるため一般結論にはしないが、optimizer評価にtest-time compute baselineが必要であることを示す。
 
-## Benchmarkを二層にする
+## 最適化問題を複数用意する
 
 一つのtask benchmark内でharnessをsearchするだけでは、optimizer generalizationを測りにくい。Meta-levelにoptimization problem集合を置く。
 
@@ -203,21 +203,21 @@ $$
 
 これにより、一つのoptimized harnessのgeneralizationと、optimizer algorithmのgeneralizationを分けられる。
 
-## Acceptanceをbenchmark側に置く
+## 採否判定をbenchmark側に置く
 
 Benchmarkがfinal scoreだけを返し、各methodが独自にcandidateを選ぶと、acceptance ruleもmethodの一部になる。二種類のtrackを分ける。
 
-### End-to-end track
+### 全体評価
 
 Proposal、search、selectionを含むoptimizer全体を評価する。Acceptance ruleの自由度もalgorithmとして記録する。
 
-### Fixed-acceptance track
+### 固定した採否規則による評価
 
 Candidate集合または一つのcandidateを提出し、benchmark側の固定promotion contractで採否を決める。Evaluator overfittingを減らし、proposal能力を比較しやすい。
 
 両trackが必要である。固定acceptanceだけでは実際のoptimizer運用を測れず、end-to-endだけではcandidate qualityとselectionを分解できない。
 
-## Reproducibility
+## 再現性
 
 Optimizer studyには最終artifactだけでなく更新履歴を公開する。
 
@@ -234,7 +234,7 @@ Optimizer studyには最終artifactだけでなく更新履歴を公開する。
 
 API modelやdynamic websiteを使う場合、完全再現ができないことを明記し、timestamp、response cache、environment snapshotを保存する。
 
-## 最小benchmark contract
+## 最小限のbenchmark仕様
 
 Optimizer-independent evaluationには、次のcontractが必要である。
 

@@ -4,7 +4,9 @@ pagetitle: "Execution Feedback and Failure Analysis"
 
 # Execution Feedback and Failure Analysis
 
-Execution feedback is more than a score for ranking candidates. It is evidence that identifies which step failed, for which input, and under what conditions. In optimizer design, proposal quality depends on **what is observed, at what granularity it is stored, and how it is mapped to the location of a change**.
+A 30% failure rate does not reveal what to change. Every failure may come from the same tool schema, or separate failures may arise during planning, tool selection, and validation. Each case calls for a different revision.
+
+Defining the editable components in the previous chapter is not enough if the failure location is unknown. The system must therefore retain more than a final score: per-input outcomes, sequences of actions and observations, exceptions, and other execution feedback. This chapter explains how to form a hypothesis about the failure location and test it by rerunning a targeted revision.
 
 ## Granularity of Feedback
 
@@ -18,8 +20,6 @@ Feedback obtained from execution can be ordered from least to most informative.
 | Trajectory | Action, observation, tool result | The first divergence and its downstream effects | The causal effect of a counterfactual |
 | Runtime diagnostics | Exception, latency, permission, resource | The implementation failure site | The cause of a semantic misjudgment |
 | Intervention result | Rerun after changing only a specific hook | A causal clue linking the change to the result | Generalization to other distributions |
-
-A scalar score supports comparison but provides coarse information for producing proposals. A 30% failure rate alone, for example, does not reveal whether every failure comes from the same tool schema or whether multiple independent causes are involved.
 
 ## Information Collapse from Scalar Feedback
 

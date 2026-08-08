@@ -1,12 +1,12 @@
 ---
-pagetitle: "Target・Environment 間の汎化"
+pagetitle: "モデル・環境間の汎化"
 ---
 
-# Target・Environment 間の汎化
+# モデル・環境間の汎化
 
-同じharnessは、target model、toolのapplication programming interface（API）、runtime、task distributionが変わると別の挙動を示す。Promptがmodel固有のinstruction followingへ依存する、workflowが特定toolのerror形式を仮定する、validatorが古いschemaだけを許す、といったinteractionがある。Harnessのgeneralizationはtask instanceだけでなく、**targetとenvironmentの軸**で測る必要がある。
+前章では、改善に使ったtaskと最終評価用taskを分けた。本章ではさらに、あるmodel向けに改善したharnessが、別のmodelや更新後のtoolでも動くかを問う。Promptが特定modelの指示解釈に依存したり、workflowが古いerror形式を仮定したり、validatorが古いschemaだけを許したりするためである。同じharnessを移す場合と、同じ最適化器で作り直す場合を分けて考える。
 
-## Generalizationの対象を分ける
+## 何が変わったかを分ける
 
 Harness performanceを次の関数として考える。
 
@@ -28,7 +28,7 @@ $$
 
 Cross-targetは$\theta$を変え、同じ$H$を使う評価である。Targetごとに再探索して得た$H_\theta$を比較する実験はmulti-target optimizationであり、artifact transferではない。
 
-## 三種類のtransfer
+## 何が引き継がれたか
 
 Harness optimizerのtransferには三種類ある。
 
@@ -36,9 +36,11 @@ Harness optimizerのtransferには三種類ある。
 2. **Optimizer transfer:** 同じoptimizerを使い、新しいtarget向けharnessを探索する
 3. **Design transfer:** 一方で見つけたmoduleやpatternを別campaignの初期値にする
 
+たとえば同じpatchを別modelへそのまま適用するのがartifact transfer、別model向けに探索をやり直すのがoptimizer transfer、patchの方針だけを初期案として使うのがdesign transferである。
+
 これらを混同すると、何が一般化したか分からない。Learned editorが新targetでpatchを生成できても、元のpatch自体がtransferしたわけではない。
 
-## Promptのcross-model transfer
+## Promptを別modelへ移す
 
 Prompt surfaceはmodelごとにtokenization、pretraining、instruction tuningが異なる。RLPromptは、凍結したRoBERTaとGPT-2の間で離散promptのtransfer matrixを評価する [@deng2022rlprompt]。Source modelで学習したpromptを別targetへそのまま適用するため、artifact-level cross-targetの明確な例である。
 
@@ -52,7 +54,7 @@ Diagonal $T_{ii}$だけを報告すると、targetごとの再最適化しか分
 
 APE、OPRO、ProTeGi、MIPRO、GEPAは複数modelで実験する場合があるが、多くはmodelごとにcandidateを作り直す [@zhou2023ape; @yang2024opro; @pryzant2023protegi; @opsahlong2024mipro; @agrawal2026gepa]。複数targetで改善したことと、一つのpromptがtargetをまたいだことを分ける。
 
-## Agent designのtransfer
+## Agent設計を移す
 
 ADASのMeta Agent Searchは、searchで発見したagent designを別domainや別foundation modelへ適用する評価を含む [@hu2025adas]。Code artifactはpromptより広い構造を持ち、modelが変わってもplanning、verification、debateのpatternが残る可能性がある。
 
@@ -65,7 +67,7 @@ ADASのMeta Agent Searchは、searchで発見したagent designを別domainや�
 
 AgentSquareは六つの異なるtaskでagent moduleを探索するが、taskごとにsearchを行う [@shang2025agentsquare]。Taskの幅広さは一つのartifactのcross-environment evidenceではない。
 
-## Code archiveのcross-model・cross-benchmark評価
+## Codeをmodel・benchmark間で移す
 
 DGMはcoding-agent codeを固定foundation modelの周囲で探索し、SWE-benchとPolyglotで評価する [@zhang2026dgm]。Paperは異なるmodelやbenchmarkへのtransferも調べる。
 
@@ -93,7 +95,7 @@ Meta-Harnessのようなcoding proposerを比較するときは、新environment
 
 を固定する。
 
-## Harness-R1のcross-target評価
+## Harness-R1のmodel間評価
 
 Harness-R1は専用editorが作ったruntime patchを、20のtarget agentへ適用するcross-target experimentを報告する [@shao2026harnessr1]。Target agentは凍結され、patchは共通hook schemaを通じて動く。63のtargetとbenchmarkの組合せで、多くは改善し、少数のregressionも報告される。
 
@@ -107,7 +109,7 @@ Harness-R1は専用editorが作ったruntime patchを、20のtarget agentへ適�
 
 したがって、**cross-target within a shared runtime**と表現するのが正確である。新しいtool API、browser、database schema、permission modelへのcross-environment generalizationは示していない。
 
-## Environmentを変える
+## 実行環境を変える
 
 Cross-environmentでは、target modelを固定し、toolとstate transitionを変える。
 
@@ -128,7 +130,7 @@ Environment差を段階化する。
 
 対象となる主要論文では、contract-breakingなtool APIやpermission変更までsystematically評価する例はほぼない。Cross-environment generalizationは未解決問題として残る。
 
-## Interactionを測る
+## 組み合わせへの依存を測る
 
 Harnessとtargetの効果は加法的とは限らない。二つのtarget $\theta_1,\theta_2$と二つのharness $H_0,H_1$について、interactionを
 
@@ -165,13 +167,13 @@ Productionでは次のcanary protocolを使う。
 
 Harnessを一つのuniversal artifactとして扱うより、互換性matrixをversion metadataへ持たせる。
 
-## Cross-languageとcross-domain
+## 言語・領域をまたぐ
 
 Task languageやdomainもenvironmentに近いinteractionを持つ。英語promptを日本語taskへ使う、code benchmarkで発見したverification loopをweb taskへ使う、といったtransferでは、output formatだけでなくfailure distributionが変わる。
 
 同じaccuracy metricが使えても、evaluator qualityがlanguageやdomainで異なる可能性がある。Cross-domain evaluationではhuman-verified subsetまたはdomain-specific executable verifierを置く。
 
-## 最小transfer protocol
+## 最小限の転用評価
 
 一つのartifact $H^*$のtransferを調べる場合は、次を固定する。
 

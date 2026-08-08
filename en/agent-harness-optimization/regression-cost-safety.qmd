@@ -4,26 +4,26 @@ pagetitle: "Regressions, Cost, and Safety"
 
 # Regressions, Cost, and Safety
 
-A harness candidate may fix the targeted failure while breaking another task, increasing inference cost, or weakening safety boundaries. Maximizing only mean quality hides these effects. This chapter treats promotion as multi-objective change management.
+Even improvement on unseen tasks and another environment is not sufficient for acceptance. A revision that solves ten new cases may still be unacceptable if it breaks one critical task, doubles the cost of every run, or bypasses a tool-permission check. This chapter measures preserved capability, cost, and safety separately and fixes the acceptance conditions in advance.
 
 ## Defining Regressions
 
 Let the set of instances solved by the incumbent $H_t$ be
 
 $$
-P_t=\{x:s(H_t,x)=1\}
+S_t=\{x:s(H_t,x)=1\}
 $$
 
 The set that candidate $H'$ breaks is
 
 $$
-R(H')=\{x\in P_t:s(H',x)=0\}
+B(H')=\{x\in S_t:s(H',x)=0\}
 $$
 
 Define the regression rate as
 
 $$
-\rho(H')=\frac{|R(H')|}{|P_t|}
+\rho(H')=\frac{|B(H')|}{|S_t|}
 $$
 
 The mean score can increase even when $\rho(H')>0$.
@@ -31,10 +31,10 @@ The mean score can increase even when $\rho(H')>0$.
 At the same time, report the set of newly solved instances
 
 $$
-F(H')=\{x:s(H_t,x)=0,\ s(H',x)=1\}
+G(H')=\{x:s(H_t,x)=0,\ s(H',x)=1\}
 $$
 
-A net gain of $|F|-|R|$ can hide the loss of a single important prior task, so report newly fixed and newly broken instances separately.
+A net gain of $|G|-|B|$ can hide the loss of a single important prior task, so report newly fixed and newly broken instances separately.
 
 ## Building a Preservation Set
 

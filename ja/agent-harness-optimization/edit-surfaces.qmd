@@ -4,14 +4,16 @@ pagetitle: "編集対象"
 
 # 編集対象
 
-Edit surfaceは、optimizerが書き換えられるartifactとinterfaceの集合である。Promptだけを変える実験と、runtime code全体を変える実験を同じ「agent optimization」と呼ぶだけでは、何が改善したかも、何が壊れ得るかも分からない。本章では、promptからexecutable runtimeまでを連続した階層として整理する。
+Agentがtool結果を確認せずに回答する失敗は、三通りに直せる。Promptへ確認手順を書く、workflowで確認後にしか回答できなくする、runtimeへvalidatorを加える、という方法である。同じ失敗でも、どこを書き換えるかによって効果と危険が異なる。
 
-## 二つの境界を記述する
+前章が更新の役割を分けたのに対し、本章は最適化器が書き換えてよい範囲を扱う。この範囲を**編集範囲**（edit surface）と呼ぶ。Part Iの三分類を、prompt、LM program、memory、workflow、agent code、runtime hookという実際の保存単位に分けて見る。これらは厳密な一直線の階層ではなく、一つの修正が複数範囲にまたがることもある。
+
+## 変更できるものと守るもの
 
 Edit surfaceは、file名のlistだけでは定義できない。次の二つを記述する。
 
-1. **Syntactic boundary:** 変更可能なfield、module、hook、file
-2. **Semantic boundary:** 変更後も守るべきinterface、権限、invariant
+1. **構文上の境界:** 変更可能なfield、module、hook、file
+2. **意味上の境界:** 変更後も守るべきinterface、権限、invariant
 
 たとえばsystem promptを変更可能とするだけでも、出力JSON schema、tool名、system policyを削除してよいかで探索空間は変わる。Runtime hookを変更可能とする場合は、入力型、出力型、timeout、呼び出せるtool、永続化できるstateを固定する必要がある。
 
@@ -105,7 +107,7 @@ Runtime surfaceでは、変更対象を「repository全体」と書くより、h
 | Validation | candidate action | allow / reject / repair | permission policy |
 | Recovery | error、retry state | retry / fallback | retry上限、cost budget |
 
-## Surfaceをまたぐoptimizer
+## 複数の編集範囲をまたぐ場合
 
 実際のoptimizerは複数surfaceをまたぐ。ADASやMeta-Harnessでは、code editの内部でpromptもworkflowも変わる。GEPAは複数text componentを共同で変える。複数surfaceを許可する場合、結果を「prompt改善」や「workflow改善」と単一原因へ帰属させない。
 
@@ -119,7 +121,7 @@ Ablationでは、少なくとも次を比較する。
 
 広いsurfaceが勝った場合も、自由度の増加、candidate数、optimizer modelのcontext量が交絡する。Edit surfaceの比較では、固定条件と予算を揃える。
 
-## 最小surfaceから広げる
+## 最小の編集範囲から広げる
 
 Surfaceを選ぶ原則は、最も狭いものを常に使うことではない。**失敗を修正でき、かつ十分に検証できる最小surfaceを使うこと**である。
 
@@ -134,4 +136,4 @@ Surfaceを選ぶ原則は、最も狭いものを常に使うことではない�
 
 ## 要点
 
-Edit surfaceはprompt、LM program、memory、workflow、agent code、runtime hookの階層で記述できる。名称ではなく、実際に変更するartifact、固定interface、永続化単位を確認する。広いsurfaceほど強いとは限らず、修正可能性と検証可能性の両方で範囲を決める。
+Edit surfaceはprompt、LM program、memory、workflow、agent code、runtime hookという重なり得る範囲で記述できる。名称ではなく、実際に変更するartifact、固定interface、永続化単位を確認する。広いsurfaceほど強いとは限らず、修正可能性と検証可能性の両方で範囲を決める。

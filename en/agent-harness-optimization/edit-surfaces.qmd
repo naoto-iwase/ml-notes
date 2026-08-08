@@ -4,7 +4,9 @@ pagetitle: "What to Edit"
 
 # What to Edit
 
-An edit surface is the set of artifacts and interfaces that an optimizer can rewrite. Calling both an experiment that changes only a prompt and one that changes all runtime code "agent optimization" obscures both what improved and what could break. This chapter organizes the range from prompts to executable runtimes as a continuous hierarchy.
+An agent that answers without checking a tool result can be fixed in at least three ways: add a prompt instruction, enforce the order in a workflow, or add a runtime validator. These revisions address the same failure, but differ in both effect and risk.
+
+The previous chapter separated the roles in an update; this chapter asks what the optimizer may rewrite. That set of components is the **edit surface**. It expands Part I's three groups into the actual persistence units of prompts, language-model programs, memory, workflows, agent code, and runtime hooks. These are overlapping scopes rather than one strict linear hierarchy.
 
 ## Describing Two Boundaries
 
@@ -134,4 +136,4 @@ Each time the editable scope expands, expand the validity checks, regression sui
 
 ## Key Points
 
-Edit surfaces can be described as a hierarchy of prompts, language-model programs, memory, workflows, agent code, and runtime hooks. Examine the artifacts that actually change, the fixed interfaces, and the persistence unit rather than relying on labels. A broader surface is not necessarily stronger. Determine its scope from both fixability and verifiability.
+Edit surfaces can be described as the overlapping scopes of prompts, language-model programs, memory, workflows, agent code, and runtime hooks. Examine the artifacts that actually change, the fixed interfaces, and the persistence unit rather than relying on labels. A broader surface is not necessarily stronger. Determine its scope from both fixability and verifiability.

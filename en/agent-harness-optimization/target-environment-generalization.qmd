@@ -4,7 +4,7 @@ pagetitle: "Target and Environment Generalization"
 
 # Target and Environment Generalization
 
-The same harness behaves differently when the target model, tool application programming interface (API), runtime, or task distribution changes. These interactions arise when a prompt depends on model-specific instruction following, a workflow assumes a particular tool error format, or a validator accepts only an outdated schema. Harness generalization must be measured not only across task instances but also along the **target and environment dimensions**.
+The preceding chapter separated tasks used for improvement from tasks reserved for final evaluation. This chapter asks whether a harness improved for one model still works with another model or after a tool update. Its prompt may depend on model-specific instruction following, its workflow may assume an old error format, or its validator may accept only an old schema. It distinguishes transferring the same harness from rerunning the same optimizer in a new setting.
 
 ## Separating the Dimensions of Generalization
 
@@ -35,6 +35,8 @@ Harness optimizer transfer takes three forms.
 1. **Artifact transfer:** Apply the same harness to a new target or environment
 2. **Optimizer transfer:** Use the same optimizer to search for a harness for a new target
 3. **Design transfer:** Use a module or pattern found in one campaign to initialize another campaign
+
+Applying the same patch unchanged to another model is artifact transfer; rerunning the search for that model is optimizer transfer; using only the patch's design principle as an initial proposal is design transfer.
 
 Conflating these forms makes it impossible to determine what generalized. Even if a learned editor can generate a patch for a new target, the original patch itself has not necessarily transferred.
 

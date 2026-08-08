@@ -259,17 +259,17 @@ website:
                   href: ja/agent-harness-optimization/execution-feedback.qmd
                 - text: "探索と進化"
                   href: ja/agent-harness-optimization/search-evolution.qmd
-                - text: "Editor と学習型 Optimizer"
+                - text: "候補生成器の学習"
                   href: ja/agent-harness-optimization/learned-optimizers.qmd
             - section: "III 評価上の未解決問題"
               contents:
                 - text: "タスク分割"
                   href: ja/agent-harness-optimization/task-splits.qmd
-                - text: "Target・Environment 間の汎化"
+                - text: "モデル・環境間の汎化"
                   href: ja/agent-harness-optimization/target-environment-generalization.qmd
                 - text: "回帰・コスト・安全性"
                   href: ja/agent-harness-optimization/regression-cost-safety.qmd
-                - text: "Optimizer の独立評価"
+                - text: "最適化器の独立評価"
                   href: ja/agent-harness-optimization/independent-optimizer-evaluation.qmd
 
     - id: agent-harness-optimization-en
@@ -300,7 +300,7 @@ website:
                   href: en/agent-harness-optimization/execution-feedback.qmd
                 - text: "Search and Evolution"
                   href: en/agent-harness-optimization/search-evolution.qmd
-                - text: "Editors and Learned Optimizers"
+                - text: "Learning Candidate Generators"
                   href: en/agent-harness-optimization/learned-optimizers.qmd
             - section: "III Open Problems in Evaluation"
               contents:

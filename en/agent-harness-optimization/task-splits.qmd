@@ -4,7 +4,7 @@ pagetitle: "Task Splits"
 
 # Task Splits
 
-A harness optimizer is a learning algorithm that generates, evaluates, and selects candidates. Looking only at the final harness and concluding that it was "not trained" overlooks the fact that the optimizer repeatedly ran validation tasks. Once execution feedback from a task is used for either proposal or selection, that task is seen by the optimizer.
+Part II examined how to improve a harness. Part III asks whether that improvement remains valid under unseen conditions. Even without training harness weights, the process of proposing revisions, running them on tasks, and selecting the next revision adapts to data. Once the result of a task affects a later proposal or selection, that task cannot also serve as an untouched final evaluation.
 
 ## Data Splits for the Outer Loop
 

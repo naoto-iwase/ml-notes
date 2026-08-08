@@ -4,9 +4,9 @@ pagetitle: "最適化ループ"
 
 # 最適化ループ
 
-Harness optimizerは、良さそうなpromptを一度生成するmodelではない。現行harness、実行evidence、探索履歴、評価予算を受け取り、**再実行可能なcandidateを作って比較する外側のloop**である。Target modelが固定されていても、このloopの設計によって到達するharnessは変わる。
+たとえば、現行のharnessがtool結果を確認せずに回答するとする。修正案を一つ作るだけでは、改善したか分からない。複数の案を実行し、元の版と比べ、採用する案を決めて保存する必要がある。この一連の手続きを**最適化ループ**と呼ぶ。
 
-広いself-evolving agentやworkflow optimizationのsurveyは、変更対象や更新時点によるtaxonomyを提示している [@gao2026selfevolving; @yue2026workflow]。本書では、その中からmodel外部のartifactを永続的に更新する場合だけを取り出し、optimizerの構成要素で整理する。
+Part Iでは、この流れの基本形を示した。本章では、現在使っているharnessを**現行版**（incumbent）、新しく試すharnessを**候補**（candidate）、候補を作る仕組みを**最適化器**（optimizer）と呼び、各役割を分解する。広いself-evolving agentやworkflow optimizationのsurveyは、変更対象や更新時点によるtaxonomyを提示している [@gao2026selfevolving; @yue2026workflow]。本書では、model外部のharnessを将来の実行へ残す場合だけを扱う。
 
 ## 五つの役割を分ける
 
@@ -14,11 +14,11 @@ Harness optimizationには少なくとも五つの役割がある。
 
 | 役割 | 入力 | 出力 | 変更権限 |
 |---|---|---|---|
-| Target agent | task、harness、environment | trajectory、answer、action | Harnessだけが事前に許可した範囲で変わる |
-| Optimizer | incumbent、trajectory、score、探索履歴 | candidate harness | Edit surface内だけを変更する |
-| Evaluator | candidateの実行結果 | quality、cost、安全性などの評価記録 | Optimizerから変更できない |
-| Acceptance rule | incumbentとcandidateの評価記録 | accept、reject、inconclusive | 実験前に固定する |
-| Artifact store | version、diff、evidence、評価記録 | 再利用・rollback可能な履歴 | 採用済みartifactと探索履歴を保存する |
+| 対象agent | task、harness、実行環境 | 実行軌跡、回答、action | Harnessだけが事前に許可した範囲で変わる |
+| 最適化器 | 現行版、実行軌跡、score、探索履歴 | Harnessの候補 | 編集範囲内だけを変更する |
+| 評価器 | 候補の実行結果 | quality、cost、安全性などの評価記録 | 最適化器から変更できない |
+| 採用規則 | 現行版と候補の評価記録 | 採用、棄却、判定保留 | 実験前に固定する |
+| 履歴保存 | version、diff、根拠、評価記録 | 再利用・差し戻し可能な履歴 | 採用済みharnessと探索履歴を保存する |
 
 Evaluatorとacceptance ruleは同じではない。Evaluatorは「testを何件通過したか」「tool callが何回か」「権限違反があったか」を測る。Acceptance ruleは、それらの記録に対して「qualityが上がり、cost上限を守り、regressionがなければ採用する」と判断する。Scalar scoreを返すjudgeに測定と採用をまとめると、どの条件で更新したかを追跡できない。
 
@@ -50,7 +50,7 @@ $$
 
 Candidate生成、探索中のselection、versionのpromotionを分けることが重要である。探索中の上位candidateが、sealed testとregression suiteを通過するとは限らない。
 
-## Optimizerを決める七つの軸
+## 最適化器は何を決めるか
 
 同じedit surfaceでも、次の軸が違えば別のoptimizerである。
 
@@ -66,7 +66,7 @@ Candidate生成、探索中のselection、versionのpromotionを分けること�
 
 APEやOPROは、過去のinstructionとscoreから次のinstructionを生成する [@zhou2023ape; @yang2024opro]。ProTeGiは誤答から自然言語の「gradient」を作り、beam searchでpromptを更新する [@pryzant2023protegi]。AFlowはworkflow codeをnodeとしてMonte Carlo tree searchを行い、ADASは評価済みagent codeのarchiveを次の提案に使う [@zhang2025aflow; @hu2025adas]。これらの差は、大規模言語モデル（large language model, LLM）を使うかではなく、**何をstateとして保持し、どのexecution evidenceでproposalとselectionを更新するか**にある。
 
-## Scalar objectiveの限界
+## 単一scoreの限界
 
 Qualityを一つのscalarへ潰すと、異なる失敗を相殺できる。Task Aで20点改善し、Task Bで20点悪化したcandidateは、平均だけなら変化なしである。Costや安全性まで同じscalarへ入れる場合、重みを変えるだけでcandidate順位が変わる。
 
@@ -94,7 +94,7 @@ $$
 
 MIPROは高価なprogram評価をBayesian optimizationで割り当て、AgentSquareはin-context performance predictorでcandidate評価を減らす [@opsahlong2024mipro; @shang2025agentsquare]。Surrogateは探索を安くする一方、surrogateが誤る領域をsystematically避ける危険がある。最終candidateは実environmentで再評価する。
 
-## Optimizerを学習する場合
+## 最適化器自体を学習する場合
 
 RLPromptのpolicyやHarness-R1のeditorのように、candidate generator自体を学習する方法もある [@deng2022rlprompt; @shao2026harnessr1]。この場合、学習されるoptimizer parameter $\phi$と、最終的に配布されるharness $H$を分ける。
 

@@ -4,13 +4,13 @@ pagetitle: "Search and Evolution"
 
 # Search and Evolution
 
-Harness optimization can be formulated as black-box optimization that selects a good artifact from a candidate space.
+The previous three chapters established who changes what and which execution results guide the change. The next problem is deciding which candidates to try first and what to try next. One method evaluates $N$ independent candidates; others search near successful candidates or preserve several lineages.
 
 $$
 H^* = \arg\max_{H\in\mathcal{H}} J_{\mathcal{D}_{\mathrm{opt}}}(H).
 $$
 
-However, $\mathcal{H}$ is discrete, and candidate evaluation is expensive and stochastic. Small string-level differences in prompts, workflows, and code can produce discontinuous changes in behavior. This chapter classifies optimizers not by how they create proposals, but by **the order in which they evaluate candidates, the history they retain, and how they allocate the budget**.
+The equation selects the harness with the highest value $J$ from the candidate set $\mathcal{H}$. In practice, prompts, workflows, and code can change behavior sharply after a small edit, while evaluation is costly and noisy. This chapter therefore organizes search methods by **the order in which they evaluate candidates, the history they retain, and how they allocate the budget**.
 
 ## Best-of-$N$ as the Baseline
 

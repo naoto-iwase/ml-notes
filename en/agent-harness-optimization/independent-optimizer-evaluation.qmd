@@ -4,9 +4,9 @@ pagetitle: "Independent Optimizer Evaluation"
 
 # Independent Optimizer Evaluation
 
-The final agent score does not directly measure an optimizer's ability. A weak optimizer can reach a high score when given a strong target model, a good seed harness, a broad edit surface, or a large budget. Conversely, even an optimizer with excellent failure attribution cannot improve a harness when the surface is too narrow.
+Two methods that reach the same final score are not equivalent if one finds its result after 10 candidates and the other after 1,000. Differences in the starting harness, target model, editable components, disclosed data, and search budget also prevent the final score from identifying the better optimizer.
 
-The object of evaluation must shift from the "finished agent" to the "algorithm that improves a harness under the same conditions."
+The preceding three chapters evaluated each candidate on unseen tasks, other models and environments, regressions, cost, and safety. The final step is to shift evaluation from the finished agent to **how reliably and efficiently an optimizer improves a harness under matched conditions**.
 
 ## Confounding in Final Scores
 

@@ -1,22 +1,22 @@
 ---
-pagetitle: "Editors and Learned Optimizers"
+pagetitle: "Learning Candidate Generators"
 ---
 
-# Editors and Learned Optimizers
+# Learning Candidate Generators
 
-Using a large language model (LLM) to generate candidates is not the same as learning an optimizer. APE, OPRO, GEPA, AFlow, and Meta-Harness use a trained LLM as a proposal model but do not update its model weights during each search campaign. By contrast, RLPrompt and Harness-R1 learn the candidate generator itself from rewards obtained across multiple executions.
+Asking a large language model (LLM) to write revisions is not the same as learning an optimizer. A method can keep the proposal model fixed, or it can learn the candidate generator itself from the outcomes of repeated revisions. These cases must be distinguished.
 
-This book excludes updates to target-model weights, but includes **learning an optimizer separate from the target model**. The final artifact that is updated and saved must be a harness external to the model, and that artifact must pass external evaluation.
+The search methods in the preceding chapter update candidates and search history without updating the candidate generator's weights. APE, OPRO, GEPA, AFlow, and Meta-Harness are examples of this case; RLPrompt and Harness-R1 learn the candidate generator itself. This book excludes updates to the target model's weights, but includes **learning an optimizer separate from the target model**. Its output must still be an external harness that passes evaluation before it is saved.
 
-## Three Types of Editors
+## What Is Learned
 
-| Editor | Weights updated during campaign | Input | Output |
+| Category | Weights Updated During Campaign | Persistent Output | Examples |
 |---|---|---|---|
-| Prompted LLM editor | No | Incumbent, feedback, history | Text or code candidate |
-| Search policy | Usually no | Search state, candidate scores | Next operator or parent to evaluate |
-| Learned optimizer | Yes | Evidence from multiple optimization episodes | Candidate-generation policy |
+| Fixed editor | None | Candidates and search history | Meta-Harness, GEPA |
+| Learned candidate generator | Optimizer weights | Candidate-generation policy and selected harness | RLPrompt, Harness-R1 |
+| Target-model training | Target-model weights | Updated target model | Outside this book's scope |
 
-Meta-Harness's coding proposer is the first type. It reads source code, scores, and traces and generates new harness code, but the proposer weights do not change during search [@lee2026metaharness]. GEPA's reflective mutation is also a prompted editor, and what is learned is the population of candidate prompts [@agrawal2026gepa].
+Meta-Harness's coding proposer is a fixed editor. It reads source code, scores, and traces and generates new harness code, but the proposer weights do not change during search [@lee2026metaharness]. GEPA's reflective mutation is also a fixed editor, and what changes is the population of candidate prompts [@agrawal2026gepa].
 
 For a learned optimizer, distinguish the optimizer parameters $\phi$ from the target-model parameters $\theta$.
 
@@ -131,7 +131,7 @@ The output format of a learned editor affects both performance and safety.
 
 Harness-R1 constrains the surface with hooks and a patch compiler. Meta-Harness uses a coding agent to edit single-file harness code. DGM changes the entire codebase. When comparing editor capabilities, match not only the model but also the patch representation and permission scope.
 
-## Validation Pipeline
+## Validating Candidates
 
 Validate the output of a learned editor in the following order.
 
@@ -170,6 +170,8 @@ Place the following in locations that the learned optimizer cannot modify.
 
 This boundary becomes more important as the editor improves. A high-performance editor can generate broader changes, which also expands the impact of an incorrect patch.
 
+This completes Part II's classification of methods. A higher score during search, however, does not establish performance on unseen tasks, transfer to another model or environment, preservation of capability, cost and safety, or the optimizer's own superiority. Part III separates these questions in that order.
+
 ## Key Points
 
-Distinguish prompted LLM editors, search policies, and learned optimizers. Methods that hold the target model fixed while learning a separate optimizer are within this book's scope, but methods that only generate per-query outputs without saving artifacts are outside its boundary. Harness-R1 is a very recent and limited example of a failure-conditioned runtime editor, not a replacement for external validation and acceptance.
+Distinguish methods that keep the candidate generator fixed, methods that learn the candidate generator, and methods that train the target model. Methods that hold the target model fixed while learning a separate optimizer are within this book's scope, but methods that only generate per-query outputs without saving artifacts are outside its boundary. Harness-R1 is a very recent and limited example of a failure-conditioned runtime editor, not a replacement for external validation and acceptance.

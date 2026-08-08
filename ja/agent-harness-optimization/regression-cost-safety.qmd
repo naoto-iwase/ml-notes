@@ -4,26 +4,26 @@ pagetitle: "回帰・コスト・安全性"
 
 # 回帰・コスト・安全性
 
-Harness candidateは、対象failureを直しても別のtaskを壊し、推論costを増やし、安全境界を弱めることがある。平均qualityだけを最大化すると、これらは見えない。本章ではpromotionをmulti-objectiveな変更管理として扱う。
+前二章で未知taskや別環境でも改善を確認しても、それだけでは採用できない。修正案が新たに10件を解けるようにしても、以前解けた重要taskを1件壊し、毎回の実行costを倍にし、tool権限の確認を迂回するなら不適切である。本章では、既存能力、cost、安全性を別々に測り、採用条件を事前に決める。
 
-## Regressionを定義する
+## 回帰を定義する
 
 Incumbent $H_t$で成功したinstance集合を
 
 $$
-P_t=\{x:s(H_t,x)=1\}
+S_t=\{x:s(H_t,x)=1\}
 $$
 
 とする。Candidate $H'$が壊した集合は
 
 $$
-R(H')=\{x\in P_t:s(H',x)=0\}
+B(H')=\{x\in S_t:s(H',x)=0\}
 $$
 
 である。Regression rateを
 
 $$
-\rho(H')=\frac{|R(H')|}{|P_t|}
+\rho(H')=\frac{|B(H')|}{|S_t|}
 $$
 
 と書く。平均scoreが上がっても$\rho(H')>0$になり得る。
@@ -31,12 +31,12 @@ $$
 同時に、新しく解けるようになった集合
 
 $$
-F(H')=\{x:s(H_t,x)=0,\ s(H',x)=1\}
+G(H')=\{x:s(H_t,x)=0,\ s(H',x)=1\}
 $$
 
-を報告する。Net gain $|F|-|R|$だけでは、重要な旧taskを一件壊したことを隠すため、newly fixedとnewly brokenを別に示す。
+を報告する。Net gain $|G|-|B|$だけでは、重要な旧taskを一件壊したことを隠すため、newly fixedとnewly brokenを別に示す。
 
-## Preservation setを作る
+## 保持用taskを作る
 
 Regression testは、developmentの全taskを毎回実行することではない。少なくとも次を含むpreservation setをversion化する。
 
@@ -51,7 +51,7 @@ Targeted failure set $F_t$とpreservation set $P_t$を分ける。Candidateが$F
 
 AgentSquareは各search phaseでparentをcandidateに含め、同じ`Eval_d`上ではparentより悪いcandidateを選びにくくする [@shang2025agentsquare]。GEPAはvalidation instanceごとのspecialistをPareto archiveへ残す [@agrawal2026gepa]。DGMは祖先codeをarchiveへ保存する [@zhang2026dgm]。いずれもrollbackや探索多様性には有用だが、deployment全体のregression-free guaranteeではない。
 
-## Continual optimizationとforgetting
+## 更新を重ねたときの忘却
 
 Harnessを複数roundで更新すると、最新failureだけを使うoptimizerは過去の改善を巻き戻し得る。
 
@@ -63,7 +63,7 @@ Round $t$で、現在のfailure setだけで$H_{t+1}$を選ぶと、$H_1,\ldots,
 
 Do Agent Optimizers Compound?は、Terminal-Bench 2.0のhard taskをPhase 1の12 taskとPhase 2で追加する10 taskに分け、GEPA、Meta Harness、regression controlをsearch loop内で強制するRELAI-VCLの3 optimizerを、各phase 200 rolloutの同一budgetで比較するtechnical reportである [@wang2026compound]。GEPAはunseen taskへのtransferで未最適化baselineを下回り、Meta HarnessはtransferするがPhase 2で改善を継続できず、RELAI-VCLだけが正のtransferと再最適化後の改善を両立したと報告する。これは一benchmark上の初期証拠であり、sealed-test generalizationの証明ではないが、continual harness optimizationではpreservationをsearch loop内へ組み込む必要性を示す。
 
-## Search costとdeployment cost
+## 探索時と運用時のcost
 
 Costには少なくとも三種類ある。
 
@@ -104,7 +104,7 @@ AFlowは最終workflowのaccuracyとinference costを比較するが、図のcos
 
 Surrogateを使うAgentSquareやMIPROはfull rollout数を減らせるが、predictorの推論costと最終実評価を含める [@shang2025agentsquare; @opsahlong2024mipro]。Invalid candidateに使ったcostも除外しない。
 
-## Invalid candidate
+## 実行できない候補
 
 Edit surfaceが広いほど、candidateが実行前に壊れる。
 
@@ -127,7 +127,7 @@ $$
 
 Harness-R1はpatch compilerとsandboxでinvalid patchを棄却する [@shao2026harnessr1]。DGMもcandidate codeを実行してarchiveへ入れる。しかしcompile成功はtask correctnessや安全性を意味しない。
 
-## Safety regression
+## 安全性の回帰
 
 Harnessはmodelの権限と情報流を変える。Safetyには少なくとも次を含める。
 
@@ -144,7 +144,7 @@ GEPAのPUPA experimentは個人識別情報（personally identifiable informatio
 
 AgentDojoはtool-using agentに対するindirect prompt injectionのdynamic environmentを提供し、utilityとattack successを分けて測る [@debenedetti2024agentdojo]。Harness optimizerの安全評価では、このようなuntrusted tool outputをregression suiteへ含める。
 
-## Containmentとsafety evidenceを分ける
+## 被害抑制と安全性の証拠を分ける
 
 Sandbox、read-only path、hook schemaは被害範囲を制限するmechanismである。次とは異なる。
 
@@ -155,7 +155,7 @@ Sandbox、read-only path、hook schemaは被害範囲を制限するmechanismで
 
 DGMやHarness-R1がsandboxを使うことは、candidate codeを安全に試す上で重要である。しかし生成harnessのsemantic safetyを実証したことにはならない。Safety claimには攻撃task、threat model、evaluator、結果が必要である。
 
-## Evaluator overoptimization
+## 評価器への過適合
 
 Optimizerはevaluator scoreを最大化するため、evaluatorの不完全さを利用できる。Reward modelのoptimizationを強めると、真のproxy外性能が悪化し得ることはreward overoptimization研究で示されている [@gao2023overoptimization]。
 
@@ -171,7 +171,7 @@ LLM-as-a-judgeをoptimizerにも使う場合、self-preferenceにも注意する
 
 対策として、executable verifier、blind human evaluation、複数独立evaluator、adversarial auditを組み合わせる。Evaluator disagreementもreportする。
 
-## Acceptance rule
+## 採用規則
 
 Evaluation recordを
 
@@ -209,7 +209,7 @@ $$
 
 Critical safety taskは平均へ入れずhard gateにする。Qualityが大きく上がっても、permission violation一件でrejectできる設計にする。
 
-## Rollback
+## 差し戻し
 
 Promotion後にしか見つからないregressionもある。Rollback可能性はartifact persistenceの一部である。
 
@@ -226,7 +226,7 @@ Memory schemaやdatabase stateを変更するcandidateは、codeを戻すだけ�
 
 Canary deploymentでは、trafficを一部だけcandidateへ流し、quality、cost、latency、安全eventをincumbentとpairedで比較する。Online evaluatorを次のoptimizer feedbackへ使う前に、人間のincident responseと自動optimizationを分ける。
 
-## Varianceとtail risk
+## ばらつきと重大な失敗
 
 Agent executionは長いtailを持つ。Mean latencyやmean scoreだけでなく、次を報告する。
 
@@ -239,7 +239,7 @@ Agent executionは長いtailを持つ。Mean latencyやmean scoreだけでなく
 
 Candidate評価を同じseedでpairedにするとvarianceを減らせるが、deploymentの多様なsamplingを隠さない。Final evaluationでは複数seedを使い、candidateとincumbentを同じenvironment snapshotで比較する。
 
-## 最小promotion report
+## 最小限の採用報告
 
 | 観点 | 必須報告 |
 |---|---|
