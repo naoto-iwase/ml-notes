@@ -1,0 +1,112 @@
+---
+pagetitle: "概要"
+---
+
+# 概要
+
+Agent harnessの最適化では、固定したtarget modelの周囲にある実行系を変更する。本章では、問題設定、対象範囲、比較単位を定義し、**何を変えてよいか、何を固定するか、誰が改善を判定するか**を明確にする。
+
+## 問題設定
+
+Target agentを $A_{\theta,H}$ とする。$\theta$ はtarget modelのparameter、$H$ はexecutable harnessである。Round $t$ の実行結果を$\tau_t$、評価を$y_t$とする。
+
+Optimizer $O$ はincumbent（現行版）$H_t$ とevidence（更新根拠）$(\tau_t,y_t)$ からcandidate（更新候補）$H'_t$ を作る。外部evaluatorは両者の評価記録を生成し、事前に固定したacceptance rule $V$ が次versionを決める。式では評価記録を引数から省略し、採否判定を$V(H'_t,H_t)$と略記する。
+
+$$
+H'_t = O(H_t, \tau_t, y_t), \qquad
+H_{t+1} =
+\begin{cases}
+H'_t & V(H'_t, H_t)=\mathrm{accept},\\
+H_t & \text{otherwise}.
+\end{cases}
+$$
+
+本書で **self-improvement** と呼ぶには、少なくとも次の四条件を要求する。
+
+1. 実行から得たevidenceが更新を駆動する
+2. 更新が次のtaskへ持ち越される
+3. 比較対象となるincumbentがversionとして保存される
+4. 採否がoptimizer自身の説明だけで決まらない
+
+最後の条件がない場合、optimizerはharnessだけでなく「何を改善と数えるか」まで変更できる。したがって、candidate生成と採否判定は分離しなければならない。
+
+## 対象範囲
+
+Harnessには、system prompt、context assembly、retrieval、durable memory、tool mediation、workflow、verification、retry、rollbackが含まれる [@weng2026harness]。一方、model weightの更新、episode内だけのtest-time scalingとself-refinement、制約のないrecursive self-improvement一般は対象外である。Autonomous researchもtask領域の総称であり、外部評価にもとづくpersistentなharness更新loopを持たない限り対象に含めない。
+
+境界は、変更が将来の実行へ残るかで決まる。Memory contentやread/write policyが次のepisodeへ残るならharness stateの更新である。一回答の途中で候補を生成して破棄するだけならharness optimizationではない。
+
+| 変更 | 本書での扱い |
+|---|---|
+| Memoryへ通常の実行記録を追加する | 単なるstate更新であり、それだけでは最適化と呼ばない |
+| 失敗を根拠にmemory内容やread/write policyを変更し、外部評価後に保存する | Harness optimizationに含める |
+| 一回のtaskでsample数やreflection回数を増やす | Test-time scalingであり、次回へ変更が残らなければ含めない |
+| 実行結果からcompute allocation policyを更新し、将来へ保存する | Harness optimizationに含める |
+| Fine-tuningやRLでmodel weight $\theta$を変える | Model optimizationであり、Harness optimizationとは分ける |
+
+Reflexionは失敗後のreflectionを同じtask内の次の試行で利用する [@shinn2023reflexion]。これはtask-localなstate更新の境界例であり、独立した将来taskへversionとして持ち越すpersistent harness updateとは分ける。
+
+Harness-R1ではtarget modelを固定し、別のeditorが更新候補 $H'_t$を生成する。学習するのはeditorだが、最終的に更新される対象はHarnessである [@shao2026harnessr1]。
+
+## 何を固定し、何を変えるか
+
+| 役割 | 例 | Optimizerが変更してよいか |
+|---|---|---|
+| Target model | LLM weight、decoding policy | 原則固定。変更する場合は別versionとして扱う |
+| Harness | prompt、context、tool wrapper・tool policy、workflow、memory、recovery | はい。ただし変更範囲を事前に決める |
+| Environment | browser、database、compiler、simulator | 原則固定 |
+| Evaluator | score、cost、安全性の測定 | いいえ。optimizerの外側に置く |
+
+たとえばtoolを呼ぶ順序が悪いなら、workflowを変更候補にできる。一方、改善して見えるようにevaluatorの採点方法を変えることは許さない。
+
+Evaluatorは結果を測るが、採用するかは決めない。採否規則 $V$ が、事前に決めた条件に従って更新候補を採用または棄却する。候補を作るoptimizer $O$は、evaluatorと$V$を変更できない。
+
+この境界を @fig-optimization-boundary に示す。実行結果から更新候補 $H'_t$を作り、外部評価を通過した候補だけを次のversion $H_{t+1}$として保存する。
+
+![固定modelを囲む変更可能なharnessと、optimizerから分離されたevaluatorおよび採否規則。実行結果から更新候補を作り、外部評価を通過した候補だけを保存する。](images/optimization-boundary.svg){#fig-optimization-boundary fig-align="center" width="100%"}
+
+## 数式で表す
+
+Task $x$、target agent $A_{\theta,H}$、environment $E$から、一回の実行記録 $\tau$ が生じる。
+
+$$
+\tau \sim P(\tau \mid x, A_{\theta,H}, E)
+$$
+
+Task分布 $\mathcal{D}$ に対するHarness $H$の評価値を
+
+$$
+J_{\mathcal{D}}(H)=\mathbb{E}_{x\sim\mathcal{D},\,\tau}[s(\tau)]
+$$
+
+とする。これは、さまざまなtaskで実行したときのscore $s(\tau)$の平均である。Harness optimizationは、model parameter $\theta$を固定したまま、$H_t$を$H_{t+1}$へ更新して、この評価値を改善する問題である。
+
+## 本書の比較単位
+
+個別のmodel名やagent frameworkではなく、次の更新loopを比較単位とする。
+
+$$
+\text{Target}
+\rightarrow \text{Edit surface}
+\rightarrow \text{Optimizer}
+\rightarrow \text{Execution evidence}
+\rightarrow \text{Acceptance / rollback}
+\rightarrow \text{Persistence}
+\rightarrow \text{Evaluation}.
+$$
+
+同じprompt optimizerでも、training exampleだけで候補を選ぶ方法と、sealed testまで分ける方法ではevidenceの強さが異なる。同じworkflow editorでも、targeted failureを直すだけの方法と、既存成功taskや安全性までpromotion gateへ入れる方法は区別する。
+
+## 実験前に五つ決める
+
+- **変更範囲:** 変更可能なfile、hook、prompt、tool schema
+- **固定条件:** API、権限、timeout、出力schema
+- **保存する状態:** taskをまたいで残るもの
+- **評価指標:** quality、cost、応答時間、failure rateの集計方法
+- **採否規則:** 更新候補を採用・棄却し、必要なら元へ戻す条件
+
+たとえば「pre-action hookは変更可、evaluatorとtool権限は変更不可」と書ける状態にする。境界を先に固定しなければ、何が改善したのかを再現できない。
+
+## 要点
+
+Harness optimizationでは、modelとenvironmentを原則固定し、許可した範囲のharnessだけを変更する。候補生成と外部評価を分離し、採用した変更を将来のtaskへ持ち越す。

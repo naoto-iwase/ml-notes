@@ -241,8 +241,8 @@ website:
           contents:
             - section: "I 基礎"
               contents:
-                - text: "最適化の対象"
-                  href: ja/agent-harness-optimization/optimization-target.qmd
+                - text: "概要"
+                  href: ja/agent-harness-optimization/overview.qmd
                 - text: "探索空間"
                   href: ja/agent-harness-optimization/search-space.qmd
                 - text: "失敗から Harness を改善する"
@@ -282,8 +282,8 @@ website:
           contents:
             - section: "I Foundations"
               contents:
-                - text: "What to Optimize"
-                  href: en/agent-harness-optimization/optimization-target.qmd
+                - text: "Overview"
+                  href: en/agent-harness-optimization/overview.qmd
                 - text: "Search Space"
                   href: en/agent-harness-optimization/search-space.qmd
                 - text: "Improving a Harness from Failures"
