@@ -2,6 +2,7 @@
 document.addEventListener('DOMContentLoaded', function() {
   var tabs = document.querySelectorAll('.panel-tabset .nav-link');
   var categoryContainer = document.querySelector('.quarto-listing-category');
+  var languageStorageKey = 'site-listing-language';
 
   function detectLang(el) {
     var t = el ? el.textContent : '';
@@ -62,6 +63,7 @@ document.addEventListener('DOMContentLoaded', function() {
     tabs.forEach(function(tab) {
       tab.addEventListener('click', function() {
         var lang = detectLang(tab);
+        localStorage.setItem(languageStorageKey, lang);
         if (lang !== currentLang) {
           currentLang = lang;
           renderCategories(lang);
@@ -72,10 +74,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function activate() {
       var hash = location.hash.slice(1);
-      if (hash !== 'ja' && hash !== 'en') return;
+      var hasLanguageHash = hash === 'ja' || hash === 'en';
+      var lang = hasLanguageHash ? hash : localStorage.getItem(languageStorageKey);
+      if (lang !== 'ja' && lang !== 'en') return;
       tabs.forEach(function(tab) {
-        if (detectLang(tab) === hash) tab.click();
+        if (detectLang(tab) === lang) tab.click();
       });
+      // A remembered preference should not add a fragment to a clean URL.
+      if (!hasLanguageHash) {
+        history.replaceState(null, null, location.pathname + location.search);
+      }
     }
     activate();
     addEventListener('hashchange', activate);
