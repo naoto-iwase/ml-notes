@@ -13,7 +13,7 @@ Create a **single consolidated** `references.bib` for the book at `{book_dir}` f
 
 ## Files You Must Read First
 
-1. `{skill_root}/references/citations.md` — formatting specification for bib entries
+1. `{skill_root}/references/quarto/citations.md` — formatting specification for bib entries
 2. `{source_files}` — primary sources (survey Markdown, paper lists, or notes); read all of them if there are multiple files
 3. `{book_dir}/references.bib`, if it already exists, for reference (even when rebuilding rather than appending)
 
