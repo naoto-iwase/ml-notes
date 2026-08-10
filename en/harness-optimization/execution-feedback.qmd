@@ -6,70 +6,42 @@ pagetitle: "Execution Feedback and Failure Analysis"
 
 A 30% failure rate does not reveal what to change. Every failure may come from the same tool schema, or separate failures may arise during planning, tool selection, and validation. Each case calls for a different revision.
 
-Defining the editable components in the previous chapter is not enough if the failure location is unknown. The system must therefore retain more than a final score: per-input outcomes, sequences of actions and observations, exceptions, and other execution feedback. This chapter explains how to form a hypothesis about the failure location and test it by rerunning a targeted revision.
+The previous chapter separated the roles in an optimization loop. To produce candidates, the optimizer needs more than a final score: it also needs per-input outcomes, sequences of actions and observations, exceptions, and other execution information. This chapter explains how to form falsifiable hypotheses for revisions from this **execution feedback**. The next chapter considers which artifacts to change.
 
-## Granularity of Feedback
+## What Execution Results Reveal
 
 Feedback obtained from execution can be ordered from least to most informative.
 
 | Granularity | Example | What It Reveals | What It Does Not Reveal |
 |---|---|---|---|
 | Scalar | success=0, accuracy=0.6 | Ranking among candidates | Where and why the failure occurred |
-| Per-instance outcome | Task ID, expected, actual | The input that failed | The failing step and cause |
-| Natural-language critique | "Incorrect table selection" | A hypothesis for a fix | Whether the critique is correct |
+| Per-task outcome | Task ID, expected, actual | The input that failed | The failing step and cause |
+| Natural-language critique | “Incorrect table selection” | A hypothesis for a fix | Whether the critique is correct |
 | Trajectory | Action, observation, tool result | The first divergence and its downstream effects | The causal effect of a counterfactual |
 | Runtime diagnostics | Exception, latency, permission, resource | The implementation failure site | The cause of a semantic misjudgment |
-| Intervention result | Rerun after changing only a specific hook | A causal clue linking the change to the result | Generalization to other distributions |
+| Rerun after revision | Rerun after changing only a specific hook | A causal clue linking the change to the result | Generalization to other distributions |
 
-## Information Collapse from Scalar Feedback
+## Scalar Scores Erase Causes
 
-OPRO generates the next instruction from a history of instructions and training scores [@yang2024opro]. Search is possible from scores alone, but it does not directly use the structure of failed instances. In a multistep system such as a workflow, the same zero score can arise from different failure paths.
-
-Represent the extraction of a failure $f$ from a trajectory $\tau$ as a mapping $g$.
-
-$$
-f=g(\tau).
-$$
-
-A scalar evaluator further compresses $f$ into a single value.
-
-$$
-y=s(f)\in\mathbb{R}.
-$$
-
-If distinct failures $f_1$ and $f_2$ produce the same $y$, the appropriate edit surface cannot be selected from $y$ alone. Failure attribution returns to the trajectory before this compression and narrows the candidate changes.
+OPRO generates the next instruction from a history of instructions and training scores [@yang2024opro]. Scores alone can rank candidates, but they cannot reveal whether the same zero score came from an incorrect tool selection, a schema error, or a timeout. Failure attribution returns to the trajectory before it is compressed into a score and narrows the candidate changes.
 
 ## Producing Textual Feedback from Incorrect Answers
 
-ProTeGi gives a large language model (LLM) the incorrect answers from a minibatch and asks it to describe prompt weaknesses as a natural-language "gradient." It creates prompt edits by applying that gradient in the opposite direction and evaluates them with beam search [@pryzant2023protegi]. Here, the gradient is not a derivative but a textual critique that explains the incorrect answers.
+ProTeGi gives a large language model (LLM) the incorrect answers from a minibatch and asks it to describe prompt weaknesses as a natural-language “gradient.” It creates prompt edits by applying that gradient in the opposite direction and evaluates them with beam search [@pryzant2023protegi]. Here, the gradient is not a derivative but a textual critique that explains the incorrect answers.
 
 TextGrad extends this idea to a computation graph. It generates natural-language feedback about a downstream loss and propagates it to upstream text variables [@yuksekgonul2025textgrad]. GEPA passes rollout traces and evaluator feedback to a reflection model to mutate the text components of a compound system [@agrawal2026gepa].
 
 Textual feedback is richer than a scalar, but it is not ground truth. A critique model can construct a plausible post hoc explanation from the final incorrect answer. Store the following three elements separately.
 
 - **Observation:** The actual trajectory and evaluator output
-- **Attribution hypothesis:** The estimate that "this step caused the failure"
+- **Attribution hypothesis:** The estimate that “this step caused the failure”
 - **Proposed intervention:** Which artifact to change and how
 
 Writing the hypothesis and observation in the same field makes it impossible to test an incorrect attribution later.
 
 ## Identifying the First Divergence
 
-Let a trajectory be
-
-$$
-\tau=(x,a_1,o_1,a_2,o_2,\ldots,a_T,o_T)
-$$
-
-Store not only the final answer but also every action $a_t$ and observation $o_t$. Define the first index that departs from an expected state or an enforceable constraint as
-
-$$
-t^*=\min\{t:\operatorname{valid}(a_t,o_t)=0\}
-$$
-
-The symbol $t^*$ denotes this index.
-
-The value $t^*$ may not be uniquely identifiable. For tasks without a correct reference trajectory, the validator itself is partial. Moreover, when ambiguous retrieval early in a trajectory induces an explicit error later, the first violation and the root cause do not coincide.
+Store not only the final answer but also every action and observation in order, then find the first step that departs from an expected state or an enforceable constraint. For tasks without a correct reference trajectory, however, the validator itself is partial, and the first explicit violation may not be the root cause. Ambiguous retrieval early in a trajectory can induce an explicit error later.
 
 In practice, investigate in the following order.
 
@@ -83,7 +55,7 @@ In practice, investigate in the following order.
 
 Failure attribution is not explanation generation. It is **a hypothesis falsifiable through intervention**.
 
-## Grouping Failures
+## Grouping Similar Failures
 
 Adding exception handling for each individual task tends to produce benchmark-specific patches. Construct shared failure signatures from multiple trajectories.
 
@@ -99,7 +71,7 @@ ExpeL compares successful and failed trajectories from training tasks and extrac
 
 Failure-Driven Workflow Refinement maps failure traces into a signature space and proposes constrained graph edits for dense failure modes [@zhang2026failure]. Directly modeling the failure distribution differs from global search based only on an average score. However, the text of the public arXiv version explicitly states that its quantitative tables are illustrative projections, so they cannot be cited as measured values. This book therefore discusses only the mechanism based on failure signatures and does not use those tables as evidence of effect size.
 
-## Converting Traces into Proposals
+## Converting Trajectories into Proposals
 
 There is more than one path from feedback to an edit.
 
@@ -144,7 +116,7 @@ Repeatedly exposing this information can let the optimizer construct a shortcut 
 
 When tests or evaluators reside in a repository editable by the optimizer, establish boundaries with read-only paths, hashes, separate processes, and separate credentials. An evaluator being external and its information being unavailable to the optimizer are distinct properties.
 
-## Handling Untrusted Trajectories
+## Handling Untrusted Execution Results
 
 Web pages, tool outputs, and retrieved documents can contain untrusted input. Passing a trajectory directly to an editor model can allow a prompt injection observed during execution to contaminate the persistent instructions of the next version.
 
@@ -156,22 +128,7 @@ Web pages, tool outputs, and retrieved documents can contain untrusted input. Pa
 
 Passing compilation and sandbox checks does not imply semantic safety. An unsafe patch can execute successfully.
 
-## Minimal Trace Schema
-
-Comparable research should preserve at least the following fields.
-
-| Field | Content |
-|---|---|
-| Task identity | Dataset, split, instance, timestamp |
-| Runtime identity | Target model, tool, environment, harness version |
-| Ordered events | Prompt, action, observation, tool result, latency |
-| Evaluator output | Raw score, verdict, error, cost, safety event |
-| Attribution | Estimated failure site, supporting event, confidence |
-| Edit | Parent, diff, changed surface, proposal model |
-| Verification | Targeted rerun, preservation, held-out, seed |
-| Decision | Accept, reject, inconclusive, rollback destination |
-
-Do not replace raw events with a natural-language summary alone. Doing so prevents later reanalysis of failures that the summary model overlooked.
+To compare versions, bind the task and runtime identity, ordered events, raw evaluator output, attribution, edit, verification, and decision into the same record. Do not replace raw events with a natural-language summary alone. Doing so prevents later reanalysis of failures that the summary model overlooked.
 
 ## Key Points
 

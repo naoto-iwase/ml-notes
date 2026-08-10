@@ -100,7 +100,39 @@ for p in Path('{book}').glob('*.qmd'):
 "
 ```
 
-After the Phase 7 lint, **start `quarto preview` once and always check the console for `Citeproc: citation ... not found`**. If one appears, escape or rename the offending text.
+After the Phase 7 lint, render the changed scope and always check the console for `Citeproc: citation ... not found`. If one appears, escape or rename the offending text. Do not start a repository-root `quarto preview` unless the whole website is the intended scope.
+
+## Minimal Local Preview
+
+This repository's website navigation references most published pages. Running `quarto preview` from the repository root prepares the whole website before serving it, even when a single input file or a narrow profile is supplied. Do not use it to inspect one page or one book.
+
+Render only the changed page:
+
+```bash
+quarto render ja/{book}/chapter.qmd --to html
+```
+
+For a bilingual book, render only that book's pages:
+
+```bash
+quarto render ja/{book}/*.qmd en/{book}/*.qmd --to html
+```
+
+Then serve the existing `_site` output without invoking Quarto's project preview:
+
+```bash
+python3 -m http.server 4201 --bind 127.0.0.1 --directory _site
+```
+
+For access from another machine on the same Tailscale network, bind only the Tailscale address rather than `0.0.0.0`:
+
+```bash
+python3 -m http.server 4201 --bind "$(tailscale ip -4)" --directory _site
+```
+
+Open `http://<host>:4201/{lang}/{book}/`, rerun only the affected `quarto render` command after source or shared-style changes, and reload the browser. Verify the page with `curl` before opening it. Do not create a temporary Quarto profile to narrow the preview: project navigation still causes full-site preparation.
+
+If an accidental full preview is interrupted, inspect `git status` and remove only generated untracked HTML or site-support files created by that run. Never use a broad cleanup command when unrelated untracked work may exist.
 
 Optionally, cross-check titles against a reference bibliography such as the source paper's `main.bib`. If two entries share an arXiv ID but their title similarity falls below the threshold, the script reports `[TITLE_MISMATCH]`:
 

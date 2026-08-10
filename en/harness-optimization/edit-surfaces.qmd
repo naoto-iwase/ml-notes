@@ -4,11 +4,11 @@ pagetitle: "What to Edit"
 
 # What to Edit
 
-An agent that answers without checking a tool result can be fixed in at least three ways: add a prompt instruction, enforce the order in a workflow, or add a runtime validator. These revisions address the same failure, but differ in both effect and risk.
+An agent that answers without checking a tool result can be fixed in three ways: write a verification procedure in the prompt, make the workflow permit an answer only after verification, or add a validator to the runtime. These revisions address the same failure, but differ in both effect and risk.
 
-The previous chapter separated the roles in an update; this chapter asks what the optimizer may rewrite. That set of components is the **edit surface**. It expands Part I's three groups into the actual persistence units of prompts, language-model programs, memory, workflows, agent code, and runtime hooks. These are overlapping scopes rather than one strict linear hierarchy.
+The previous chapter used failure attribution to form hypotheses about fixes. This chapter asks how to express those hypotheses as changes to artifacts. The set of components an optimizer may rewrite is the **edit surface**. We divide it by persistence unit into prompts, language-model programs, memory and skills, workflows, agent code, and runtime hooks. These scopes do not form a strict linear hierarchy, and one fix may span several of them.
 
-## Describing Two Boundaries
+## What Can Change and What Must Be Preserved
 
 An edit surface cannot be defined by a list of filenames alone. Describe the following two boundaries.
 
@@ -29,7 +29,7 @@ Candidates that can be generated syntactically but do not compile, or that viola
 
 The narrowest surface is a single instruction or demonstration. The target model, tools, and control flow remain fixed. Only the text placed before the input changes.
 
-APE generates instruction candidates from task examples and selects them by task score [@zhou2023ape]. OPRO places the history of previous instructions and scores in a meta-prompt to generate the next instruction [@yang2024opro]. ProTeGi creates prompt edits from natural-language critiques of incorrect answers [@pryzant2023protegi]. RLPrompt learns a policy that generates discrete-token prompts while keeping the target language model fixed [@deng2022rlprompt].
+APE generates instruction candidates from task examples and selects them by task score [@zhou2023ape]. OPRO places the history of previous instructions and scores in a meta-prompt to generate the next instruction [@yang2024opro]. ProTeGi creates prompt edits from natural-language critiques of incorrect answers [@pryzant2023protegi]. RLPrompt learns a policy that generates discrete-token prompts while keeping the target model fixed [@deng2022rlprompt].
 
 A prompt-only surface has three advantages.
 
@@ -37,7 +37,7 @@ A prompt-only surface has three advantages.
 - Execution structure and tool permissions are easy to align across candidates
 - Reverting to the original prompt is easy
 
-A prompt, however, is a soft constraint. Writing "always verify tool results" does not make the runtime enforce that order. In addition, ProTeGi's main evaluation includes a setting that combines multiple prompts from the final beam at test time. Improvements to a single persistent prompt must be distinguished from a test-time ensemble.
+A prompt, however, is a soft constraint. Writing “always verify tool results” does not make the runtime enforce that order. In addition, ProTeGi's main evaluation includes a setting that combines multiple prompts from the final beam at test time. Improvements to a single persistent prompt must be distinguished from a test-time ensemble.
 
 ## LM Program Parameters
 
@@ -47,9 +47,9 @@ DSPy compiles language-model (LM) programs with declarative modules against a ta
 
 In a language-model program, optimizing only local scores for individual modules can damage end-to-end performance. Having a retriever return more context may improve retrieval recall while consuming the downstream generator's context budget. Candidates should therefore be evaluated by executing the entire program.
 
-## Memory and Experience
+## Memory, Experience, and Skills
 
-A memory surface includes two categories: stored content and read/write policies.
+A memory surface includes two broad categories: stored content and read/write policies.
 
 | Category | Example | Persisted Artifact |
 |---|---|---|
@@ -57,12 +57,13 @@ A memory surface includes two categories: stored content and read/write policies
 | Retrieval update | Query, ranking, deduplication, forgetting | Read policy |
 | Write-policy update | What to record, merge, and delete | Write policy |
 | Schema update | Experience fields, provenance, confidence | Memory structure |
+| Skill update | Procedures, examples, applicability conditions | Versioned skill document |
 
 ExpeL compares successful and failed trajectories from training tasks and carries natural-language insights and retrievable experiences into unseen tasks [@zhao2024expel]. This is an example of cross-task persistent memory. However, adding or deleting an insight does not require passing an external regression suite.
 
-![ExpeL extracts experiences and insights from training tasks, then reuses them as experience recall and insight guidance on later tasks. Source: [@zhao2024expel], Figure 1 ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); original image rescaled).](images/expel-persistent-memory.png){#fig-expel-persistent-memory}
+SkillOpt updates a single skill document read by a frozen agent through bounded edits and accepts only changes that improve held-out validation performance [@yang2026skillopt]. This held-out split is a selection set used for round-by-round acceptance, not the sealed test for final reporting. A skill is not a one-off memory item but a procedural artifact reused on subsequent tasks. Prompts, memory, and skills are distinguished not by filenames, but by who reads them when and by the unit at which they are versioned and accepted.
 
-Reflexion saves post-failure reflections in an episodic buffer and uses them on the next trial of the same instance [@shinn2023reflexion]. It is important that model weights do not change, but the main evaluation concerns retries on the same instance. Under the strict scope of this book, it is treated as a boundary case with task-local adaptation rather than as a **harness artifact distributed to future independent tasks**.
+![ExpeL extracts experiences and insights from training tasks, then reuses them as experience recall and insight guidance on later tasks. Source: [@zhao2024expel], Figure 1 ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); original image rescaled).](images/expel-persistent-memory.png){#fig-expel-persistent-memory}
 
 Simply adding a log is not optimization. It becomes harness optimization when memory items or policies are compared as candidates and the accepted content is distributed to subsequent tasks.
 
@@ -72,13 +73,11 @@ A workflow surface represents language-model calls, tools, verification steps, b
 
 GPTSwarm represents language agents as a graph and optimizes edge connections and node prompts from task loss [@zhuge2024gptswarm]. AgentSquare divides planning, reasoning, tool use, and memory into modules and explores configurations through module evolution and recombination [@shang2025agentsquare]. AFlow represents workflows as executable code and generates and evaluates candidates with Monte Carlo tree search [@zhang2025aflow].
 
-A graph representation has the advantage of making node types and edge semantics explicit. By contrast, a method that represents a graph in code can freely change exception handling and state sharing even with an apparently identical node set. Even when a paper uses "workflow" in its title, it is necessary to determine whether the actual surface is a finite graph or arbitrary code.
-
-FlowReasoner learns a meta-agent from execution rewards and generates a multi-agent workflow for each user query [@gao2025flowreasoner]. It is a relevant example of a learned optimizer, but the generated workflow is query-local and does not persist a selected artifact for future executions. It is therefore excluded from this book's core method matrix.
+A graph representation has the advantage of making node types and edge semantics explicit. By contrast, a method that represents a graph in code can freely change exception handling and state sharing even with an apparently identical node set. Even when a paper uses “workflow” in its title, it is necessary to determine whether the actual surface is a finite graph or arbitrary code.
 
 ## Agent System Code
 
-Using agent system code as the surface allows simultaneous changes to prompts, tool wrappers, memory, control flow, and error handling. The Meta Agent Search in ADAS reads an archive of evaluated agent programs, and a coding agent generates new Python implementations [@hu2025adas]. DGM changes the codebase of the coding agent itself and stores evaluated code lineages in a branching archive [@zhang2026dgm].
+Using agent system code as the surface allows simultaneous changes to prompts, tool wrappers, memory, control flow, and error handling. The Meta Agent Search in ADAS generates new Python implementations from an archive of evaluated agent programs, while DGM changes the coding agent's own codebase and stores its lineage in a branching archive [@hu2025adas; @zhang2026dgm]. AutoHarness iteratively generates verifier code that excludes prohibited actions, using environment errors as feedback [@lou2026autoharness].
 
 This surface is highly expressive, but candidate validity must be checked before score-based evaluation.
 
@@ -89,15 +88,15 @@ This surface is highly expressive, but candidate validity must be checked before
 5. Has it left the evaluator, tests, and permission policy unchanged?
 6. Can the version be reconstructed deterministically?
 
-DGM experiments with changing coding-agent software that uses a fixed foundation model. It does not demonstrate unconstrained recursive self-improvement that includes model-training code. It should be read as a concrete code search with a controlled editable repository, benchmark, and archive selection.
+AutoHarness also reports a setting that replaces the entire decision process with a code policy. In that case, the optimization target shifts from a harness that assists a model to the task policy itself. Record not only the breadth of the code surface, but also whether the model or the code makes the final decision.
 
 ## Runtime Harness Implementation
 
-A runtime harness is an implementation that assembles context before and after model calls, mediates tools, validates actions, and recovers from failures. Meta-Harness uses a coding proposer to search harness source that includes not only prompts but also memory, retrieval, context presentation, and orchestration [@lee2026metaharness]. The proposer consults previous candidates, scores, and traces on the filesystem and generates new code.
+A runtime harness is an implementation that assembles context around model calls, mediates tools, validates actions, and recovers from failures. Meta-Harness uses a coding proposer to search harness source that includes not only prompts but also memory, retrieval, context presentation, and orchestration [@lee2026metaharness]. The proposer consults previous candidates, scores, and traces on the filesystem and generates new code.
 
 Harness-R1 divides the runtime into lifecycle hooks and learns a specialized editor that generates hook patches from failed trajectories [@shao2026harnessr1]. Patches pass compilation and sandbox validation before they are applied. This is a direct example of runtime editing, but it is a non-peer-reviewed preprint released in August 2026 and should not be considered an established example of a general-purpose learned editor.
 
-For a runtime surface, constraining editable regions through hook contracts is easier to evaluate than describing the target as the "entire repository."
+For a runtime surface, constraining editable regions through hook contracts is easier to evaluate than describing the target as the “entire repository.”
 
 | Hook | Readable State | Editable Output | Boundary to Fix |
 |---|---|---|---|
@@ -107,19 +106,9 @@ For a runtime surface, constraining editable regions through hook contracts is e
 | Validation | Candidate action | Allow / reject / repair | Permission policy |
 | Recovery | Error, retry state | Retry / fallback | Retry limit, cost budget |
 
-## Optimizers Across Surfaces
+## When Multiple Edit Surfaces Are Involved
 
-Real optimizers span multiple surfaces. In ADAS and Meta-Harness, code edits can also change prompts and workflows. GEPA jointly changes multiple text components. When multiple surfaces are allowed, do not attribute the result to a single cause such as "prompt improvement" or "workflow improvement."
-
-At minimum, an ablation should compare the following.
-
-- Prompt changes only
-- Workflow changes only
-- Runtime-hook changes only
-- Joint changes across multiple surfaces
-- Comparisons under the same evaluation budget
-
-Even when a broader surface wins, the increase in degrees of freedom, the number of candidates, and the amount of optimizer-model context are confounders. When comparing edit surfaces, align the fixed conditions and budgets.
+Real optimizers span multiple surfaces. In ADAS and Meta-Harness, code edits can also change prompts and workflows, while GEPA jointly changes multiple text components. Compare prompt-only, workflow-only, runtime-hook-only, and joint changes under the same evaluation budget. Even if a broader surface wins, degrees of freedom, candidate count, and optimizer-model context are confounders, so do not attribute the result to a single cause such as “prompt improvement.”
 
 ## Expanding from the Minimum Surface
 

@@ -4,35 +4,13 @@ pagetitle: "Independent Optimizer Evaluation"
 
 # Independent Optimizer Evaluation
 
-Two methods that reach the same final score are not equivalent if one finds its result after 10 candidates and the other after 1,000. Differences in the starting harness, target model, editable components, disclosed data, and search budget also prevent the final score from identifying the better optimizer.
+Two methods that reach the same final score are not equivalent if one finds its result after 10 candidates and the other after 1,000. Differences in the starting harness, target model, editable scope, disclosed data, and search budget also prevent the final score from identifying the better optimizer.
 
-The preceding three chapters evaluated each candidate on unseen tasks, other models and environments, regressions, cost, and safety. The final step is to shift evaluation from the finished agent to **how reliably and efficiently an optimizer improves a harness under matched conditions**.
+The preceding three chapters evaluated each candidate on unused tasks, other models and environments, regressions, cost, and safety. The final step is to shift evaluation from the finished agent to **how reliably and efficiently an optimizer improves a harness under matched conditions**.
 
-## Confounding in Final Scores
+## Factors Confounded in the Final Score
 
-Let the output of an optimization campaign be
-
-$$
-H^*=
-\mathcal{A}
-\left(
-H_0,
-\theta,
-E,
-\mathcal{D}_{\mathrm{dev}},
-\mathcal{D}_{\mathrm{val}},
-B,
-F
-\right)
-$$
-
-Here, $\mathcal{A}$ is the optimizer, $H_0$ is the seed harness, $\theta$ is the target model, $E$ is the environment, $B$ is the budget, and $F$ is the feedback disclosure policy. The final score
-
-$$
-J_{\mathrm{test}}(H^*)
-$$
-
-depends on all of these factors. To compare only the optimizers, hold the other factors fixed or vary them factorially.
+The final score of an optimization campaign depends not only on the optimizer, but also on the seed harness, target model, environment, development and validation data, budget, and feedback disclosure policy. To compare only optimizers, hold the other factors fixed or vary them one at a time in a factorial design.
 
 The claim that "Method A's agent scores higher than Method B's" does not by itself show that A's optimizer is better. A may have started from a stronger initial harness, seen more test data, or tried more candidates.
 
@@ -53,7 +31,7 @@ The claim that "Method A's agent scores higher than Method B's" does not by itse
 
 Fixing everything to one setting reduces external validity. Begin with a controlled comparison, then vary the target, seed, surface, and environment one at a time.
 
-## Metrics Beyond End Improvement
+## Metrics Beyond Final Improvement
 
 Measure the optimizer's update trajectory directly.
 
@@ -62,9 +40,9 @@ Measure the optimizer's update trajectory directly.
 | Proposal validity | Executable candidates / proposals | Whether the optimizer can handle the edit surface |
 | Improvement hit rate | Fraction of candidates that beat the incumbent | Proposal quality |
 | Regression rate | Fraction of candidates that break prior successes | Locality of changes |
-| Sample efficiency | Held-out gain per case-run | Budget efficiency |
+| Sample efficiency | Validation gain per case-run | Budget efficiency |
 | Best-so-far curve | Best validation score at budget $b$ | Search speed |
-| Test regret | Gap from the oracle candidate | Selection quality |
+| Promotion regret | Gap from the best candidate on validation | Selection quality |
 | Attribution accuracy | Agreement with the true failure site or priority | Diagnostic ability |
 | Calibration | Predicted improvement versus actual difference | Reliability of self-evaluation |
 | Robustness | Variation across seeds, targets, and environments | Transfer stability |
@@ -78,63 +56,27 @@ An optimizer has at least two capabilities.
 1. Include good candidates in the generated set
 2. Select the good candidate from limited evaluations
 
-Let the generated set be $\mathcal{C}$ and the true held-out score be $J_{\mathrm{test}}$. The generator's upper bound is
+Define **selection regret** as the gap between the candidate with the highest score on promotion validation and the candidate actually selected by the optimizer. This measures how well the optimizer selects from surrogate estimates or limited evaluation queries during search. Do not rerank the generated set on the sealed test; evaluate only the finalized candidate and incumbent there.
 
-$$
-J^*_{\mathcal{C}}
-=
-\max_{H\in\mathcal{C}}J_{\mathrm{test}}(H)
-$$
+If the candidate set contains no good artifact, the problem lies in proposal generation. If it contains a good artifact that is not selected, the problem lies in the surrogate or validation procedure.
 
-The difference from the optimizer's selected $\hat H$,
+## Separating Harness Updating from Harness Benefit
 
-$$
-\operatorname{regret}
-=
-J^*_{\mathcal{C}}-J_{\mathrm{test}}(\hat H)
-$$
+An optimizer's ability to produce useful updates is not the same as a target agent's ability to benefit from an updated harness. Harness Updating Is Not Harness Benefit defines **updating capability** as the average post-update gain across a set of anchor agents, and **benefit capability** as the average gain a target agent receives from updates produced by multiple evolvers [@lin2026harnessbenefit].
 
-represents selection loss. Using the test set to calculate $J^*_{\mathcal{C}}$ is permitted only for analysis and must not provide feedback to the optimizer.
-
-If the candidate set contains no good artifact, the problem lies in proposal generation. If it contains a good artifact that is not selected, the problem lies in the surrogate, validation procedure, or acceptance rule.
+Crossing evolvers with solvers distinguishes strong updaters from strong beneficiaries. Independent evaluation should report both axes rather than interpreting one end-to-end gain as the optimizer's intrinsic diagnostic ability.
 
 ## Evaluator and Acceptance Rule
 
-The evaluator returns a measurement, while the acceptance rule returns a decision.
-
-$$
-r(H)=E(H),
-\qquad
-V\bigl(r(H'),r(H_t)\bigr)\in
-\{\mathrm{accept},\mathrm{reject},\mathrm{inconclusive}\}.
-$$
-
-Asking a single large language model (LLM) judge whether a candidate improved and using its yes/no answer for promotion hides the measurement, aggregation, and threshold. The evaluator should return raw components.
-
-- Executable test results
-- Per-task scores
-- Cost and latency
-- Invalid events
-- Safety events
-- Human ratings and uncertainty
-
-The acceptance rule applies predefined thresholds to these components. The optimizer cannot change the evaluator code, judge prompt, tests, or thresholds.
+The evaluator performs measurement, while the acceptance rule makes the decision. Asking a single LLM judge only whether a candidate improved hides the measurement, aggregation, and threshold. Return executable tests, per-task scores, costs, invalid and safety events, and human ratings separately, then apply thresholds fixed in advance.
 
 Traditional optimizer research often lets the optimizer use development metrics and feedback directly, so separating the evaluator from acceptance is not yet an established standard. This separation is a recommended protocol for avoiding evaluation overfitting and unclear promotion rationales.
 
 ## Judge Independence
 
-Judge bias remains even when the target, optimizer, and evaluator use different models. The self-preference of LLM evaluators for their own generations has been demonstrated empirically [@panickssery2024selfpreference]. Small changes in prompt wording have also been shown to cause large changes in model scores [@sclar2024spurious].
+Judge bias remains even when the target, optimizer, and evaluator use different models. The self-preference of large language model (LLM) evaluators for their own generations has been demonstrated empirically [@panickssery2024selfpreference]. Small changes in prompt wording have also been shown to cause large changes in model scores [@sclar2024spurious].
 
-When using an LLM judge, take the following measures.
-
-- Blind the candidate identity and optimizer name
-- Randomize answer order
-- Fix the judge prompt and model version
-- Prefer executable verifiers for tasks where they are available
-- Measure judge agreement on a human-verified subset
-- Report disagreement among multiple judges
-- Do not depend solely on the same model family as the optimizer
+When using an LLM judge, blind the candidate identity, randomize answer order, and fix the prompt and model version. Prefer executable verifiers, and report agreement with a human-verified subset and disagreement among multiple judges.
 
 If judge explanations are returned to the optimizer, that judge is a development feedback generator. Keep it separate from the final acceptance evaluator.
 
@@ -156,7 +98,9 @@ Because human priorities serve as the oracle, the benchmark also has difficulty 
 
 ## Controlled End-to-End Evaluation
 
-HarnessOpt-Bench is a recent preprint that compares optimizers on OfficeQA, BrowseComp-Plus, Terminal-Bench, and GAIA while fixing development, validation, hidden test, case-pass, and target-model token budgets [@ursekar2026harnessopt].
+VeRO is a benchmark harness that versions the optimization objective, environment, harness, feedback, and budget, then compares eight optimizer configurations on five tasks over three iterations each [@ursekar2026vero]. Its main protocol fixes the target agent to GPT-4.1 mini and reports initial score, best score, gain, runtime, and run-to-run variance over 120 experiments. As work accepted at ICML 2026, it is a major prior example of direct evaluation of the optimizer's update process.
+
+HarnessOpt-Bench is a new preprint that compares optimizers on OfficeQA, BrowseComp-Plus, Terminal-Bench, and GAIA while fixing development, validation, hidden test, case-pass, and target-model token budgets [@ursekar2026harnessopt].
 
 Its key design choices are as follows.
 
@@ -167,33 +111,11 @@ Its key design choices are as follows.
 - Evaluate the final candidate and seed repeatedly on the test set
 - Evaluate the optimizer configuration itself across multiple campaigns
 
-This design reduces confounding in the final score, but it remains a shared protocol across four benchmarks. It does not reproduce every real-world permission, secret, long-term memory migration, or environment update. It is also an unreviewed preprint released in August 2026 and cannot yet be considered an established standard.
+VeRO and HarnessOpt-Bench both reduce confounding, but their comparisons remain within prepared optimization problems. Real-world permissions, secrets, long-term memory migrations, and environment updates require separate evaluation. HarnessOpt-Bench is an unreviewed preprint released in August 2026 and cannot yet be considered an established standard.
 
-## Comparison with Test-Time Scaling
+## Providing Multiple Optimization Problems
 
-Rethinking the Evaluation of Harness Evolution examines when improvements from harness evolution on the same tasks can be explained by test-time scaling with additional attempts [@wang2026rethinking]. It aligns the optimizer, target, and budget, then compares settings that use unit tests, settings that do not, and disjoint splits.
-
-Rather than examining only the final score, this study asks the following questions.
-
-- Whether the persistent harness truly improves the next independent task
-- Whether the result comes only from additional sampling of the same task
-- Whether test feedback leaks into search
-- Whether harness edits are more efficient than a temporary increase in target-model inference
-
-Because it is a preprint from a single Terminal-Bench environment, it does not support a general conclusion, but it shows that optimizer evaluation needs a test-time compute baseline.
-
-## Two-Level Benchmark Design
-
-Searching for a harness only within one task benchmark makes optimizer generalization difficult to measure. Place a set of optimization problems at the meta level.
-
-$$
-\mathcal{P}
-=
-\{(H_0^{(i)},\theta^{(i)},E^{(i)},
-\mathcal{D}^{(i)},\mathcal{H}^{(i)})\}_{i=1}^{M}.
-$$
-
-Each $i$ defines one harness optimization problem. Design the optimizer on some problems and evaluate it on held-out problems.
+Searching for a harness only within one task benchmark makes optimizer generalization difficult to measure. Prepare multiple optimization problems, each combining a seed harness, target, environment, task, and edit surface. Design the optimizer on some problems and evaluate it on held-out problems.
 
 - Held-out seed harness
 - Held-out edit surface
@@ -217,45 +139,28 @@ Submit a candidate set or a single candidate, and let a fixed promotion contract
 
 Both tracks are necessary. Fixed acceptance alone does not measure actual optimizer operation, while end-to-end evaluation alone cannot separate candidate quality from selection.
 
-## Reproducibility
-
-An optimizer study should publish the update history, not only the final artifact.
-
-- Seed harness and hash
-- Edit surface and forbidden paths
-- Optimizer prompt / checkpoint
-- Candidate lineage and diffs
-- Development / validation query logs
-- Evaluator version
-- Budget counter
-- Random seed
-- Selected and rejected candidates
-- Point at which the hidden test was run
-
-When using API models or dynamic websites, state that complete reproduction is impossible and preserve timestamps, response caches, and environment snapshots.
-
-## Minimal Benchmark Contract
+## Minimal Benchmark Specification
 
 Optimizer-independent evaluation requires the following contract.
 
-1. **Unit:** Define one harness optimization problem
-2. **Boundary:** Fix the target, environment, edit surface, and forbidden surface
-3. **Feedback:** Define the information returned during development and validation
-4. **Budget:** Set limits in case-runs, tokens, tools, and wall time rather than candidates
-5. **Sealing:** Protect the hidden test from adaptive selection by the optimizer and researchers
-6. **Baselines:** Include the incumbent, best-of-$N$, and test-time scaling
-7. **Diagnostics:** Measure validity, hit rate, regressions, and sample efficiency
-8. **Promotion:** Separate the evaluator and acceptance rule
-9. **Transfer:** Include held-out target and environment problems
-10. **Safety:** Include permission and adversarial tasks
-11. **Statistics:** Report multiple campaigns, paired runs, and uncertainty
-12. **Artifacts:** Preserve candidate lineage and execution records
+| Component | What to Fix or Report |
+|---|---|
+| Problem | Seed, target, environment, editable and forbidden surfaces |
+| Feedback | Information returned during development and validation, query log |
+| Budget | Case-runs, tokens, tools, wall time |
+| Test | Execution point sealed from the optimizer and researchers |
+| Baseline | Incumbent, Best-of-$N$, test-time scaling |
+| Diagnostics | Validity, hit rate, regressions, sample efficiency |
+| Promotion | Evaluator, acceptance rule, safety gate |
+| Artifact | Optimizer version, candidate lineage, diff, seed |
 
-![The trusted evaluation architecture in HarnessOpt-Bench. The optimizer may rewrite only the target-agent code and receives development traces and aggregate validation metrics. The trusted server seals the hidden test and externally enforces model-call budgets and candidate execution. Source: [@ursekar2026harnessopt], Figure 1 ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); original figure rasterized).](images/harnessopt-heldout-architecture.png){#fig-harnessopt-heldout-architecture}
+When using API models or dynamic websites, preserve timestamps, response caches, and environment snapshots, and state which parts cannot be reproduced completely.
+
+![The trusted evaluation architecture in HarnessOpt-Bench. The optimizer may rewrite only the target-agent code and receives development traces and aggregate validation metrics. The trusted server seals the hidden test and externally enforces budgets for all model calls and candidate execution. Source: [@ursekar2026harnessopt], Figure 1 ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); original figure rasterized).](images/harnessopt-heldout-architecture.png){#fig-harnessopt-heldout-architecture}
 
 ## What We Know Today
 
-Prompt, workflow, and code search have multiple optimizer families supported by accepted primary research. In contrast, Priority Ranking, Rethinking Evaluation, and HarnessOpt-Bench, which evaluate optimizers independently, are new preprints from 2026. They have begun to establish a common problem formulation but do not yet constitute independent replication or cross-field consensus.
+Prompt, workflow, and code search have multiple optimizer families supported by accepted primary research. VeRO implements direct evaluation in accepted work, while Priority Ranking, Rethinking Evaluation, HarnessOpt-Bench, and Harness Updating Is Not Harness Benefit are new 2026 preprints that extend diagnostics, generalization, and capability decomposition. A common problem formulation is beginning to emerge, but it does not yet constitute independent replication or cross-field consensus.
 
 The protocol in Part III therefore is not a "standard consistently followed by existing research." It is a recommendation that combines gaps in the evaluation of existing methods with recent work on direct evaluation.
 

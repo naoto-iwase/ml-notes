@@ -243,20 +243,20 @@ website:
               contents:
                 - text: "概要"
                   href: ja/harness-optimization/overview.qmd
-                - text: "探索空間"
-                  href: ja/harness-optimization/search-space.qmd
                 - text: "失敗から Harness を改善する"
                   href: ja/harness-optimization/failure-driven-update.qmd
+                - text: "探索空間"
+                  href: ja/harness-optimization/search-space.qmd
                 - text: "Harness の改善を評価する"
                   href: ja/harness-optimization/improvement-evaluation.qmd
             - section: "II 研究の潮流と手法群"
               contents:
                 - text: "最適化ループ"
                   href: ja/harness-optimization/optimization-loop.qmd
-                - text: "編集対象"
-                  href: ja/harness-optimization/edit-surfaces.qmd
                 - text: "実行結果と失敗分析"
                   href: ja/harness-optimization/execution-feedback.qmd
+                - text: "編集対象"
+                  href: ja/harness-optimization/edit-surfaces.qmd
                 - text: "探索と進化"
                   href: ja/harness-optimization/search-evolution.qmd
                 - text: "候補生成器の学習"
@@ -284,20 +284,20 @@ website:
               contents:
                 - text: "Overview"
                   href: en/harness-optimization/overview.qmd
-                - text: "Search Space"
-                  href: en/harness-optimization/search-space.qmd
                 - text: "Improving a Harness from Failures"
                   href: en/harness-optimization/failure-driven-update.qmd
+                - text: "Search Space"
+                  href: en/harness-optimization/search-space.qmd
                 - text: "Evaluating Harness Improvements"
                   href: en/harness-optimization/improvement-evaluation.qmd
             - section: "II Research Trends and Method Families"
               contents:
                 - text: "Optimization Loops"
                   href: en/harness-optimization/optimization-loop.qmd
-                - text: "What to Edit"
-                  href: en/harness-optimization/edit-surfaces.qmd
                 - text: "Execution Feedback and Failure Analysis"
                   href: en/harness-optimization/execution-feedback.qmd
+                - text: "What to Edit"
+                  href: en/harness-optimization/edit-surfaces.qmd
                 - text: "Search and Evolution"
                   href: en/harness-optimization/search-evolution.qmd
                 - text: "Learning Candidate Generators"

@@ -16,70 +16,18 @@ pagetitle: "Harness の改善を評価する"
 
 一つ目だけでは不十分である。同じtaskを何度も使えば、optimizerはそのtaskに合わせてHarnessを作れる。これは未知のtaskへの改善ではなく、見たtaskへの適合である。
 
-## 評価の役割を分ける
+## 後続章への見取り図
 
-評価に使うtaskと仕組みは、optimizerへ見せる情報と役割で分ける。
+三つの質問は、後続章で別々のprotocolへ展開する。
 
-| 要素 | Optimizerに見せる情報 | 役割 |
-|---|---|---|
-| Development | taskと実行記録 | 更新候補を作る |
-| Validation | 評価値だけを限定的に返す | 複数候補から選ぶ |
-| Sealed test | 更新候補を確定するまで何も見せない | 未知のtaskで最終確認する |
-| Evaluator | optimizerから変更できない | 評価値、コスト、安全性を測る |
-| Acceptance rule $V$ | optimizerから変更できず、事前に固定 | 採用または却下を決める |
-
-Folderをtrain、validation、testに分けるだけでは境界にならない。Optimizerがtestの失敗内容を読める、testを何度も実行できる、またはEvaluatorを変更できるなら、そのtestは未知ではない。
-
-実際の流れは次のようになる。
-
-1. Development taskの実行記録から更新候補を作る
-2. Validationで候補を絞り、使用回数を記録する
-3. 候補を確定してからsealed testを実行する
-4. Evaluator、acceptance rule $V$、sealed testはoptimizerから変更できなくする
-5. 不採用なら元のHarnessへ戻せるようにする
-
-## 評価値以外も見る
-
-Harnessは、正解率だけでなくコストや安全性も変える。Versionごとに少なくとも次を記録する。
-
-| 観点 | 例 |
+| 質問 | 詳細を扱う章 |
 |---|---|
-| 品質 | 成功率、task別の評価値、失敗の型ごとの評価値 |
-| コスト | 探索に使ったtoken・tool call、採用後の実行コスト |
-| 応答時間 | 中央値、遅い実行、timeout率 |
-| 信頼性 | crash、不正なaction、retry、元へ戻した割合 |
-| 安全性 | 権限違反、信用できない入力からの越境 |
-| 安定性 | seed、task、model versionを変えたときのばらつき |
+| 見たtaskで良くなったか | Part IIの[最適化ループ](optimization-loop.qmd)と[実行結果と失敗分析](execution-feedback.qmd) |
+| 見ていないtaskでも良くなったか | Part IIIの[タスク分割](task-splits.qmd)と[モデル・環境間の汎化](target-environment-generalization.qmd) |
+| 既存能力や運用条件を壊していないか | Part IIIの[回帰・コスト・安全性](regression-cost-safety.qmd) |
 
-AFlowはHumanEvalで正解率と採用後のworkflow実行costを同時に比較する [@zhang2025aflow]。GEPAは一つの平均値だけで候補を選ばず、validation instanceごとに強い候補を複数残す [@agrawal2026gepa]。
-
-探索量も記録する必要がある。1,000個から選んだ最良候補と、10個から選んだ最良候補を最終評価値だけで比べると、前者が多く試した利点を隠してしまう。
-
-## 各手法で確認できる範囲
-
-| 手法 | 確認していること | 残る限界 |
-|---|---|---|
-| DGM [@zhang2026dgm] | 変更後にcompileし、coding benchmarkで評価する | Archive選択は同じbenchmarkの反復結果を使うため、benchmark外一般化とは別である |
-| Failure-Driven Workflow Refinement [@zhang2026failure] | Failure traceからworkflow editを作る機構を提案する | 公開arXiv版の表はillustrative projectionであり、実測効果量として使えない |
-| Harness-R1 [@shao2026harnessr1] | Same-batch、validation、test、held-out taskを分ける | Same-batch rewardはtransductiveであり、新しいenvironmentやtool APIは未検証である |
-
-この違いは、手法の優劣ではなく、どこまでを実験で確認したかの違いである。
-
-## 採用条件を先に決める
-
-結果を見た後に採用条件を変えると、都合の良い候補を選べてしまう。採用条件（promotion contract）は実験前に固定する。
-
-たとえば、次をすべて満たした場合だけ採用する。
-
-- sealed testの改善が事前に決めた基準以上である
-- 既存taskの失敗が増えていない
-- コストの増加が予算内である
-- toolの権限が広がっていない
-
-改善が小さく、seedやtaskによるばらつきが大きい場合は、無理に採用せず「判定不能」とする。
-
-各versionには、変更前後の差分、修正の根拠、model・tool・environmentのversion、探索量、評価結果を残す。これにより、採用理由と元へ戻す先を追跡できる。
+ここでの原則は一つである。候補生成、選択、停止判断に使った情報はすべて最適化dataであり、未知条件での最終評価とは分ける。Development / validation / sealed testのinformation flow、探索予算、promotion contract、rollbackの実装はPart IIIで定義する。
 
 ## 要点
 
-更新候補を作る仕組みと、採用を決める仕組みは分離する。未知のtaskで改善し、既存の成功・コスト・安全性を悪化させない候補だけを採用する。
+Harnessの改善は、見たtaskのgain、未知条件へのgeneralization、regressionの三問に分ける。具体的な分割と採用protocolはPart IIIで定義する。

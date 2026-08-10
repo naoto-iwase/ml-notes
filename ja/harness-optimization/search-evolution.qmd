@@ -4,21 +4,11 @@ pagetitle: "探索と進化"
 
 # 探索と進化
 
-前三章では、誰が、何を、どの実行結果にもとづいて変えるかを整理した。次に必要なのは、複数の候補をどの順で試し、結果を見て何を試すかを決めることである。単純に$N$個を試す方法もあれば、良かった候補の近くを探索する方法や、複数の系統を残す方法もある。
-
-$$
-H^* = \arg\max_{H\in\mathcal{H}} J_{\mathcal{D}_{\mathrm{opt}}}(H).
-$$
-
-上式は、候補集合$\mathcal{H}$から評価値$J$が最大のharnessを選ぶ、という目的を表す。ただし、prompt、workflow、codeは小さな変更でも挙動が大きく変わり、評価には費用とばらつきがある。本章では、**候補をどの順で評価し、どの履歴を残し、予算をどこへ配るか**で探索法を整理する。
+前三章では、誰が、何を、どの実行結果にもとづいて変えるかを整理した。次に必要なのは、複数の候補をどの順で試し、結果を見て何を試すかを決めることである。Prompt、workflow、codeは小さな変更でも挙動が大きく変わり、評価には費用とばらつきがある。本章では、**候補をどの順で評価し、どの履歴を残し、予算をどこへ配るか**で探索法を整理する。
 
 ## $N$個から選ぶ方法を基準にする
 
 最も単純なoptimizerは、$N$個のcandidateを独立に生成し、development scoreが最大のものを選ぶ。
-
-$$
-\hat H = \arg\max_{1\leq i\leq N}\widehat J(H_i).
-$$
 
 このbaselineは重要である。複雑なsearch algorithmが勝っても、単に多くのcandidateやtokenを使っただけかもしれない。比較では次を揃える。
 
@@ -61,25 +51,13 @@ Tree searchは、candidateをnode、editをedgeとして履歴を分岐させる
 
 MCTSでは、既知scoreが高いbranchだけを深掘りすると局所解へ偏る。未知branchの探索と既知branchの活用をbalanceするselection ruleが必要である。ただし、workflow evaluationの分散が大きい場合、node valueの差がartifactの差かsampling noiseか分からない。
 
-AFlowは六つのbenchmarkで既存baselineに対する平均5.7%の改善を報告し、一部taskでは小さいmodelのworkflowがGPT-4oを4.55%の採用後inference costで上回る [@zhang2025aflow]。これは各benchmarkで個別にsearchした結果であり、同じworkflowが別environmentへtransferした証拠ではない。またFigureのcostは主に最終workflowをtest setで動かす費用であり、全探索costではない。
+手法間比較では、最終workflowのinference costだけでなく、tree全体の探索costも含める。AFlowの各benchmarkで個別にsearchした結果は、同じworkflowが別environmentへtransferする証拠ではない。
 
 ## 予測器で評価を節約する
 
 Candidateをすべてfull rolloutで評価できない場合、少数評価からperformanceを予測するsurrogateを使う。
 
-MIPROはmulti-stage LM programのinstructionとdemonstration候補を生成し、Bayesian optimizationで組合せを選ぶ [@opsahlong2024mipro]。一次論文ではbaseline optimizerを7 program中5 programで上回り、最大約13%のaccuracy差を報告する。これは同一論文内でbudgetとtaskを定義した比較であり、workflow code search一般への効果量ではない。
-
-AgentSquareはplanning、reasoning、tool-use、memory moduleを進化・再結合し、in-context performance predictorでcandidateを絞る [@shang2025agentsquare]。Parentもselection候補に残すため、同じ`Eval_d`上では局所的な非劣化を作る。しかしsearch用taskと最終testの厳密な分離は一次論文から明確でない。報告された平均改善を未知task一般化と解釈しない。
-
-Surrogate searchでは二つのscoreを区別する。
-
-$$
-\tilde J(H) \quad \text{surrogate prediction},
-\qquad
-\widehat J(H) \quad \text{observed rollout score}.
-$$
-
-Selectionを$\tilde J$だけで行うと、surrogateの盲点へ探索が偏る。Finalistと不確実性が高いcandidateを実評価し、予測誤差も報告する。
+MIPROはmulti-stage LM programの組合せをBayesian optimizationで選び、AgentSquareはin-context performance predictorでworkflow candidateを絞る [@opsahlong2024mipro; @shang2025agentsquare]。予測値だけでselectionするとsurrogateの盲点へ探索が偏るため、finalistと不確実性が高いcandidateを実際のrolloutで評価し、予測誤差も報告する。
 
 ## 候補群を進化させる
 
@@ -93,46 +71,26 @@ Populationの利点は、一つのincumbentに探索を固定しないことで�
 
 一つの平均scoreでは、特定instanceに強いcandidateを早く捨てる。GEPAはvalidation instanceごとに最良となるcandidateの和集合をPareto archiveへ残し、そのcandidateからreflective mutationを作る [@agrawal2026gepa]。
 
-GEPAは四つのmain taskでGRPOより平均10%高いscoreを35倍少ないrolloutで報告し、同じtask群でMIPROv2を3.4から9.2 points上回る。比較budgetは論文内で揃えられているが、task、evaluator、target modelに依存する結果である。Pareto archiveは探索中のspecialistを保つ設計であり、deployment candidateが過去の全能力を保つ保証ではない。
-
-Pareto archiveとmulti-objective optimizationも区別する。GEPAのarchiveは主にinstance別scoreの非支配性を使う。Quality、cost、安全性を同時にpromotionする場合は、別の評価vectorとacceptance ruleが必要である。
+Pareto archiveとmulti-objectiveな採用は別である。GEPAのarchiveは主にinstance別scoreの強みを残す。Quality、cost、安全性を同時に満たすcandidateを採用するには、別の評価recordとacceptance ruleが必要である。
 
 ## Code archiveとopen-ended search
 
 ADASのMeta Agent Searchは、評価済みagent codeのarchiveをin-context exampleとしてcoding agentへ渡し、新しいagent systemを生成する [@hu2025adas]。DGMはさらに、archive内の複数parentからcodebaseを変更し、scoreが直ちに上がらないstepping stoneも系譜として残す [@zhang2026dgm]。
 
-DGMはSWE-benchで初期20.0%から50.0%、Polyglotで14.2%から30.7%への改善を報告する。これらは固定foundation modelを使うcoding-agent implementationの探索結果である。Archive selectionは同じcoding benchmarkの反復評価を使うため、別benchmarkでのtransfer実験があっても、search campaign自体はtransductiveである。
+DGMのarchive selectionは同じcoding benchmarkの反復評価を使うため、search campaign自体はtransductiveである。別benchmarkでのtransfer結果とは分けて読む。
 
 ![DGMのarchive tree（左）とfinal best agentへ至るlineage上の改善（右）。分岐archiveは、直ちに最高scoreでないcandidateも後続改善のstepping stoneとして保持する。出典: [@zhang2026dgm] Figure 3（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)、二panelを原論文の配置に合わせて結合・rasterizeし余白をcrop）](images/dgm-archive-progress.png){#fig-dgm-archive-progress}
 
 「Open-ended」は、評価なしに任意の方向へ進むことを意味しない。DGMではcandidate codeを実行し、benchmark scoreでarchiveへ追加する。Search spaceが広く、単調改善を要求しないことと、評価目的が存在しないことは別である。
 
-## Evolutionとlearned optimizerの違い
-
-Evolutionary optimizerは、個々のcandidate artifactをpopulationとして改善する。Learned optimizerは、candidateを作るpolicy parameterを複数optimization episodeから学習する。
-
-| 種類 | 持続するstate | 新しいtargetで必要なこと |
-|---|---|---|
-| Evolution | Population、archive、best artifact | 通常はsearchを再実行する |
-| Prompted LLM editor | Prompt、history、candidate archive | Editor promptを使ってsearchする |
-| Learned optimizer | Editor / policy weight | Candidateを生成し、外部評価する |
-
-RLPromptは離散prompt generatorをRLで学習する [@deng2022rlprompt]。Harness-R1はruntime patch generatorをonline RLで学習する [@shao2026harnessr1]。これらは次章で扱う。EvolutionのLLM mutation operatorが学習済みmodelであっても、現在のsearch campaign中にoperator weightを学ばないならlearned optimizerとは呼ばない。
-
 ## Selection biasを測る
 
-Development scoreで多数candidateを比較すると、最大値は上方に偏る。Candidate $i$の観測scoreを
-
-$$
-\widehat J_i = J_i + \varepsilon_i
-$$
-
-とすると、$\max_i\widehat J_i$を選ぶcandidate数が増えるほど、noise $\varepsilon_i$が大きいcandidateを拾いやすい。Model selectionで同じdataを繰り返し使うselection biasは古くから知られている [@cawley2010overfitting]。
+Development scoreで多数candidateを比較すると、偶然高いnoiseを含むcandidateを選びやすくなり、最大値は上方に偏る。同じdataを繰り返し使うselection biasは通常のmodel selectionでも知られている [@cawley2010overfitting]。
 
 対策は、単にseedを増やすことではない。
 
 - Developmentでproposalを作る
-- Validationで候補を選び、照会回数を記録する
+- Validationでpromotion候補を選び、照会回数を記録する
 - Finalistを確定してからsealed testを一度評価する
 - Incumbentも同じseedとcase-runで再評価する
 - Best-of-$N$ baselineと同じbudgetで比較する

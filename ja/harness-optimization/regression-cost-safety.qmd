@@ -8,33 +8,7 @@ pagetitle: "回帰・コスト・安全性"
 
 ## 回帰を定義する
 
-Incumbent $H_t$で成功したinstance集合を
-
-$$
-S_t=\{x:s(H_t,x)=1\}
-$$
-
-とする。Candidate $H'$が壊した集合は
-
-$$
-B(H')=\{x\in S_t:s(H',x)=0\}
-$$
-
-である。Regression rateを
-
-$$
-\rho(H')=\frac{|B(H')|}{|S_t|}
-$$
-
-と書く。平均scoreが上がっても$\rho(H')>0$になり得る。
-
-同時に、新しく解けるようになった集合
-
-$$
-G(H')=\{x:s(H_t,x)=0,\ s(H',x)=1\}
-$$
-
-を報告する。Net gain $|G|-|B|$だけでは、重要な旧taskを一件壊したことを隠すため、newly fixedとnewly brokenを別に示す。
+Candidateをincumbentと同じinstanceで比較し、**newly fixed**、**newly broken**、incumbentが成功していたtaskのうちcandidateが壊した割合を報告する。平均scoreやnet gainだけでは、重要な旧taskを一件壊したことを隠せる。
 
 ## 保持用taskを作る
 
@@ -53,54 +27,28 @@ AgentSquareは各search phaseでparentをcandidateに含め、同じ`Eval_d`上�
 
 ## 更新を重ねたときの忘却
 
-Harnessを複数roundで更新すると、最新failureだけを使うoptimizerは過去の改善を巻き戻し得る。
+Harnessを複数roundで更新すると、最新failureだけを使うoptimizerは過去の改善を巻き戻し得る。Archiveに旧versionがあっても、promotion ruleが旧taskを見なければregressionは防げない。
 
-$$
-H_0\rightarrow H_1\rightarrow\cdots\rightarrow H_T.
-$$
-
-Round $t$で、現在のfailure setだけで$H_{t+1}$を選ぶと、$H_1,\ldots,H_t$が解いたtaskを再確認しない。Archiveに旧versionがあっても、promotion ruleが旧taskを見なければregressionは防げない。
-
-Do Agent Optimizers Compound?は、Terminal-Bench 2.0のhard taskをPhase 1の12 taskとPhase 2で追加する10 taskに分け、GEPA、Meta Harness、regression controlをsearch loop内で強制するRELAI-VCLの3 optimizerを、各phase 200 rolloutの同一budgetで比較するtechnical reportである [@wang2026compound]。GEPAはunseen taskへのtransferで未最適化baselineを下回り、Meta HarnessはtransferするがPhase 2で改善を継続できず、RELAI-VCLだけが正のtransferと再最適化後の改善を両立したと報告する。これは一benchmark上の初期証拠であり、sealed-test generalizationの証明ではないが、continual harness optimizationではpreservationをsearch loop内へ組み込む必要性を示す。
+Do Agent Optimizers Compound?は、Terminal-Bench 2.0で二段階のtask streamを使い、regression controlをsearch loopへ組み込む方法だけが正のtransferと継続改善を両立したと報告する [@wang2026compound]。単一benchmarkのtechnical reportによる初期証拠だが、continual optimizationではpreservationを最後の検査ではなく探索中にも使う必要性を示す。
 
 ## 探索時と運用時のcost
 
-Costには少なくとも三種類ある。
+Costには少なくとも四種類ある。
 
 | Cost | 発生時点 | 例 |
 |---|---|---|
 | Search cost | Candidate生成・探索 | Optimizer token、candidate rollout |
-| Verification cost | Promotion前 | Compile、regression、sealed test、安全評価 |
+| Verification cost | Promotion前 | Compile、promotion用validation、regression、安全評価 |
+| Final reporting cost | Campaign終了後 | Sealed testの反復評価 |
 | Deployment cost | 採用後の各run | Target token、tool call、latency、retry |
 
 一回だけ高いsearch costを払い、deployment costを下げるharnessもある。逆に、探索は安くても、採用後に毎回複数agentを動かすworkflowは長期costが高い。
 
-利用回数$n$に対するtotal costを
-
-$$
-C_{\mathrm{total}}(H;n)
-=
-C_{\mathrm{search}}(H)
-+C_{\mathrm{verify}}(H)
-+n\,C_{\mathrm{deploy}}(H)
-$$
-
-とする。Break-evenはincumbentとの差で決まる。Search論文の一taskあたりcostだけをproduction costとみなさない。
-
-AFlowは最終workflowのaccuracyとinference costを比較するが、図のcostはoptimizer全探索費用ではない [@zhang2025aflow]。GEPAはMIPROv2とrollout budgetを揃え、API費用と最終prompt lengthも報告する [@agrawal2026gepa]。多くの研究はoptimizer model token、target model token、wall time、deployment latencyを同時には報告しない。
+Total costはsearch、verification、final reportingの一回分に、利用回数に応じたdeployment costを加えたものである。AFlowのcost figureのように最終workflowのinference costだけを示す場合、全探索費用とは分けて読む [@zhang2025aflow]。Break-evenはincumbentとの差と想定利用回数で決まる。
 
 ## 評価単位を揃える
 
-「100 evaluations」は、100 candidateか、100 case-runかで大きく異なる。一つのworkflow candidateを50 taskで動かせば50 case-runである。次を分ける。
-
-- Proposal count
-- Candidate count
-- Full validation pass
-- Case-run
-- Target-model token
-- Optimizer-model token
-- Tool / environment action
-- Wall-clock and concurrency
+「100 evaluations」は、100 candidateか100 case-runかで大きく異なる。Proposal、candidate、full validation pass、case-run、target・optimizer token、tool action、wall time、並列数を分ける。
 
 Surrogateを使うAgentSquareやMIPROはfull rollout数を減らせるが、predictorの推論costと最終実評価を含める [@shang2025agentsquare; @opsahlong2024mipro]。Invalid candidateに使ったcostも除外しない。
 
@@ -117,13 +65,7 @@ Edit surfaceが広いほど、candidateが実行前に壊れる。
 | Permission | File、network、tool allowlist |
 | Semantic | Unit test、task evaluator |
 
-Invalid rate
-
-$$
-\iota=\frac{N_{\mathrm{invalid}}}{N_{\mathrm{proposed}}}
-$$
-
-を報告する。Valid candidateだけのperformanceを示すと、広いsurfaceの探索効率を過大評価する。
+Invalid candidate数をproposal総数で割ったinvalid rateを報告する。Valid candidateだけのperformanceを示すと、広いsurfaceの探索効率を過大評価する。
 
 Harness-R1はpatch compilerとsandboxでinvalid patchを棄却する [@shao2026harnessr1]。DGMもcandidate codeを実行してarchiveへ入れる。しかしcompile成功はtask correctnessや安全性を意味しない。
 
@@ -173,54 +115,23 @@ LLM-as-a-judgeをoptimizerにも使う場合、self-preferenceにも注意する
 
 ## 採用規則
 
-Evaluation recordを
+Promotion contractは結果を見る前に固定する。
 
-$$
-r(H)=
-\left(
-q_{\mathrm{test}},
-\rho_{\mathrm{preserve}},
-C_{\mathrm{deploy}},
-L_{95},
-\iota,
-s_{\mathrm{unsafe}}
-\right)
-$$
+| Gate | 例 |
+|---|---|
+| Quality | Promotion用validationの改善が閾値以上 |
+| Preservation | Newly brokenとregression rateが上限以下 |
+| Cost・latency | Deployment budgetとtail latencyを満たす |
+| Validity | Invalid rateを報告し、finalistは実行可能 |
+| Safety | Critical violationがゼロ |
 
-とする。たとえば次のpromotion contractを事前に固定する。
-
-$$
-V(H',H_t)=\mathrm{accept}
-$$
-
-iff
-
-$$
-\begin{aligned}
-q_{\mathrm{test}}(H')-q_{\mathrm{test}}(H_t)&\geq\delta,\\
-\rho_{\mathrm{preserve}}(H')&\leq\epsilon,\\
-C_{\mathrm{deploy}}(H')&\leq C_{\max},\\
-L_{95}(H')&\leq L_{\max},\\
-s_{\mathrm{unsafe}}(H')&=0.
-\end{aligned}
-$$
-
-閾値$\delta,\epsilon$を結果を見てから変えない。Confidence intervalが閾値をまたぐ場合はaccept / rejectを強制せず、inconclusiveとする。
-
-Critical safety taskは平均へ入れずhard gateにする。Qualityが大きく上がっても、permission violation一件でrejectできる設計にする。
+Confidence intervalが閾値をまたぐ場合はaccept / rejectを強制せず、inconclusiveとする。Critical safety taskは平均へ入れずhard gateにする。
 
 ## 差し戻し
 
 Promotion後にしか見つからないregressionもある。Rollback可能性はartifact persistenceの一部である。
 
-保存するものは次である。
-
-- Incumbent binary / code / prompt
-- Candidate diffとparent
-- Database / memory schema migration
-- Environment compatibility
-- Evaluatorとacceptance record
-- Rollback triggerとoperator
+Incumbent、candidate diffとparent、schema migration、environment compatibility、評価record、rollback triggerを一緒に保存する。
 
 Memory schemaやdatabase stateを変更するcandidateは、codeを戻すだけではrollbackできない。Backward migrationまたはshadow writeを用意する。
 
@@ -228,31 +139,9 @@ Canary deploymentでは、trafficを一部だけcandidateへ流し、quality、c
 
 ## ばらつきと重大な失敗
 
-Agent executionは長いtailを持つ。Mean latencyやmean scoreだけでなく、次を報告する。
-
-- Medianと95 / 99 percentile latency
-- Timeout率
-- Tool retry分布
-- Seed間variance
-- Task family別worst-case
-- Catastrophic failure count
+Agent executionは長いtailを持つ。Meanだけでなく、median、95 / 99 percentile latency、timeout、retry、seed間variance、task family別worst-case、catastrophic failure countを報告する。
 
 Candidate評価を同じseedでpairedにするとvarianceを減らせるが、deploymentの多様なsamplingを隠さない。Final evaluationでは複数seedを使い、candidateとincumbentを同じenvironment snapshotで比較する。
-
-## 最小限の採用報告
-
-| 観点 | 必須報告 |
-|---|---|
-| Quality | Mean、task別、newly fixed |
-| Regression | Newly broken、preservation rate |
-| Search cost | Candidate、case-run、optimizer / target token |
-| Deployment cost | Token、tool、latency、retry |
-| Validity | Invalid rateと棄却理由 |
-| Safety | Threat model、attack success、permission event |
-| Stability | Seed、confidence interval、tail |
-| Operations | Version、rollback、canary result |
-
-「改善率」一つだけではpromotionできない。
 
 ## 要点
 

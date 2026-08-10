@@ -40,83 +40,24 @@ Harness optimizerのtransferには三種類ある。
 
 これらを混同すると、何が一般化したか分からない。Learned editorが新targetでpatchを生成できても、元のpatch自体がtransferしたわけではない。
 
-## Promptを別modelへ移す
+## 既存研究は何を転用したか
 
-Prompt surfaceはmodelごとにtokenization、pretraining、instruction tuningが異なる。RLPromptは、凍結したRoBERTaとGPT-2の間で離散promptのtransfer matrixを評価する [@deng2022rlprompt]。Source modelで学習したpromptを別targetへそのまま適用するため、artifact-level cross-targetの明確な例である。
+複数modelやdomainで改善したという結果だけでは、同じartifactが転用できたのか、optimizerを再実行したのか分からない。代表例を転用単位で整理する。
 
-結果はtransferが対称でないことを示す。$H_{\theta_1}$が$\theta_2$で動いても、$H_{\theta_2}$が$\theta_1$で同じだけ動くとは限らない。したがって、$m$個のtargetについて対角以外も含むmatrixを測る。
+| 研究 | 転用したもの | 読み方 |
+|---|---|---|
+| RLPrompt [@deng2022rlprompt] | Source modelで学習した離散prompt | RoBERTaとGPT-2間のartifact transfer。方向によって結果が異なる |
+| ADAS [@hu2025adas] | 発見したagent design | 別domain・modelへのdesign transfer。Promptやadapterの再調整を区別する |
+| DGM [@zhang2026dgm] | Coding-agent codeまたは探索法 | SWE-benchとPolyglot間のartifact transferと再探索を分ける |
+| Meta-Harness [@lee2026metaharness] | Coding proposer | Domainごとに別harnessを探索するoptimizer transfer |
+| Harness-R1 [@shao2026harnessr1] | 学習済みeditorと共通hook | Shared runtime内のcross-target。新しいtool APIへの転用ではない |
+| Self-Harness [@zhang2026selfharness] | Optimization recipe | Target modelごとにharnessを作り直す。発見したharness自体のmodel間転用とは別である |
 
-$$
-T_{ij}=J(H_{\theta_i};\theta_j,E,\mathcal{D}).
-$$
-
-Diagonal $T_{ii}$だけを報告すると、targetごとの再最適化しか分からない。
-
-APE、OPRO、ProTeGi、MIPRO、GEPAは複数modelで実験する場合があるが、多くはmodelごとにcandidateを作り直す [@zhou2023ape; @yang2024opro; @pryzant2023protegi; @opsahlong2024mipro; @agrawal2026gepa]。複数targetで改善したことと、一つのpromptがtargetをまたいだことを分ける。
-
-## Agent設計を移す
-
-ADASのMeta Agent Searchは、searchで発見したagent designを別domainや別foundation modelへ適用する評価を含む [@hu2025adas]。Code artifactはpromptより広い構造を持ち、modelが変わってもplanning、verification、debateのpatternが残る可能性がある。
-
-ただしdesign transferには二つの交絡がある。
-
-- 新targetに合わせてpromptやAPI adapterを変更したか
-- Transfer先のtaskを見てbest designを選び直したか
-
-「同じagent architecture」を使っても、model-specific promptを再調整すればpure artifact transferではない。Transfer時に許可した変更をdiffで示す。
-
-AgentSquareは六つの異なるtaskでagent moduleを探索するが、taskごとにsearchを行う [@shang2025agentsquare]。Taskの幅広さは一つのartifactのcross-environment evidenceではない。
-
-## Codeをmodel・benchmark間で移す
-
-DGMはcoding-agent codeを固定foundation modelの周囲で探索し、SWE-benchとPolyglotで評価する [@zhang2026dgm]。Paperは異なるmodelやbenchmarkへのtransferも調べる。
-
-ここでも二つを分ける。
-
-- SWE-benchで発見したcodeをPolyglotへそのまま移す
-- Polyglot用にDGM searchを新しく回す
-
-前者はartifact transfer、後者はoptimizerを別environmentで再利用した結果である。DGMのarchiveは同じbenchmark scoreを反復利用して形成されるため、cross-benchmarkに持ち出したscoreが重要になる。Search benchmark上の50.0%という最良値だけではtransferを評価できない。
-
-Code artifactはtool path、container、test command、repository layoutへ依存する。Cross-modelだけを変えてもenvironmentが同じなら、runtime portabilityは未検証である。
-
-## Meta-Harnessのsetting差
-
-Meta-Harnessはtext classification、math reasoning、agentic codingでharness sourceを探索する [@lee2026metaharness]。Text classificationではsearchとtestを分け、入力分布の変化も扱う。一方、coding settingでは同じTerminal-Bench task群をsearchと評価へ反復利用する。
-
-三domainで成功したことはoptimizer designの適用範囲を示すが、同じoptimized harnessが三domainをまたいだわけではない。各domainで別codeをsearchするため、これはoptimizer transferである。
-
-Meta-Harnessのようなcoding proposerを比較するときは、新environmentで
-
-- 既存candidate historyを持ち込むか
-- Proposer promptを変えるか
-- Interface validatorを変えるか
-- 同じsearch budgetを使うか
-
-を固定する。
-
-## Harness-R1のmodel間評価
-
-Harness-R1は専用editorが作ったruntime patchを、20のtarget agentへ適用するcross-target experimentを報告する [@shao2026harnessr1]。Target agentは凍結され、patchは共通hook schemaを通じて動く。63のtargetとbenchmarkの組合せで、多くは改善し、少数のregressionも報告される。
-
-これは一つのeditorが異なるtargetへ有効なpatchを生成・適用できる初期証拠である。ただし次は固定または限定されている。
-
-- WebShop、ALFWorld、DBBenchという三environment
-- 同じruntime hook design
-- 同じpatch compilerとsandbox
-- 三seed
-- 公開直後の未査読preprint
-
-したがって、**cross-target within a shared runtime**と表現するのが正確である。新しいtool API、browser、database schema、permission modelへのcross-environment generalizationは示していない。
+Prompt optimizerを複数modelで実行した場合も、modelごとにcandidateを作り直せばartifact transferではない。同じarchitectureと呼ぶ場合も、destinationで許したprompt、adapter、validatorの変更をdiffで示す。Code artifactはtool path、container、test command、repository layoutへ依存するため、cross-modelだけを変えた実験はruntime portabilityを測っていない。
 
 ## 実行環境を変える
 
 Cross-environmentでは、target modelを固定し、toolとstate transitionを変える。
-
-$$
-G_E(H)=J(H;\theta,E_{\mathrm{new}},\mathcal{D})
--J(H_0;\theta,E_{\mathrm{new}},\mathcal{D}).
-$$
 
 Environment差を段階化する。
 
@@ -128,50 +69,17 @@ Environment差を段階化する。
 | Behavioral | Website policy、simulator dynamics | 同じactionの結果が変化 |
 | Adversarial | Prompt injection、malicious tool output | Untrusted observation |
 
-対象となる主要論文では、contract-breakingなtool APIやpermission変更までsystematically評価する例はほぼない。Cross-environment generalizationは未解決問題として残る。
+本書で検討した一次研究の範囲では、contract-breakingなtool APIやpermission変更までsystematically評価した例は限られる。Cross-environment generalizationは未解決問題として残る。
 
 ## 組み合わせへの依存を測る
 
-Harnessとtargetの効果は加法的とは限らない。二つのtarget $\theta_1,\theta_2$と二つのharness $H_0,H_1$について、interactionを
-
-$$
-I =
-\bigl[J(H_1;\theta_2)-J(H_0;\theta_2)\bigr]
--
-\bigl[J(H_1;\theta_1)-J(H_0;\theta_1)\bigr]
-$$
-
-と置く。$I$が大きければ、harness改善はtarget-specificである。
-
-同様にenvironment interactionも測る。平均改善だけでなく、target×environment matrixとworst-caseを報告する。
-
-$$
-G_{\min}(H)=
-\min_{\theta\in\Theta,\,E\in\mathcal{E}}
-\left[J(H;\theta,E)-J(H_0;\theta,E)\right].
-$$
-
-平均が正でも$G_{\min}<0$なら、特定のdeploymentでregressionする。
+Harnessとtargetの効果は加法的とは限らない。同じcandidateとincumbentをtarget×environmentのmatrixで評価し、平均だけでなくworst-caseとregression countを報告する。あるmodelで大きく改善し、別modelで悪化するなら、そのharnessはtarget-specificである。
 
 ## Version updateへの耐性
 
 Provider modelやtool APIは同じ名前でも更新される。Cross-target studyではmodel IDだけでなく、checkpoint、API date、decoding parameter、system policyを記録する。
 
-Productionでは次のcanary protocolを使う。
-
-1. 現行$H_t$とcandidate $H'$を新versionで再評価する
-2. 旧versionでの改善が残るか確認する
-3. Output schema、tool call、latency、refusalを分解する
-4. Regressionがあればtarget-specific variantとして管理する
-5. Global defaultへ自動昇格しない
-
-Harnessを一つのuniversal artifactとして扱うより、互換性matrixをversion metadataへ持たせる。
-
-## 言語・領域をまたぐ
-
-Task languageやdomainもenvironmentに近いinteractionを持つ。英語promptを日本語taskへ使う、code benchmarkで発見したverification loopをweb taskへ使う、といったtransferでは、output formatだけでなくfailure distributionが変わる。
-
-同じaccuracy metricが使えても、evaluator qualityがlanguageやdomainで異なる可能性がある。Cross-domain evaluationではhuman-verified subsetまたはdomain-specific executable verifierを置く。
+新versionではincumbentとcandidateを同条件で再評価し、output schema、tool call、latency、refusalを分解する。言語やdomainを変える場合はevaluator qualityも変わり得るため、human-verified subsetまたはdomain-specificなexecutable verifierを置く。Harnessをuniversal artifactとみなさず、互換性matrixをversion metadataへ持たせる。
 
 ## 最小限の転用評価
 
@@ -189,4 +97,4 @@ Zero-shot transferとadapted transferを同じtable列に入れない。
 
 ## 要点
 
-Cross-target、cross-environment、cross-taskを別軸として評価する。同じmethodを各targetで再探索した結果はoptimizer transferであり、一つのartifactのtransferではない。現在の一次研究にはcross-modelやcross-domainの限定例があるが、新しいtool API、runtime、permissionまで含むcross-environment evidenceはほぼない。
+Cross-target、cross-environment、cross-taskを別軸として評価する。同じmethodを各targetで再探索した結果はoptimizer transferであり、一つのartifactのtransferではない。本書で検討した一次研究にはcross-modelやcross-domainの限定例がある一方、新しいtool API、runtime、permissionまで含むcross-environment evidenceは限られる。

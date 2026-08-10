@@ -4,30 +4,17 @@ pagetitle: "Improving a Harness from Failures"
 
 # Improving a Harness from Failures
 
-A failure alone does not reveal which part of the harness to change. We must identify the **first point of error** in the trajectory and create a small fix that addresses its cause.
+A failure alone does not reveal which part of the harness to change. First identify the **earliest divergence from the expected state**, then form a causal hypothesis and a small intervention. The first divergence is a diagnostic starting point, not proof of the cause.
 
-## Finding the First Point of Error
+## A Database-Query Example
 
-A trajectory records the task, actions, observations, tool results, and final evaluation. Inspect this record in the following order.
-
-1. Preserve the trajectory without modification
-2. Find the first step that diverged from the expected state
-3. Group failures caused by the same issue
-4. Change only the minimum scope needed to address the cause
-5. Rerun the target failure after the change
-6. Check that tasks that previously succeeded have not regressed
-
-For example, if a SQL syntax error occurs after the harness selects the wrong database table, fixing only the syntax leaves the root cause intact. The first step to fix is the incorrect table selection.
+For example, if a SQL syntax error follows selection of the wrong database table, fixing only the syntax leaves the upstream divergence intact. Changing the table-selection step and rerunning the task tests whether it caused the failure. Also inspect for still-earlier factors, such as incorrect schema metadata.
 
 @fig-failure-to-update shows the process of finding the first divergence, changing only the hook immediately before it, and using a separate evaluator to compare the harness before and after the change.
 
 ![Find the first divergence in a trajectory and change only the pre-action hook. Validate each candidate update against the target failure, existing successes, held-out tasks, and the tool policy.](images/failure-to-update.svg){#fig-failure-to-update fig-align="center" width="100%"}
 
-## Grouping Similar Failures
-
-The same cause can appear across multiple tasks. Instead of adding separate exception handling for each task, identify the shared failure pattern and fix its cause once.
-
-Failure-Driven Workflow Refinement records detailed trajectories, groups similar failures, and generates candidate workflow changes [@zhang2026failure]. However, these groupings are not ground truth. Combining failures with different causes into one pattern can make a single change break another task. Treat failure classification as **an approximation for narrowing the candidate updates**.
+Part II's [Execution Feedback and Failure Analysis](execution-feedback.qmd) explains which execution data to preserve and how to represent first divergences and recurring failures as signatures.
 
 ## What to Update
 
@@ -37,7 +24,7 @@ There are at least three ways to use information from failures.
 - Generate candidate workflow changes, evaluate them, and select one
 - Train the editor that generates candidate updates
 
-Reflexion stores a reflection after a failure in memory, changing the context read on the next attempt within the same task [@shinn2023reflexion]. It does not change the model weights. Because the paper does not evaluate promotion of this memory artifact across independent future tasks, Reflexion is a boundary case rather than a core example of persistent harness optimization.
+Reflexion stores a reflection after a failure in memory, changing the context read on the next attempt within the same task [@shinn2023reflexion]. It does not change the model weights, but it does not evaluate an updated artifact carried forward to an independent future task.
 
 Harness-R1 places an editor alongside a fixed target model. The editor reads failure trajectories and changes only predefined hooks [@shao2026harnessr1]. It reruns the same task set before and after the change, then trains the editor from the difference.
 
@@ -63,4 +50,4 @@ If narrow changes are insufficient, expand the verifiable scope one step at a ti
 
 ## Key Points
 
-To improve a harness from failures, preserve trajectories, find the first error, and fix only its cause. Even when training an editor, keep the acceptance rule outside the editor.
+To improve a harness from failures, preserve trajectories, form a causal hypothesis from the first divergence, and try to falsify it with the smallest change. Even when training an editor, keep the acceptance rule outside the editor.

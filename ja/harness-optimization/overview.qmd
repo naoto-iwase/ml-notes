@@ -4,19 +4,18 @@ pagetitle: "概要"
 
 # 概要
 
-同じmodelを使っていても、prompt、toolの見せ方、workflow、memory、失敗時のrecoveryが違えば、agentの結果は変わる。**Harness optimization**は、model weightを固定したまま、この周囲の実行系をagentの実行記録と評価から更新する問題である。
+同じmodelを使っていても、prompt、toolの見せ方、workflow、memory、失敗時のrecoveryが違えば、agentの結果は変わる。**Harness optimization**は、model weightを固定したまま、この周囲の実行系を実行記録と評価から更新し、後続taskへ持ち越す問題である。
 
 たとえば、agentがtoolの結果を確認せずに回答したとする。指示を変える、確認stepを追加する、回答前にvalidatorを置く、といった修正候補を作れる。ただし、候補を作っただけでは改善とは言えない。現行版と同じ条件で比較し、採用した変更を次のtaskへ残す必要がある。
 
 ## 何を Harness Optimization と呼ぶか
 
-Harnessには、system prompt、context assembly、retrieval、durable memory、tool mediation、workflow、verification、retry、rollbackが含まれる [@weng2026harness]。本書では、次の三条件を満たす更新をharness optimizationとして扱う。
+Harnessには、system prompt、context assembly、retrieval、durable memory、tool mediation、workflow、verification、retry、rollbackが含まれる [@weng2026harness]。本書では、次の二条件を満たす更新をharness optimizationとして扱う。
 
 1. 実行から得た記録や評価が更新を駆動する
 2. 更新後のharnessがversionとして保存され、将来のtaskへ持ち越される
-3. Optimizerから分離したevaluatorが現行版と更新候補を測り、事前に決めた採否規則が次versionを選ぶ
 
-三つ目の条件がなければ、optimizerはharnessと一緒に「何を改善と数えるか」まで変更できる。候補を作る仕組みと、候補を採用する仕組みは分離する。
+この定義は、既存研究を記述するための範囲である。一方、更新を信頼できる改善として採用するには、optimizerから分離したevaluatorで現行版と更新候補を測り、事前に決めた採否規則で次versionを選ぶ。本書はこれを**推奨評価protocol**として扱う。既存手法がこのprotocolを満たすかどうかは、手法の定義とは分けて評価する。
 
 ## 対象範囲
 
@@ -29,13 +28,13 @@ Harnessには、system prompt、context assembly、retrieval、durable memory、
 | 一回のtaskでsample数やreflection回数を増やす | 次回へ変更が残らないtest-time scalingであり、含めない |
 | Fine-tuningやRLでmodel weightを変える | Model optimizationであり、別に扱う |
 
-Autonomous researchやself-evolving agentという名前だけでは対象に含めない。上の三条件を満たすharness更新loopがあるかで判断する。
+Autonomous researchやself-evolving agentという名前だけでは対象に含めない。上の二条件を満たすharness更新loopがあるかで判断する。
 
 Reflexionは失敗後のreflectionを同じtask内の次の試行で利用する [@shinn2023reflexion]。これはtask-localなstate更新の境界例であり、独立した将来taskへversionとして持ち越すpersistent harness updateとは分ける。
 
 Harness-R1ではtarget modelを固定し、別のeditorが更新候補を生成する。学習するのはeditorだが、最終的に更新される対象はharnessである [@shao2026harnessr1]。
 
-## 更新候補を作り、外部で採否を決める
+## 信頼できる改善として採用する
 
 現在使っているharnessを**現行版**（incumbent）$H_t$、新しく試すものを**更新候補**（candidate）$H'_t$とする。Target agent $A_{\theta,H_t}$の$\theta$は固定したmodel parameterである。このagentを実行すると、実行記録 $\tau_t$と評価 $y_t$が得られ、optimizer $O$が更新候補を作る。
 
@@ -48,7 +47,7 @@ H_t & \text{otherwise}.
 \end{cases}
 $$
 
-採否規則 $V$ は、外部evaluatorが作った現行版と更新候補の評価記録を比較する。Optimizerは候補を提案できるが、evaluatorや$V$は変更できない。Target modelとenvironmentも原則として固定し、変更する場合は別versionとして比較する。
+推奨評価protocolでは、採否規則 $V$ が外部evaluatorによる現行版と更新候補の評価記録を比較する。Optimizerは候補を提案できるが、evaluatorや$V$は変更できない。Target modelとenvironmentも原則として固定し、変更する場合は別versionとして比較する。
 
 この境界を @fig-optimization-boundary に示す。
 

@@ -10,29 +10,7 @@ pagetitle: "最適化器の独立評価"
 
 ## 最終scoreに混ざる要因
 
-Optimization campaignの出力を
-
-$$
-H^*=
-\mathcal{A}
-\left(
-H_0,
-\theta,
-E,
-\mathcal{D}_{\mathrm{dev}},
-\mathcal{D}_{\mathrm{val}},
-B,
-F
-\right)
-$$
-
-とする。$\mathcal{A}$がoptimizer、$H_0$がseed harness、$\theta$がtarget model、$E$がenvironment、$B$がbudget、$F$がfeedback disclosure policyである。Final score
-
-$$
-J_{\mathrm{test}}(H^*)
-$$
-
-はこれらすべてに依存する。Optimizerだけを比較するには、他の要素を固定またはfactorialに変える。
+Optimization campaignの最終scoreは、optimizerだけでなくseed harness、target model、environment、development・validation data、budget、feedback disclosure policyに依存する。Optimizerだけを比較するには、他の要素を固定するか、factorialに一つずつ変える。
 
 「Method AのagentがMethod Bより高得点」だけでは、Aのoptimizerが優れているとは言えない。Aが高い初期harnessから始めた、testを多く見た、candidateを多く試した可能性がある。
 
@@ -62,9 +40,9 @@ Optimizerの更新trajectoryを直接測る。
 | Proposal validity | 実行可能candidate / proposal | Edit surfaceを扱えるか |
 | Improvement hit rate | Incumbentを上回るcandidate率 | Proposal quality |
 | Regression rate | 旧成功を壊すcandidate率 | 変更の局所性 |
-| Sample efficiency | Case-runあたりのheld-out gain | Budget効率 |
+| Sample efficiency | Case-runあたりのvalidation gain | Budget効率 |
 | Best-so-far curve | Budget $b$に対する最良validation score | Search speed |
-| Test regret | Oracle candidateとの差 | Selection quality |
+| Promotion regret | Validation上の最良candidateとの差 | Selection quality |
 | Attribution accuracy | 真のfailure site / priorityとの一致 | 診断能力 |
 | Calibration | Predicted improvementと実差分 | 自己評価の信頼性 |
 | Robustness | Seed / target / environment間の分散 | Transfer安定性 |
@@ -78,47 +56,19 @@ Optimizerには少なくとも二つの能力がある。
 1. 良いcandidateを集合に含める能力
 2. そのcandidateを限られた評価から選ぶ能力
 
-生成集合を$\mathcal{C}$、真のheld-out scoreを$J_{\mathrm{test}}$とすると、generatorの上限は
+生成集合の中でpromotion用validation scoreが最大のcandidateと、optimizerが実際に選んだcandidateの差を**selection regret**とする。この指標はsearch中のsurrogateや限られた照会からどれだけ良いcandidateを選べたかを測る。Sealed testでは生成集合を再順位づけせず、確定したcandidateとincumbentだけを評価する。
 
-$$
-J^*_{\mathcal{C}}
-=
-\max_{H\in\mathcal{C}}J_{\mathrm{test}}(H)
-$$
+Candidate集合に良いartifactがなければproposalの問題である。良いartifactがあるのに選べなければsurrogateやvalidationの問題である。
 
-である。Optimizerが選んだ$\hat H$との差
+## Harness updatingとbenefitを分ける
 
-$$
-\operatorname{regret}
-=
-J^*_{\mathcal{C}}-J_{\mathrm{test}}(\hat H)
-$$
+あるoptimizerが有効な更新を作る能力と、あるtarget agentが更新済みharnessから利益を得る能力は同じではない。Harness Updating Is Not Harness Benefitは、複数のanchor agentに対する更新後の平均gainを**updating capability**、複数のevolverが作った更新からtarget agentが得る平均gainを**benefit capability**として分ける [@lin2026harnessbenefit]。
 
-はselection lossを表す。$J^*_{\mathcal{C}}$の計算にtestを使うのはanalysis専用であり、optimizerへ返してはならない。
-
-Candidate集合に良いartifactがなければproposalの問題である。良いartifactがあるのに選べなければsurrogate、validation、acceptanceの問題である。
+Evolver×solverの組み合わせを交差させることで、良いupdaterと良いbeneficiaryを区別できる。Independent evaluationではこの二軸を報告し、一つのend-to-end gainをoptimizer固有の診断能力と解釈しない。
 
 ## 評価器と採用規則
 
-Evaluatorはmeasurementを返し、acceptance ruleはdecisionを返す。
-
-$$
-r(H)=E(H),
-\qquad
-V\bigl(r(H'),r(H_t)\bigr)\in
-\{\mathrm{accept},\mathrm{reject},\mathrm{inconclusive}\}.
-$$
-
-一つのLLM judgeに「candidateは改善したか」と聞き、そのyes/noをpromotionに使うと、測定、集約、閾値が隠れる。Evaluatorはraw componentを返す。
-
-- Executable test結果
-- Per-task score
-- Costとlatency
-- Invalid event
-- Safety event
-- Human ratingとuncertainty
-
-Acceptance ruleはこれらに事前の閾値を適用する。Optimizerはevaluator code、judge prompt、test、thresholdを変更できない。
+Evaluatorはmeasurement、acceptance ruleはdecisionを担う。一つのLLM judgeへ「改善したか」とだけ聞くと、測定、集約、閾値が隠れる。Executable test、task別score、cost、invalid・safety event、human ratingを別々に返し、事前の閾値で採否を決める。
 
 従来のoptimizer研究では、development metricとfeedbackをoptimizerが直接使うことが多く、evaluatorとacceptanceの分離が確立した標準とは言えない。この分離は、評価過適合とpromotion理由の不明確さを避けるための推奨protocolである。
 
@@ -126,15 +76,7 @@ Acceptance ruleはこれらに事前の閾値を適用する。Optimizerはevalu
 
 Target model、optimizer model、evaluator modelを別にしても、judge biasは残る。大規模言語モデル（large language model, LLM）のevaluatorが自身のgenerationを好むself-preferenceは実証されている [@panickssery2024selfpreference]。Prompt wordingの小さな差でmodel scoreが大きく変わることも報告されている [@sclar2024spurious]。
 
-LLM judgeを使う場合は、次を行う。
-
-- Candidate identityとoptimizer名をblindにする
-- Answer順をrandomizeする
-- Judge promptとmodel versionを固定する
-- Executable verifierがあるtaskではそちらを優先する
-- Human-verified subsetでjudge agreementを測る
-- 複数judgeのdisagreementを報告する
-- Optimizerと同じmodel familyだけに依存しない
+LLM judgeを使う場合は、candidate identityをblindにし、answer順をrandomizeし、promptとmodel versionを固定する。Executable verifierを優先し、human-verified subsetとのagreementと複数judge間のdisagreementを報告する。
 
 Judge explanationをoptimizerへ返す場合、そのjudgeはdevelopment feedback generatorである。Final acceptance evaluatorとは分ける。
 
@@ -154,9 +96,11 @@ Towards Direct Evaluation of Harness Optimizers via Priority Rankingは、optimi
 
 Human priorityをoracleとするため、複数箇所の相互作用や人間が見落とす改善も扱いにくい。End-to-end評価を置き換えるのではなく、diagnosticとして使う。
 
-## 条件を揃えた一貫評価
+## 条件を揃えたend-to-end評価
 
-HarnessOpt-Benchは、development、validation、hidden test、case-pass、target-model token budgetを固定し、OfficeQA、BrowseComp-Plus、Terminal-Bench、GAIAでoptimizerを比較する最近のpreprintである [@ursekar2026harnessopt]。
+VeROは、optimization objective、environment、harness、feedback、予算をversion化し、8つのoptimizer configurationを5 task、各3 iterationで比較するbenchmark harnessである [@ursekar2026vero]。主実験はtarget agentをGPT-4.1 miniに固定した120 experimentで、初期score、best score、gain、実行時間、run間の分散を報告する。ICML 2026採択研究であり、optimizerを更新過程から直接評価する主要な先行例である。
+
+HarnessOpt-Benchは、development、validation、hidden test、case-pass、target-model token budgetを固定し、OfficeQA、BrowseComp-Plus、Terminal-Bench、GAIAでoptimizerを比較する新しいpreprintである [@ursekar2026harnessopt]。
 
 重要な設計は次である。
 
@@ -167,33 +111,11 @@ HarnessOpt-Benchは、development、validation、hidden test、case-pass、targe
 - Final candidateとseedをtestで反復評価
 - Optimizer configuration自体も複数campaignで評価
 
-これはfinal scoreの交絡を減らすが、四benchmarkのshared protocolである。実運用のpermission、secret、長期memory migration、environment updateをすべて再現するものではない。また2026年8月公開の未査読preprintであり、標準として確立したとは言えない。
-
-## 推論時の追加計算との比較
-
-Rethinking the Evaluation of Harness Evolutionは、harness evolutionの同一task上の改善が、追加試行を使うtest-time scalingで説明できる場合を調べる [@wang2026rethinking]。Optimizer、target、budgetを揃え、unit testを使う設定、使わない設定、disjoint splitを比較する。
-
-この研究は、final scoreだけでなく次を問う。
-
-- Persistent harnessが本当に次の独立taskを改善したか
-- 同じtaskを追加samplingしただけではないか
-- Test feedbackがsearchへ漏れていないか
-- Harness editがtarget modelの一時的な推論増加より効率的か
-
-単一Terminal-Bench環境のpreprintであるため一般結論にはしないが、optimizer評価にtest-time compute baselineが必要であることを示す。
+VeROとHarnessOpt-Benchはいずれも交絡を減らすが、用意されたoptimization problem内での比較である。実運用のpermission、secret、長期memory migration、environment updateは別に評価する。HarnessOpt-Benchは2026年8月公開の未査読preprintであり、標準として確立したとは言えない。
 
 ## 最適化問題を複数用意する
 
-一つのtask benchmark内でharnessをsearchするだけでは、optimizer generalizationを測りにくい。Meta-levelにoptimization problem集合を置く。
-
-$$
-\mathcal{P}
-=
-\{(H_0^{(i)},\theta^{(i)},E^{(i)},
-\mathcal{D}^{(i)},\mathcal{H}^{(i)})\}_{i=1}^{M}.
-$$
-
-各$i$が一つのharness optimization problemである。Optimizerを一部problemで設計し、held-out problemで評価する。
+一つのtask benchmark内でharnessをsearchするだけでは、optimizer generalizationを測りにくい。Seed harness、target、environment、task、edit surfaceを組にしたoptimization problemを複数用意し、一部problemでoptimizerを設計し、held-out problemで評価する。
 
 - Held-out seed harness
 - Held-out edit surface
@@ -217,45 +139,28 @@ Candidate集合または一つのcandidateを提出し、benchmark側の固定pr
 
 両trackが必要である。固定acceptanceだけでは実際のoptimizer運用を測れず、end-to-endだけではcandidate qualityとselectionを分解できない。
 
-## 再現性
-
-Optimizer studyには最終artifactだけでなく更新履歴を公開する。
-
-- Seed harnessとhash
-- Edit surfaceとforbidden path
-- Optimizer prompt / checkpoint
-- Candidate lineageとdiff
-- Development / validationの照会log
-- Evaluator version
-- Budget counter
-- Random seed
-- Selected candidateと棄却candidate
-- Hidden testを実行した時点
-
-API modelやdynamic websiteを使う場合、完全再現ができないことを明記し、timestamp、response cache、environment snapshotを保存する。
-
 ## 最小限のbenchmark仕様
 
-Optimizer-independent evaluationには、次のcontractが必要である。
+Optimizer-independent evaluationには次のcontractが必要である。
 
-1. **Unit:** 一つのharness optimization problemを定義する
-2. **Boundary:** Target、environment、edit surface、forbidden surfaceを固定する
-3. **Feedback:** Developmentとvalidationで返す情報を定義する
-4. **Budget:** Candidateではなくcase-run、token、tool、wall timeで上限を置く
-5. **Sealing:** Hidden testをoptimizerとresearcherのadaptive selectionから守る
-6. **Baselines:** Incumbent、best-of-$N$、test-time scalingを置く
-7. **Diagnostics:** Validity、hit rate、regression、sample efficiencyを測る
-8. **Promotion:** Evaluatorとacceptance ruleを分ける
-9. **Transfer:** Held-out target / environment problemを置く
-10. **Safety:** Permissionとadversarial taskを含める
-11. **Statistics:** 複数campaign、paired run、uncertaintyを報告する
-12. **Artifacts:** Candidate lineageと実行記録を保存する
+| 要素 | 固定・報告するもの |
+|---|---|
+| Problem | Seed、target、environment、edit・forbidden surface |
+| Feedback | Development・validationで返す情報、照会log |
+| Budget | Case-run、token、tool、wall time |
+| Test | Optimizerとresearcherから封印した実行時点 |
+| Baseline | Incumbent、best-of-$N$、test-time scaling |
+| Diagnostics | Validity、hit rate、regression、sample efficiency |
+| Promotion | Evaluator、acceptance rule、安全gate |
+| Artifact | Optimizer version、candidate lineage、diff、seed |
+
+API modelやdynamic websiteでは、timestamp、response cache、environment snapshotを保存し、完全再現できない範囲を明記する。
 
 ![HarnessOpt-Benchのtrusted evaluation architecture。Optimizerはtarget agent codeだけを書き換え、development traceとvalidation aggregateを受け取る。Hidden testはtrusted server内に封印し、全model callのbudgetとcandidate executionを外側から強制する。出典: [@ursekar2026harnessopt] Figure 1（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)、原図をrasterize）](images/harnessopt-heldout-architecture.png){#fig-harnessopt-heldout-architecture}
 
 ## 現在分かっていること
 
-Prompt、workflow、code searchには、採択済み一次研究による複数のoptimizer familyがある。一方、optimizerを独立に評価するPriority Ranking、Rethinking Evaluation、HarnessOpt-Benchは2026年の新しいpreprintである。これらは共通の問題設定を示し始めたが、まだ独立追試や分野横断的な合意ではない。
+Prompt、workflow、code searchには、採択済み一次研究による複数のoptimizer familyがある。VeROは直接評価を採択済み研究として具体化し、Priority Ranking、Rethinking Evaluation、HarnessOpt-Bench、Harness Updating Is Not Harness Benefitは診断・汎化・能力分解を広げる2026年の新しいpreprintである。共通の問題設定は形成され始めたが、まだ独立追試や分野横断的な合意ではない。
 
 したがって、Part IIIのprotocolは「既存研究が一貫して実施している標準」ではなく、既存手法の評価上の欠落と、最近の直接評価研究を組み合わせた推奨である。
 

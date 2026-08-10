@@ -1,6 +1,6 @@
 ---
 title: "Harness Optimization"
-description: "Optimization and evaluation of executable harnesses around LLM agents"
+description: "Improving LLM agent harnesses and identifying reliable performance gains"
 date: "2026-08-08"
 date-modified: last-modified
 author:
@@ -11,6 +11,6 @@ image: "images/dgm-concept.png"
 toc: false
 ---
 
-An LLM agent's capabilities are shaped outside the model weights. What stays in context, how tools are exposed, when outputs are checked, and how execution recovers after failure all matter. Together, prompts, memory, control flow, validators, and recovery logic form the **executable harness**; changing them can alter which tasks the same model solves, at what cost, and with which failure modes.
+An LLM agent's behavior is not determined when its model is selected. What enters context, how tools are provided, when outputs are verified, and how the agent recovers from failure all matter. Even with the same model, the surrounding execution system changes which tasks it can solve, its cost, and its failure modes. This book calls that execution system, comprising prompts, memory, control flow, validators, and recovery logic, an **executable harness**.
 
-Can execution itself teach an AI system to improve that harness? This book treats prompt updates, workflow and memory adaptation, and runtime-code edits as one optimization problem. The challenge is not merely to propose changes, but to identify real gains under limited budgets and noisy evaluations, then carry forward only candidates that pass evaluation appropriate to their intended use. Claims of generalization require testing on tasks withheld from optimization.
+Can the harness itself be improved from execution records and evaluations without changing the model? This book treats edits to prompts, workflows, memory, and runtime code as a single optimization loop. It generates candidate updates from failures, identifies real improvements under limited budgets and noisy evaluations, and carries only verified changes forward to the next execution. The goal is not for the agent merely to change. The goal is to make that change a reproducible, reliable improvement.

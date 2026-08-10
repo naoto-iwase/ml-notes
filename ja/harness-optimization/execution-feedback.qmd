@@ -6,7 +6,7 @@ pagetitle: "実行結果と失敗分析"
 
 失敗率が30%だと分かっても、どこを直すべきかは分からない。全件が同じtool schemaで失敗したのか、計画、tool選択、検証で別々に失敗したのかによって、必要な修正は異なる。
 
-前章で編集可能な範囲を決めても、失敗箇所が分からなければ修正案は作れない。そこで最終scoreだけでなく、入力ごとの結果、actionとobservationの列、exceptionなどを保存する。この章では、これらの**実行結果**（execution feedback）から失敗箇所の仮説を作り、修正後の再実行で確かめるまでを扱う。
+前章では最適化loopの役割を分けた。候補を作るには、最終scoreだけでなく、入力ごとの結果、actionとobservationの列、exceptionなどをoptimizerへ返す必要がある。この章では、これらの**実行結果**（execution feedback）から反証可能な修正仮説を作るまでを扱う。実際にどのartifactを変更するかは次章で扱う。
 
 ## 実行結果から何が分かるか
 
@@ -23,21 +23,7 @@ pagetitle: "実行結果と失敗分析"
 
 ## 単一scoreでは原因が消える
 
-OPROはinstructionとtraining scoreの履歴を使って次のinstructionを生成する [@yang2024opro]。Scoreだけでも探索は可能だが、失敗instanceの構造を直接利用しない。Workflowのように複数stepを持つsystemでは、同じzero scoreが異なるfailure pathから生じる。
-
-Failure $f$をtrajectory $\tau$から抽出する写像$g$で表す。
-
-$$
-f=g(\tau).
-$$
-
-Scalar evaluatorはさらに$f$を一つの値へ圧縮する。
-
-$$
-y=s(f)\in\mathbb{R}.
-$$
-
-異なる$f_1$と$f_2$が同じ$y$になるなら、$y$だけから適切なedit surfaceを選べない。Failure attributionは、この圧縮前のtrajectoryへ戻り、変更候補を絞る作業である。
+OPROはinstructionとtraining scoreの履歴から次のinstructionを生成する [@yang2024opro]。Scoreだけでも候補を順位づけられるが、同じzero scoreが誤ったtool選択、schema error、timeoutのいずれから生じたかは分からない。Failure attributionは、scoreへ圧縮する前のtrajectoryへ戻り、変更候補を絞る作業である。
 
 ## 誤答例からtextual feedbackを作る
 
@@ -55,21 +41,7 @@ Textual feedbackはscalarより豊かだが、ground truthではない。Critiqu
 
 ## 最初のずれを特定する
 
-Trajectoryを
-
-$$
-\tau=(x,a_1,o_1,a_2,o_2,\ldots,a_T,o_T)
-$$
-
-とする。最終answerだけでなく、各action $a_t$とobservation $o_t$を保存する。期待stateまたは実行可能なconstraintから最初に外れたindexを
-
-$$
-t^*=\min\{t:\operatorname{valid}(a_t,o_t)=0\}
-$$
-
-と置く。
-
-$t^*$は一意に得られるとは限らない。正解trajectoryが存在しないtaskでは、validator自体が部分的である。また、早い段階の曖昧なretrievalが後続の明示的errorを誘発する場合、最初の違反と根本原因は一致しない。
+最終answerだけでなく、各actionとobservationを順序付きで保存し、期待stateまたは実行可能なconstraintから最初に外れたstepを探す。ただし、正解trajectoryが存在しないtaskではvalidator自体が部分的であり、最初の明示的違反と根本原因も一致するとは限らない。早い段階の曖昧なretrievalが、後続の明示的errorを誘発する場合があるためである。
 
 実務では次の順で調べる。
 
@@ -156,22 +128,7 @@ Web page、tool output、retrieved documentはuntrusted inputを含む。Traject
 
 Compileやsandboxに通ることは、semantic safetyを意味しない。正常に実行できるunsafe patchもある。
 
-## 最小限の記録形式
-
-比較可能な研究には、少なくとも次を保存する。
-
-| Field | 内容 |
-|---|---|
-| Task identity | Dataset、split、instance、timestamp |
-| Runtime identity | Target model、tool、environment、harness version |
-| Ordered events | Prompt、action、observation、tool result、latency |
-| Evaluator output | Raw score、verdict、error、cost、安全性event |
-| Attribution | 推定failure site、根拠event、confidence |
-| Edit | Parent、diff、変更surface、proposal model |
-| Verification | Targeted rerun、preservation、held-out、seed |
-| Decision | Accept、reject、inconclusive、rollback先 |
-
-自然言語summaryだけでraw eventを置き換えない。Summary modelが見落としたfailureを後から再解析できなくなる。
+Version間を比較するには、task・runtimeのidentity、順序付きevent、raw evaluator output、attribution、edit、verification、decisionを同じrecordへ結びつける。自然言語summaryだけでraw eventを置き換えない。Summary modelが見落としたfailureを後から再解析できなくなる。
 
 ## 要点
 

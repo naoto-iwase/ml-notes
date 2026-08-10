@@ -18,22 +18,7 @@ Task集合を少なくとも三つに分ける。
 
 重要なのはfolder名ではなくinformation flowである。Optimizerがtest scoreを読める、testを再実行できる、test failureを次のpromptへ入れるなら、そのsetはvalidationになっている。
 
-Outer-loop optimizerを$\mathcal{A}$とし、developmentとvalidationからharnessを作る過程を
-
-$$
-\widehat H
-=
-\mathcal{A}\bigl(\mathcal{D}_{\mathrm{dev}},
-\mathcal{D}_{\mathrm{val}},B\bigr)
-$$
-
-と書く。Generalizationは、$\mathcal{A}$がアクセスしなかった$\mathcal{D}_{\mathrm{test}}$で測る。
-
-$$
-\widehat J_{\mathrm{gen}}
-=
-J_{\mathcal{D}_{\mathrm{test}}}(\widehat H).
-$$
+Harnessを作るouter loop全体を学習algorithmとみなし、generalizationはそのloopがアクセスしなかったtestで測る。
 
 個々のcandidateがtestを見ていなくても、optimizer designerがtest結果を見てalgorithm、prompt、budgetを調整したなら、研究campaign全体ではtestへ適合している。
 
@@ -58,9 +43,7 @@ Optimizerがdeployment対象と同じtask集合またはbenchmark distribution�
 
 問題は、transductive resultを未知taskへの一般化として報告することである。
 
-Harness-R1の主要rewardは、failureを観測した同じtask batchをpatch前後で再実行する [@shao2026harnessr1]。これは局所修正の効果を測るpaired transductive evaluationである。Paperは別にheld-out taskとcross-target評価を行うため、三つを分けて読む。
-
-DGMも同じcoding benchmarkのdevelopment taskをarchive searchに反復利用する [@zhang2026dgm]。別benchmarkや別modelへのtransfer実験があっても、各search campaignは対応する評価分布へ適合する。
+Harness-R1のsame-batch rewardやDGMのbenchmark archive searchは、局所改善や探索には有効だがtransductiveである [@shao2026harnessr1; @zhang2026dgm]。別に報告されるheld-out・cross-target結果と分けて読む。
 
 Transductive studyでは、次を明示する。
 
@@ -76,34 +59,11 @@ Validationはselectionに使うため、反復するほどoptimizerへ情報を�
 
 Model selection procedure自体のoverfittingは古くから指摘されている [@cawley2010overfitting]。Public leaderboardにadaptiveに提出し続ける問題に対しては、limited feedbackを返すLadderのような設計が提案されている [@blum2015ladder]。Harness optimizationでも同じ問題が起きる。
 
-Validationについて少なくとも次を記録する。
+Candidate-level query数、full pass数、返した情報量、stoppingへの利用、人間が結果を見て変更した回数を記録する。Validation scoreを見てsearch promptを変更するなら、人間もoptimizerの一部である。
 
-- Candidate-level query数
-- Full validation pass数
-- 返した情報量
-- Stopping判断に使った回数
-- 人間が結果を見てoptimizerを変更した回数
-- 複数seedから最良campaignを選んだか
+## 論文のsplitを読む
 
-Validation scoreを毎iterationのplotとして確認し、悪化したらsearch promptを変更するなら、人間もoptimizerの一部である。
-
-## 既存手法の分割を読む
-
-Prompt・workflow optimizerの多くはtrain、validation、testを置くが、役割は同じではない。
-
-| Method | Searchに使うdata | Final evaluation | 注意点 |
-|---|---|---|---|
-| ProTeGi | 50 development examples | 150 test examples | Optimization stepごとのtest曲線を描くためsealed testではない [@pryzant2023protegi] |
-| RLPrompt | Train reward、validation selection | Test | 複数splitとcross-model transferを報告 [@deng2022rlprompt] |
-| MIPRO | Train proposal、validationでBayesian search | Held-out test | Programごとにsplitとbudgetを定義 [@opsahlong2024mipro] |
-| AFlow | 20%をworkflow search | 80% testを3回平均 | Benchmarkごとに別workflowを探索 [@zhang2025aflow] |
-| GEPA | Train/feedbackとPareto validation | Held-out test | Validation instance別archiveをsearchに使う [@agrawal2026gepa] |
-| Meta-Harness | 設定により異なる | Text分類では分離 | Codingでは同じtask群をsearchと評価へ反復利用 [@lee2026metaharness] |
-| Harness-R1 | Failure batchとpaired rerun | Validation、test、別held-out analysis | Same-batch rewardとtransferを分ける [@shao2026harnessr1] |
-
-Splitが存在することと、testがsealedであることは別である。Paper内のfigure、ablation、hyperparameter選択にtestを使えば、最終値にはselectionが入る。
-
-OPROはtraining scoreを探索に使うが、分析表では設定ごとにtest accuracyが最高のinstructionを示す [@yang2024opro]。これはoptimizerの存在証拠にはなるが、完全にtest-independentなcandidate selectionとしては読めない。
+Split名ではなく、candidate生成、selection、stopping、figure作成のどこへdataを使ったかを読む。たとえばProTeGiはoptimization stepごとのtest曲線を示し、OPROの分析にはtest accuracyが最大のinstructionを選んだ表がある [@pryzant2023protegi; @yang2024opro]。これらは探索機構の分析には使えるが、sealed testによる最終値とは区別する。
 
 ## 推論時の追加計算と比べる
 
@@ -117,31 +77,19 @@ Budget $B$について、少なくとも三つを比較する。
 
 三番が二番を上回らなければ、改善はpersistent artifactではなく追加試行の効果かもしれない。
 
-Rethinking the Evaluation of Harness Evolutionは、Terminal-Bench 2.1上でharness evolutionとtest-time scalingを同じ条件で比較する最近のpreprintである [@wang2026rethinking]。Disjointな45/10/34のtrain/validation/test設定では、held-out改善が平均0.6 pointに留まると報告する。単一benchmarkの初期証拠だが、same-task scoreだけでharness generalizationを判断できないことを具体的に示す。
+Rethinking the Evaluation of Harness Evolutionは、Terminal-Bench 2.1上でharness evolutionとtest-time scalingを同条件で比較し、same-taskで大きく見えた改善がdisjoint splitでは小さくなると報告する [@wang2026rethinking]。単一benchmarkのpreprintによる初期証拠だが、persistent artifactと追加試行を分ける必要性を示す。
 
 ## 評価dataへの情報漏洩を分ける
 
 Leakageには複数の経路がある。
 
-### Target model contamination
-
-Target modelがbenchmark問題や解答をpretrainingで見ている。これは通常のbenchmark contaminationであり、harness optimizerとは独立に起こる。
-
-### Optimizer model contamination
-
-Proposal modelがbenchmarkの名前、known solution、public agent implementationを知っている。Optimizerが生成した「改善」が、execution feedbackではなく記憶したsolutionの再生かもしれない。
-
-### Feedback leakage
-
-Hidden answer、unit test、judge rationale、failure trajectoryをoptimizerへ返す。Labelを直接示さなくても、繰り返すscoreは情報を持つ。
-
-### Researcher adaptation
-
-複数optimizer、prompt、seed、budgetをtest結果で比較し、最良だけを報告する。Testが人間のvalidationになる。
-
-### Temporal leakage
-
-将来taskとして評価するdataが、optimizerまたはtarget modelのtraining cutoffより前に公開されている。
+| 経路 | 何が漏れるか |
+|---|---|
+| Target model contamination | Pretrainingで見たbenchmark問題や解答 |
+| Optimizer model contamination | Known solutionや公開agent implementation |
+| Feedback leakage | Hidden answer、unit test、judge rationale、反復score |
+| Researcher adaptation | Testを見たoptimizer、prompt、seed、budgetの選択 |
+| Temporal leakage | 「将来task」がmodelのtraining cutoff以前に公開済み |
 
 これらを一つの「contaminationあり／なし」へまとめない。Known benchmarkでも、sealed instance、limited feedback、temporal splitを組み合わせて情報流入を減らせる。
 
@@ -159,29 +107,6 @@ Sealed testは「optimizer promptに名前を書かない」だけではない�
 - 再評価が必要な場合は新しいtest setを用意する
 
 Public benchmarkしかない場合、研究開始前にinstance splitとhashを固定し、testを別operatorが管理する。Test scoreを見た後の変更は次のstudyとして扱う。
-
-## HarnessOpt-Benchの設計
-
-HarnessOpt-Benchは、harness optimizerを評価するためにdevelopment、validation、hidden test、target-model token budget、case-pass budgetを明示する最近のpreprintである [@ursekar2026harnessopt]。OfficeQA、BrowseComp-Plus、Terminal-Bench、GAIAを使い、target model、environment、verifierを固定する。Final candidateをhidden testで複数回評価し、optimizer configuration自体も反復する。
-
-この設計はend-to-end比較を標準化する一歩である。ただし2026年8月公開の単一preprintであり、このbenchmark上の順位を実運用一般化の証拠とみなさない。とくにcross-environment、安全性、長期regressionは別評価が必要である。
-
-## 最終報告表
-
-各実験で次を一行にまとめる。
-
-| 項目 | 報告内容 |
-|---|---|
-| Optimization data | Task、instance数、feedback、反復回数 |
-| Validation | Size、情報開示、query数、stoppingへの利用 |
-| Test | Sealing方法、実行時点、再利用の有無 |
-| Budget | Candidate、case-run、token、tool、wall time |
-| Baselines | Incumbent、best-of-$N$、test-time scaling |
-| Randomness | Seed、run数、confidence interval |
-| Persistence | 保存artifactと適用する将来run |
-| Generalization level | Instance、task family、target、environment、time |
-
-「Held-outで改善した」と結論する前に、どのlevelがheld outかを表に書く。
 
 ## 要点
 
