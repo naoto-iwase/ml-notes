@@ -4,32 +4,32 @@ pagetitle: "性能退行・コスト・安全性"
 
 # 性能退行・コスト・安全性
 
-前二章で未知のタスク（task）や別の環境（environment）でも改善を確認しても、それだけでは採用できない。更新候補（candidate）が新たに10件を解けるようにしても、以前解けた重要タスクを1件壊し、毎回の実行コスト（cost）を倍にし、ツール（tool）権限（permission）の確認を迂回するなら不適切である。本章では、既存能力、コスト、安全性（safety）を別々に測り、採用条件を事前に決める。
+前二章で未知のタスクや別の環境でも改善を確認しても、それだけでは採用できない。更新候補（candidate）が新たに10件を解けるようにしても、以前解けた重要タスクを1件壊し、毎回の実行コストを倍にし、ツール権限の確認を迂回するなら不適切である。本章では、既存能力、コスト、安全性を別々に測り、採用条件を事前に決める。
 
 ## 性能退行を定義する
 
-更新候補を現行版（incumbent）と同じインスタンス（instance）で比較し、**新規修復（newly fixed）**、**新規破損（newly broken）**、現行版が成功していたタスクのうち更新候補が壊した割合を報告する。平均スコア（score）や正味改善（net gain）だけでは、重要な旧タスクを一件壊した性能退行（regression）を隠せる。
+更新候補を現行版（incumbent）と同じインスタンスで比較し、**新規修復**、**新規破損**、現行版が成功していたタスクのうち更新候補が壊した割合を報告する。平均スコアや正味改善だけでは、重要な旧タスクを一件壊した性能退行（regression）を隠せる。
 
 ## 保持用タスクを作る
 
-性能退行テスト（regression test）は、開発用データ（development data）の全タスクを毎回実行することではない。少なくとも次を含む保持用データ集合（preservation set）を版管理（versioning）する。
+性能退行テストは、開発用データ（development data）の全タスクを毎回実行することではない。少なくとも次を含む保持用データ集合を版管理する。
 
-- 以前のリリース（release）で成功した代表タスク
-- 過去に再発した失敗（failure）
-- ツール、メモリ（memory）、検証器（validator）のインターフェース契約（interface contract）
-- 低頻度だが重大な安全事例（case）
-- コストと遅延（latency）の上限事例
-- 対象モデル（target model）と環境の主要な版（version）
+- 以前のリリースで成功した代表タスク
+- 過去に再発した失敗
+- ツール、メモリ、検証器（validator）のインターフェース契約
+- 低頻度だが重大な安全事例
+- コストと遅延の上限事例
+- 対象モデル（target model）と環境の主要な版
 
-対象失敗集合（targeted failure set） $F_t$と保持用データ集合 $P_t$を分ける。更新候補が$F_t$を直しても、$P_t$で基準を下回れば昇格（promotion）させない。
+対象失敗集合 $F_t$と保持用データ集合 $P_t$を分ける。更新候補が$F_t$を直しても、$P_t$で基準を下回れば昇格（promotion）させない。
 
-AgentSquareは各探索段階（search phase）で親（parent）を更新候補に含め、同じ`Eval_d`上では親より悪い更新候補を選びにくくする [@shang2025agentsquare]。GEPAは昇格用検証データ（promotion validation）のインスタンスごとの専門家（specialist）をパレート候補集合（Pareto archive）へ残す [@agrawal2026gepa]。DGMは祖先コード（code）を候補集合（archive）へ保存する [@zhang2026dgm]。いずれも差し戻し（rollback）や探索（search）の多様性には有用だが、配備（deployment）全体で性能退行がないことの保証（regression-free guarantee）ではない。
+AgentSquareは各探索段階で親を更新候補に含め、同じ`Eval_d`上では親より悪い更新候補を選びにくくする [@shang2025agentsquare]。GEPAは昇格用検証データ（promotion validation）のインスタンスごとの専門家をパレート候補集合（Pareto archive）へ残す [@agrawal2026gepa]。DGMは祖先コードを候補集合（archive）へ保存する [@zhang2026dgm]。いずれも差し戻し（rollback）や探索の多様性には有用だが、配備全体で性能退行がないことの保証ではない。
 
 ## 更新を重ねたときの忘却
 
-ハーネス（harness）を複数ラウンド（round）で更新すると、最新の失敗だけを使う最適化器（optimizer）は過去の改善を巻き戻し得る。アーカイブに旧版があっても、採否規則（acceptance rule）が旧タスクを見なければ性能退行は防げない。
+ハーネス（harness）を複数ラウンドで更新すると、最新の失敗だけを使う最適化器（optimizer）は過去の改善を巻き戻し得る。アーカイブに旧版があっても、採否規則（acceptance rule）が旧タスクを見なければ性能退行は防げない。
 
-Do Agent Optimizers Compound?は、Terminal-Bench 2.0で二段階のタスク流（task stream）を使い、性能退行の制御（regression control）を探索ループ（search loop）へ組み込む方法だけが正の転用（positive transfer）と継続的改善を両立したと報告する [@wang2026compound]。単一ベンチマーク（benchmark）の技術報告（technical report）による初期証拠だが、継続的最適化（continual optimization）では保持を最後の検査ではなく探索中にも使う必要性を示す。
+Do Agent Optimizers Compound?は、Terminal-Bench 2.0で二段階のタスク流を使い、性能退行の制御を探索ループへ組み込む方法だけが正の転用と継続的改善を両立したと報告する [@wang2026compound]。単一ベンチマークの技術報告による初期証拠だが、継続的最適化では保持を最後の検査ではなく探索中にも使う必要性を示す。
 
 ## 探索時と運用時のコスト
 
@@ -37,112 +37,112 @@ Do Agent Optimizers Compound?は、Terminal-Bench 2.0で二段階のタスク流
 
 | コスト | 発生時点 | 例 |
 |---|---|---|
-| 探索コスト（search cost） | 更新候補の生成・探索 | 最適化器のトークン（token）、更新候補のロールアウト（rollout） |
-| 検証コスト（verification cost） | 昇格前 | コンパイル（compile）、昇格用検証データ、性能退行、安全性の評価 |
-| 最終報告コスト（final reporting cost） | 最適化期間（campaign）の終了後 | 封印テスト（sealed test）の反復評価 |
-| 配備コスト（deployment cost） | 採用後の各実行（run） | 対象のトークン、ツール呼び出し（tool call）、遅延、再試行（retry） |
+| 探索コスト | 更新候補の生成・探索 | 最適化器のトークン、更新候補のロールアウト |
+| 検証コスト | 昇格前 | コンパイル、昇格用検証データ、性能退行、安全性の評価 |
+| 最終報告コスト | 最適化期間（campaign）の終了後 | 封印テスト（sealed test）の反復評価 |
+| 配備コスト | 採用後の各実行 | 対象のトークン、ツール呼び出し、遅延、再試行 |
 
-一回だけ高い探索コストを払い、配備コストを下げるハーネスもある。逆に、探索は安くても、採用後に毎回複数のエージェント（agent）を動かすワークフロー（workflow）は長期コストが高い。
+一回だけ高い探索コストを払い、配備コストを下げるハーネスもある。逆に、探索は安くても、採用後に毎回複数のエージェントを動かすワークフローは長期コストが高い。
 
-総コスト（total cost）は探索、検証、最終報告の一回分に、利用回数に応じた配備コストを加えたものである。AFlowのコスト図（cost figure）のように最終ワークフローの推論コスト（inference cost）だけを示す場合、全探索費用とは分けて読む [@zhang2025aflow]。損益分岐点（break-even）は現行版との差と想定利用回数で決まる。
+総コストは探索、検証、最終報告の一回分に、利用回数に応じた配備コストを加えたものである。AFlowのコスト図のように最終ワークフローの推論コストだけを示す場合、全探索費用とは分けて読む [@zhang2025aflow]。損益分岐点は現行版との差と想定利用回数で決まる。
 
 ## 評価単位を揃える
 
-「100回の評価（evaluations）」は、100個の更新候補か100回の事例実行（case-run）かで大きく異なる。提案（proposal）、更新候補、昇格用検証データの全件走査（full validation pass）、事例実行、対象・最適化器のトークン、ツール操作（tool action）、経過時間（wall time）、並列数を分ける。
+「100回の評価」は、100個の更新候補か100回の事例実行（case-run）かで大きく異なる。提案、更新候補、昇格用検証データの全件走査、事例実行、対象・最適化器のトークン、ツール操作、経過時間、並列数を分ける。
 
-代理モデル（surrogate）を使うAgentSquareやMIPROは全ロールアウト（full rollout）数を減らせるが、予測器（predictor）の推論コストと最終実評価を含める [@shang2025agentsquare; @opsahlong2024mipro]。無効な更新候補（invalid candidate）に使ったコストも除外しない。
+代理モデル（surrogate）を使うAgentSquareやMIPROは全ロールアウト数を減らせるが、予測器の推論コストと最終実評価を含める [@shang2025agentsquare; @opsahlong2024mipro]。無効な更新候補に使ったコストも除外しない。
 
 ## 実行できない候補
 
 編集面（edit surface）が広いほど、更新候補が実行前に壊れる。
 
-| 無効性（invalidity） | 検査 |
+| 無効性 | 検査 |
 |---|---|
-| 構文・解析（syntax / parse） | 構文解析器（parser）、フォーマッタ（formatter） |
-| 型・スキーマ（type / schema） | 型検査器（type checker）、JavaScriptオブジェクト表記（JavaScript Object Notation, JSON）のスキーマ |
-| インターフェース（interface） | 契約テスト（contract test）、必須フック（required hook） |
-| 実行時（runtime） | 隔離環境（sandbox）、タイムアウト（timeout）、資源上限（resource limit） |
-| 権限 | ファイル、ネットワーク、ツール許可リスト（allowlist） |
-| 意味（semantic） | 単体テスト（unit test）、タスク評価器（task evaluator） |
+| 構文・解析 | 構文解析器、フォーマッタ |
+| 型・スキーマ | 型検査器、JavaScriptオブジェクト表記（JavaScript Object Notation, JSON）のスキーマ |
+| インターフェース | 契約テスト、必須フック |
+| 実行時 | 隔離環境（sandbox）、タイムアウト、資源上限 |
+| 権限 | ファイル、ネットワーク、ツール許可リスト |
+| 意味 | 単体テスト、タスク評価器 |
 
-無効な更新候補数を提案総数で割った無効率（invalid rate）を報告する。有効な更新候補だけの性能（performance）を示すと、広い編集面の探索効率を過大評価する。
+無効な更新候補数を提案総数で割った無効率を報告する。有効な更新候補だけの性能を示すと、広い編集面の探索効率を過大評価する。
 
-Harness-R1はパッチコンパイラ（patch compiler）と隔離環境で無効なパッチ（invalid patch）を棄却する [@shao2026harnessr1]。DGMも更新候補のコードを実行してアーカイブへ入れる。しかしコンパイル成功はタスクの正しさや安全性を意味しない。
+Harness-R1はパッチコンパイラと隔離環境で無効なパッチを棄却する [@shao2026harnessr1]。DGMも更新候補のコードを実行してアーカイブへ入れる。しかしコンパイル成功はタスクの正しさや安全性を意味しない。
 
 ## 安全性の性能退行
 
-ハーネスはモデル（model）の権限と情報の流れを変える。安全性には少なくとも次を含める。
+ハーネスはモデルの権限と情報の流れを変える。安全性には少なくとも次を含める。
 
 - ツール権限の拡大
-- プロンプトインジェクション（prompt injection）への追従
-- 秘密情報（secret）や非公開データ（private data）のコンテキスト（context）混入
+- プロンプトインジェクションへの追従
+- 秘密情報や非公開データのコンテキスト混入
 - 検証器の削除・迂回
-- 安全でない再試行（unsafe retry）や代替動作（fallback）
-- 外部への副作用（side effect）の重複
+- 安全でない再試行や代替動作
+- 外部への副作用の重複
 - 評価器（evaluator）・テストの改変
-- ロギング（logging）によるデータ保持（data retention）違反
+- ロギングによるデータ保持違反
 
-GEPAのPUPA実験は個人識別情報（personally identifiable information, PII）の漏洩（leakage）とタスク品質（task quality）を同時に扱う限定的な例である [@agrawal2026gepa]。一方、ProTeGiの「Jailbreak」は脱獄（jailbreak）入力の分類タスクであり、実行時ハーネス（runtime harness）が攻撃下で安全かを測る実験ではない [@pryzant2023protegi]。
+GEPAのPUPA実験は個人識別情報（personally identifiable information, PII）の漏洩とタスク品質を同時に扱う限定的な例である [@agrawal2026gepa]。一方、ProTeGiの「Jailbreak」は脱獄入力の分類タスクであり、実行時ハーネスが攻撃下で安全かを測る実験ではない [@pryzant2023protegi]。
 
-AgentDojoはツール使用エージェント（tool-using agent）に対する間接プロンプトインジェクション（indirect prompt injection）の動的環境（dynamic environment）を提供し、有用性（utility）と攻撃成功率（attack success）を分けて測る [@debenedetti2024agentdojo]。ハーネス最適化器の安全評価では、このような信頼できないツール出力（untrusted tool output）を性能退行一式（regression suite）へ含める。
+AgentDojoはツール使用エージェントに対する間接プロンプトインジェクションの動的環境を提供し、有用性と攻撃成功率を分けて測る [@debenedetti2024agentdojo]。ハーネス最適化器の安全評価では、このような信頼できないツール出力を性能退行一式へ含める。
 
 ## 被害抑制と安全性の証拠を分ける
 
-隔離環境、読み取り専用パス（read-only path）、フックのスキーマは被害範囲を制限する仕組み（mechanism）である。次とは異なる。
+隔離環境、読み取り専用パス、フックのスキーマは被害範囲を制限する仕組みである。次とは異なる。
 
 - 攻撃成功率が下がった
-- 権限違反（permission violation）がなかった
+- 権限違反がなかった
 - 秘密情報が出なかった
-- 敵対的入力（adversarial input）で品質が保たれた
+- 敵対的入力で品質が保たれた
 
-DGMやHarness-R1が隔離環境を使うことは、更新候補のコードを安全に試す上で重要である。しかし生成ハーネスの意味上の安全性（semantic safety）を実証したことにはならない。安全性の主張（safety claim）には攻撃タスク、脅威モデル（threat model）、評価器、結果が必要である。
+DGMやHarness-R1が隔離環境を使うことは、更新候補のコードを安全に試す上で重要である。しかし生成ハーネスの意味上の安全性を実証したことにはならない。安全性の主張には攻撃タスク、脅威モデル、評価器、結果が必要である。
 
 ## 評価器への過適合
 
-最適化器は評価器のスコアを最大化するため、評価器の不完全さを利用できる。報酬モデル（reward model）の最適化を強めると、真の代理指標外性能（proxy外性能）が悪化し得ることは報酬過剰最適化（reward overoptimization）の研究で示されている [@gao2023overoptimization]。
+最適化器は評価器のスコアを最大化するため、評価器の不完全さを利用できる。報酬モデルの最適化を強めると、真の代理指標外性能（proxy外性能）が悪化し得ることは報酬過剰最適化の研究で示されている [@gao2023overoptimization]。
 
 ハーネス最適化（harness optimization）では次の形で起きる。
 
 - 判定モデル（judge）が好む冗長な回答を生成する
-- 単体テストだけを通すハードコードされた分岐（hard-coded branch）を入れる
-- タイムアウト直前に不完全な解答（answer）を返す
-- 安全性評価器（safety evaluator）のキーワード（keyword）を避ける
+- 単体テストだけを通すハードコードされた分岐を入れる
+- タイムアウト直前に不完全な解答を返す
+- 安全性評価器のキーワードを避ける
 - 評価器の失敗を成功として扱う
 
-最適化器にも大規模言語モデル（large language model, LLM）による判定（LLM-as-a-judge）を使う場合、自己選好（self-preference）にも注意する。LLMの評価器は自身の生成物（generation）を好む傾向を示す研究がある [@panickssery2024selfpreference]。提案モデル（proposal model）と判定モデルの分離だけで偏り（bias）が消えるとは限らない。
+最適化器にも大規模言語モデル（large language model, LLM）による判定を使う場合、自己選好にも注意する。LLMの評価器は自身の生成物を好む傾向を示す研究がある [@panickssery2024selfpreference]。提案モデルと判定モデルの分離だけで偏りが消えるとは限らない。
 
-対策として、実行可能な検証器（executable verifier）、盲検による人間評価（blind human evaluation）、複数の独立した評価器、敵対的監査（adversarial audit）を組み合わせる。評価器間の不一致（evaluator disagreement）も報告する。
+対策として、実行可能な検証器、盲検による人間評価、複数の独立した評価器、敵対的監査を組み合わせる。評価器間の不一致も報告する。
 
 ## 採否規則
 
 昇格契約（promotion contract）は結果を見る前に固定する。
 
-| 関門（gate） | 例 |
+| 関門 | 例 |
 |---|---|
-| 品質（quality） | 昇格用検証データの改善が閾値以上 |
-| 保持（preservation） | 新規破損と性能退行率が上限以下 |
-| コスト・遅延 | 配備予算（deployment budget）と裾の遅延（tail latency）を満たす |
-| 有効性（validity） | 無効率を報告し、最終候補（finalist）は実行可能 |
-| 安全性 | 重大違反（critical violation）がゼロ |
+| 品質 | 昇格用検証データの改善が閾値以上 |
+| 保持 | 新規破損と性能退行率が上限以下 |
+| コスト・遅延 | 配備予算と裾の遅延を満たす |
+| 有効性 | 無効率を報告し、最終候補は実行可能 |
+| 安全性 | 重大違反がゼロ |
 
-信頼区間（confidence interval）が閾値をまたぐ場合は採用または不採用（accept / reject）を強制せず、結論保留（inconclusive）とする。重大な安全タスクは平均へ入れず厳格な関門（hard gate）にする。
+信頼区間が閾値をまたぐ場合は採用または不採用を強制せず、結論保留とする。重大な安全タスクは平均へ入れず厳格な関門にする。
 
 ## 差し戻し
 
-昇格後にしか見つからない性能退行もある。差し戻し可能性は成果物（artifact）の永続性（persistence）の一部である。
+昇格後にしか見つからない性能退行もある。差し戻し可能性は成果物（artifact）の永続性の一部である。
 
-現行版、更新候補の差分（diff）と親、スキーマ移行（schema migration）、環境互換性（environment compatibility）、評価記録（evaluation record）、差し戻しの発動条件（rollback trigger）を一緒に保存する。
+現行版、更新候補の差分と親、スキーマ移行、環境互換性、評価記録、差し戻しの発動条件を一緒に保存する。
 
-メモリのスキーマやデータベース状態（database state）を変更する更新候補は、コードを戻すだけでは差し戻しできない。後方移行（backward migration）またはシャドー書き込み（shadow write）を用意する。
+メモリのスキーマやデータベース状態を変更する更新候補は、コードを戻すだけでは差し戻しできない。後方移行またはシャドー書き込みを用意する。
 
-カナリア配備（canary deployment）では、トラフィック（traffic）を一部だけ更新候補へ流し、品質、コスト、遅延、安全性事象（safety event）を現行版と対にして（paired）比較する。オンライン評価器（online evaluator）を次の最適化器のフィードバック（feedback）へ使う前に、人間のインシデント対応（incident response）と自動最適化（automatic optimization）を分ける。
+カナリア配備では、トラフィックを一部だけ更新候補へ流し、品質、コスト、遅延、安全性事象を現行版と対にして比較する。オンライン評価器を次の最適化器のフィードバックへ使う前に、人間のインシデント対応と自動最適化を分ける。
 
 ## ばらつきと重大な失敗
 
-エージェントの実行は長い裾（tail）を持つ。平均（mean）だけでなく、中央値（median）、95・99パーセンタイル（percentile）の遅延、タイムアウト、再試行、シード（seed）間の分散（variance）、タスク系統別の最悪値（worst-case）、壊滅的失敗件数（catastrophic failure count）を報告する。
+エージェントの実行は長い裾を持つ。平均だけでなく、中央値、95・99パーセンタイルの遅延、タイムアウト、再試行、シード間の分散、タスク系統別の最悪値、壊滅的失敗件数を報告する。
 
-更新候補の評価を同じシードで対にすると分散を減らせるが、配備時の多様なサンプリング（sampling）を隠さない。最終評価（final evaluation）では複数のシードを使い、更新候補と現行版を同じ環境スナップショット（environment snapshot）で比較する。
+更新候補の評価を同じシードで対にすると分散を減らせるが、配備時の多様なサンプリングを隠さない。最終評価では複数のシードを使い、更新候補と現行版を同じ環境スナップショットで比較する。
 
 ## 要点
 
-対象とする失敗の改善と、既存能力の保持を別に測る。探索、検証、配備のコストを分離し、無効な更新候補も予算へ含める。隔離環境は被害抑制（containment）であって安全性の証拠ではない。品質、性能退行、コスト、遅延、安全性に対する事前の昇格契約を通過した更新候補だけを採用する。
+対象とする失敗の改善と、既存能力の保持を別に測る。探索、検証、配備のコストを分離し、無効な更新候補も予算へ含める。隔離環境は被害抑制であって安全性の証拠ではない。品質、性能退行、コスト、遅延、安全性に対する事前の昇格契約を通過した更新候補だけを採用する。

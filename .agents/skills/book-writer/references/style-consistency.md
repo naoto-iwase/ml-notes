@@ -61,16 +61,16 @@ Recommended Japanese terms include:
 
 Parallel subagents choose translations independently, so one concept can acquire three or four forms if unconstrained. **Enumerate the exact forms in the subagent prompt** and require them.
 
-### Introduce a Japanese Term Once per Chapter, Then Keep It Japanese
+### Gloss Only Important or Non-Obvious Terms, Then Keep Them Japanese
 
-Treat every chapter as independently readable and do not alternate between an English technical term and its Japanese translation:
+Treat every chapter as independently readable, but do not make every technical noun bilingual. Add an English gloss only when the translation is non-obvious, the term is central to the book, or readers need to match it to figures or source literature:
 
-1. Before parallel writing, choose canonical Japanese forms and include them in every subagent prompt.
-2. At first body use in each chapter, write `日本語（English）`, or `日本語（English full form, ACRONYM）` for an abbreviation.
+1. Before parallel writing, choose a **small** glossary of terms that genuinely need English correspondence and include it in every subagent prompt.
+2. For those selected terms, write `日本語（English）` at first body use in each relevant chapter, or `日本語（English full form, ACRONYM）` for an abbreviation.
 3. Thereafter use the Japanese form consistently. For a standard abbreviation, use either it or the Japanese form consistently; do not return to the raw English full form.
-4. In Phase 7, audit raw English prose terms and first-use definitions chapter by chapter.
+4. Do not gloss ordinary or established Japanese technical wording merely because an English equivalent exists. In Phase 7, audit both raw English leakage and excessive parenthetical glosses.
 
-For example, use `最適化器（optimizer）` once and `最適化器` thereafter. Apply the same rule to `評価器（evaluator）`, `現行版（incumbent）`, `更新候補（candidate）`, `編集面（edit surface）`, and `成果物（artifact）`. Method and product names, API identifiers, code, mathematical variables, citation keys, link destinations, and the common abbreviations exempted by `SKILL.md` are outside this rule.
+For example, a Harness Optimization book may keep `最適化器（optimizer）` because the term is central, mildly non-obvious, and appears in English figures. It should normally write `モデル`, `プロンプト`, `ツール`, `タスク`, `スコア`, `コスト`, `環境`, `コンテキスト`, and `シード` without English glosses. Method and product names, API identifiers, code, mathematical variables, citation keys, and link destinations preserve their original forms.
 
 ### Neural-Network Terminology in Japanese
 

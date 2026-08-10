@@ -4,49 +4,49 @@ pagetitle: "候補生成器の学習"
 
 # 候補生成器の学習
 
-大規模言語モデル（large language model, LLM）に修正案を書かせるだけでは、最適化器（optimizer）を学習したことにならない。修正案を作るLLMの重み（weight）を固定したまま使う方法と、複数回の修正結果から候補生成器（candidate generator）そのものを学習する方法は分けて考える必要がある。
+大規模言語モデル（large language model, LLM）に修正案を書かせるだけでは、最適化器（optimizer）を学習したことにならない。修正案を作るLLMの重みを固定したまま使う方法と、複数回の修正結果から候補生成器そのものを学習する方法は分けて考える必要がある。
 
-前章までの探索手法（search method）は、更新候補（candidate）と探索履歴を更新しても、候補生成器の重みは更新しない。APE、OPRO、GEPA、AFlow、Meta-Harnessはこの例であり、RLPromptやHarness-R1は候補生成器自体を学習する例である。本書では対象モデル（target model）自体の重み更新は扱わないが、**対象モデルとは別の最適化器を学習する方法**は扱う。最終的に配布されるものがモデル（model）外部のハーネス（harness）であることが境界になる。
+前章までの探索手法は、更新候補（candidate）と探索履歴を更新しても、候補生成器の重みは更新しない。APE、OPRO、GEPA、AFlow、Meta-Harnessはこの例であり、RLPromptやHarness-R1は候補生成器自体を学習する例である。本書では対象モデル（target model）自体の重み更新は扱わないが、**対象モデルとは別の最適化器を学習する方法**は扱う。最終的に配布されるものがモデル外部のハーネス（harness）であることが境界になる。
 
 ## 何が学習されるか
 
 | 区分 | 最適化期間（campaign）中に更新する重み | 継続して残るもの | 例 |
 |---|---|---|---|
-| 固定編集器（fixed editor） | なし | 更新候補と探索履歴 | Meta-Harness、GEPA |
-| 学習型候補生成器 | 最適化器の重み | 候補生成方策（candidate-generation policy）と選択済みハーネス | RLPrompt、Harness-R1 |
+| 固定編集器 | なし | 更新候補と探索履歴 | Meta-Harness、GEPA |
+| 学習型候補生成器 | 最適化器の重み | 候補生成方策と選択済みハーネス | RLPrompt、Harness-R1 |
 | 対象モデルの学習 | 対象モデルの重み | 更新済みの対象モデル | 本書の対象外 |
 
-Meta-Harnessのコーディング提案器（coding proposer）は固定編集器である。ソース（source）、スコア（score）、実行記録（trace）を読み、新しいハーネスコード（harness code）を生成するが、提案器（proposer）の重みは探索（search）中に変えない [@lee2026metaharness]。GEPAの反射的変異（reflective mutation）も固定編集器であり、更新されるのは更新候補プロンプト（candidate prompt）の母集団（population）である [@agrawal2026gepa]。
+Meta-Harnessのコーディング提案器は固定編集器である。ソース、スコア、実行記録（trace）を読み、新しいハーネスコードを生成するが、提案器の重みは探索中に変えない [@lee2026metaharness]。GEPAの反射的変異（reflective mutation）も固定編集器であり、更新されるのは更新候補プロンプトの母集団である [@agrawal2026gepa]。
 
-学習済み最適化器（learned optimizer）では、最適化器パラメータ（optimizer parameter）と対象モデルパラメータ（target model parameter）を分け、最適化器の学習性能（training performance）と、生成したハーネスの保留性能（held-out performance）を別々に評価する。
+学習済み最適化器（learned optimizer）では、最適化器パラメータと対象モデルパラメータを分け、最適化器の学習性能と、生成したハーネスの保留性能を別々に評価する。
 
 ## RLPrompt: 離散プロンプト生成器を学習する
 
-RLPromptは、凍結した対象モデルに付ける離散トークン（token）プロンプト（prompt）を生成する方策（policy）を強化学習（reinforcement learning, RL）のソフトQ学習（soft Q-learning）で学習する [@deng2022rlprompt]。対象モデルの勾配（gradient）や重み更新を必要とせず、タスク報酬（task reward）を方策へ返す。
+RLPromptは、凍結した対象モデルに付ける離散トークンプロンプトを生成する方策（policy）を強化学習（reinforcement learning, RL）のソフトQ学習で学習する [@deng2022rlprompt]。対象モデルの勾配や重み更新を必要とせず、タスク報酬を方策へ返す。
 
-この方法ではプロンプトを生成する方策の重みと、選択済みの離散プロンプトが別の成果物（artifact）として残る。RLPromptが対象モデルの重みを変えないことは、重み学習（weight learning）一般を本書へ含める理由にはならない。学習される方策が対象エージェント（target agent）そのものか、ハーネスの更新候補を作る最適化器かを確認する。
+この方法ではプロンプトを生成する方策の重みと、選択済みの離散プロンプトが別の成果物（artifact）として残る。RLPromptが対象モデルの重みを変えないことは、重み学習一般を本書へ含める理由にはならない。学習される方策が対象エージェント（target agent）そのものか、ハーネスの更新候補を作る最適化器かを確認する。
 
 ## クエリ固有生成器との境界
 
-FlowReasonerは、実行品質（execution quality）、複雑性（complexity）、効率（efficiency）を組み合わせた報酬（reward）でメタエージェント（meta-agent）を事後学習（post-train）し、利用者クエリ（user query）ごとにマルチエージェントシステム（multi-agent system）を生成する [@gao2025flowreasoner]。実行フィードバック（execution feedback）で最適化器方策を学ぶ点は関連する。
+FlowReasonerは、実行品質、複雑性、効率を組み合わせた報酬でメタエージェントを事後学習し、利用者クエリごとにマルチエージェントシステムを生成する [@gao2025flowreasoner]。実行フィードバック（execution feedback）で最適化器方策を学ぶ点は関連する。
 
-しかし、生成ワークフロー（workflow）は各クエリ（query）専用であり、選択したワークフロー成果物を次の独立タスク（task）へ版（version）として持ち越さない。持続する改善は主にメタエージェントの重みである。したがって、本書では学習済み最適化器の隣接研究として説明するが、永続ハーネス更新（persistent harness update）の中核例には数えない。
+しかし、生成ワークフローは各クエリ専用であり、選択したワークフロー成果物を次の独立タスクへ版として持ち越さない。持続する改善は主にメタエージェントの重みである。したがって、本書では学習済み最適化器の隣接研究として説明するが、永続ハーネス更新（persistent harness update）の中核例には数えない。
 
-この境界は学習済みモデルの有無ではなく、生成物を独立した将来タスクへ版として持ち越すかで決まる。クエリごとの計画（per-query planning）、テスト時ワークフロー合成（test-time workflow synthesis）、生成後選択（sample-and-select）は、出力を破棄するなら推論時スケーリング（test-time scaling）側である。
+この境界は学習済みモデルの有無ではなく、生成物を独立した将来タスクへ版として持ち越すかで決まる。クエリごとの計画、テスト時ワークフロー合成、生成後選択は、出力を破棄するなら推論時スケーリング（test-time scaling）側である。
 
 ## 実行時パッチを学習する
 
-Harness-R1は、失敗実行軌跡（trajectory）から実行可能な実行時フック（executable runtime hook）のパッチ（patch）を生成する専用ハーネスエンジニア（harness engineer）を学習する [@shao2026harnessr1]。対象エージェントは凍結し、編集器（editor）を教師あり微調整（supervised fine-tuning）とオンライン強化学習（online reinforcement learning）で事後学習する。
+Harness-R1は、失敗実行軌跡（trajectory）から実行可能な実行時フックのパッチを生成する専用ハーネスエンジニアを学習する [@shao2026harnessr1]。対象エージェントは凍結し、編集器を教師あり微調整とオンライン強化学習で事後学習する。
 
-編集面（edit surface）は実行時ライフサイクル（runtime lifecycle）の五つのフック（hook）である。リポジトリ（repository）全体を自由に書き換えるのではなく、コンテキスト構築（context construction）、ツール仲介（tool mediation）、動作検証（action validation）、復旧処理（recovery）などの限定されたインターフェース（interface）へパッチを出す。更新候補はコンパイル（compile）され、隔離環境（sandbox）内で同じタスクを再実行して報酬を計算する。
+編集面（edit surface）は実行時ライフサイクルの五つのフックである。リポジトリ全体を自由に書き換えるのではなく、コンテキスト構築、ツール仲介、動作検証、復旧処理などの限定されたインターフェースへパッチを出す。更新候補はコンパイルされ、隔離環境（sandbox）内で同じタスクを再実行して報酬を計算する。
 
-主要な対応報酬（paired reward）は、失敗を得たタスクバッチ（task batch）をパッチ前後で再実行した差から、無効なパッチとコスト（cost）増加を引いたものである。局所効果を測りやすい一方、観測済みタスクへの適応（transductive optimization）である。別に報告された保留タスク（held-out task）や対象横断（cross-target）の結果と分けて読む。
+主要な対応報酬は、失敗を得たタスクバッチをパッチ前後で再実行した差から、無効なパッチとコスト増加を引いたものである。局所効果を測りやすい一方、観測済みタスクへの適応（transductive optimization）である。別に報告された保留タスク（held-out task）や対象横断の結果と分けて読む。
 
-Harness-R1は学習済み実行時編集器（learned runtime editor）の**限定的な最新例**であり、学習済み最適化器研究全体の中核や確立済み標準ではない。系譜としてはRLPromptのようなプロンプト生成器学習、FlowReasonerのクエリ単位メタエージェント学習（query-level meta-agent learning）が先にあり、実行時コードまで編集面を広げた点が新しい。
+Harness-R1は学習済み実行時編集器（learned runtime editor）の**限定的な最新例**であり、学習済み最適化器研究全体の中核や確立済み標準ではない。系譜としてはRLPromptのようなプロンプト生成器学習、FlowReasonerのクエリ単位メタエージェント学習が先にあり、実行時コードまで編集面を広げた点が新しい。
 
 ## 報酬と採用を分ける
 
-学習済み最適化器の学習報酬（training reward）には、タスク差分、解析（parse）・コンパイル、コスト、保持（preservation）、安全性などの密な信号（dense signal）を使える。ただし、これらを加重和にすると係数が暗黙の採否規則（acceptance rule）になる。配備（deployment）では品質（quality）、性能退行（regression）、コスト、安全性を別々に測り、学習済み編集器の自己評価だけで採用しない。
+学習済み最適化器の学習報酬には、タスク差分、解析・コンパイル、コスト、保持、安全性などの密な信号を使える。ただし、これらを加重和にすると係数が暗黙の採否規則（acceptance rule）になる。配備では品質、性能退行（regression）、コスト、安全性を別々に測り、学習済み編集器の自己評価だけで採用しない。
 
 ## パッチ表現
 
@@ -54,18 +54,18 @@ Harness-R1は学習済み実行時編集器（learned runtime editor）の**限�
 
 | 表現 | 利点 | 限界 |
 |---|---|---|
-| ファイル全体（full file） | 表現力が高い | 差分（diff）が大きく、既存論理（logic）を消しやすい |
-| 統合差分（unified diff） | 親（parent）との差分が明確 | パッチコンテキスト不一致（patch context mismatch） |
-| 抽象構文木編集（abstract syntax tree edit, AST edit） | 構文妥当性（syntactic validity）を保ちやすい | 言語・スキーマ（schema）依存 |
-| フック本体（hook body） | インターフェースを固定できる | フック外の失敗（failure）を直せない |
-| ドメイン固有言語 / 演算子（domain-specific language / operator, DSL / operator） | 検証しやすい | 探索空間が設計者に制約される |
+| ファイル全体 | 表現力が高い | 差分が大きく、既存論理を消しやすい |
+| 統合差分 | 親との差分が明確 | パッチコンテキスト不一致 |
+| 抽象構文木編集 | 構文妥当性を保ちやすい | 言語・スキーマ依存 |
+| フック本体 | インターフェースを固定できる | フック外の失敗を直せない |
+| ドメイン固有言語 / 演算子 | 検証しやすい | 探索空間が設計者に制約される |
 
-Harness-R1はフックとパッチコンパイラ（patch compiler）で編集面を制約する。Meta-Harnessは単一ファイルのハーネスコード（single-file harness code）をコーディングエージェント（coding agent）が編集する。DGMはコードベース（codebase）全体を変更する。編集器能力を比較するときは、モデルだけでなくパッチ表現（patch representation）と権限差を揃える。
+Harness-R1はフックとパッチコンパイラで編集面を制約する。Meta-Harnessは単一ファイルのハーネスコードをコーディングエージェントが編集する。DGMはコードベース全体を変更する。編集器能力を比較するときは、モデルだけでなくパッチ表現と権限差を揃える。
 
-学習済み編集器の出力も、静的妥当性（static validity）、インターフェース、隔離環境、対象再実行（targeted rerun）、保持、保留評価、安全性の順で検証する。コンパイルは構文と一部インターフェースしか保証せず、隔離環境も外部への被害を制限するだけで意味的安全性（semantic safety）を証明しない。評価器（evaluator）、封印テスト（sealed test）、権限（permission）、採用閾値（acceptance threshold）、現行版（incumbent）、差し戻し（rollback）は編集器の変更範囲外に置く。
+学習済み編集器の出力も、静的妥当性、インターフェース、隔離環境、対象再実行、保持、保留評価、安全性の順で検証する。コンパイルは構文と一部インターフェースしか保証せず、隔離環境も外部への被害を制限するだけで意味的安全性を証明しない。評価器（evaluator）、封印テスト（sealed test）、権限、採用閾値、現行版（incumbent）、差し戻し（rollback）は編集器の変更範囲外に置く。
 
-以上でPart IIの方法分類を終える。しかし、探索中のスコアが上がっただけでは、未知タスク、別モデル・環境（environment）、性能退行・コスト・安全性、最適化器自体の優劣は分からない。Part IIIではこれらを順に切り分ける。
+以上でPart IIの方法分類を終える。しかし、探索中のスコアが上がっただけでは、未知タスク、別モデル・環境、性能退行・コスト・安全性、最適化器自体の優劣は分からない。Part IIIではこれらを順に切り分ける。
 
 ## 要点
 
-候補生成器の重みを固定する方法、候補生成器自体を学習する方法、対象モデルを学習する方法を区別する。対象モデルを固定して別の最適化器を学習する方法は本書の対象だが、クエリごとの生成だけで成果物を保存しない方法は境界外である。Harness-R1は失敗条件付き実行時編集器（failure-conditioned runtime editor）の非常に新しい限定例であり、外部検証（external validation）と採否判定（acceptance）を置き換えるものではない。
+候補生成器の重みを固定する方法、候補生成器自体を学習する方法、対象モデルを学習する方法を区別する。対象モデルを固定して別の最適化器を学習する方法は本書の対象だが、クエリごとの生成だけで成果物を保存しない方法は境界外である。Harness-R1は失敗条件付き実行時編集器の非常に新しい限定例であり、外部検証と採否判定を置き換えるものではない。

@@ -587,9 +587,9 @@ English (`en/`):
 - Use clear, concise language
 - Write callouts in English as well
 
-### Expand Abbreviations and Technical Terms at First Use
+### Expand Abbreviations and Selected Technical Terms at First Use
 
-**Expand abbreviations and technical terms at first use in every chapter.** Readers may read each chapter independently, so expand a term again even if it was already expanded in another chapter.
+**Expand abbreviations and only those technical terms whose Japanese-English mapping is non-obvious or needed to align with figures, source terminology, or a book's central conceptual vocabulary.** Do not add English glosses to every technical noun. Readers may read each chapter independently, so repeat a selected expansion in each chapter where it matters.
 
 Format:
 
@@ -609,7 +609,7 @@ Maximizing the evidence lower bound (ELBO)...
 Core rules:
 
 - **Each chapter is independent**: because every chapter may be read on its own, treat each chapter as a fresh first use
-- **Keep Japanese terminology canonical**: introduce a recurring concept as `日本語（English）`, then use that Japanese form for the rest of the chapter. Precommit the glossary for parallel writing and audit it in Phase 7. See [references/style-consistency.md](references/style-consistency.md)
+- **Keep selected Japanese terminology canonical**: for a term that genuinely needs an English gloss, introduce it as `日本語（English）`, then use the Japanese form for the rest of the chapter. Ordinary terms such as `モデル`, `プロンプト`, `ツール`, `タスク`, `スコア`, `コスト`, `環境`, `版`, `コンテキスト`, and `シード` normally need no gloss. Precommit the small glossary for parallel writing and audit it in Phase 7. See [references/style-consistency.md](references/style-consistency.md)
 - **Expand abbreviations in the H1 in the first body paragraph**: for example, if the title is `# LLaDA: MDLM 定式化を 8B にスケール`, do not put a parenthetical expansion in the H1 itself; expand it in the first body paragraph as `MDLM（Masked Diffusion Language Model）`
 - **Use only the abbreviation from its second appearance within the same chapter**
 - **Common abbreviations such as PDF / OCR / API / GPU / CPU are allowed without expansion**
