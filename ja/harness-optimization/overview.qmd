@@ -4,39 +4,39 @@ pagetitle: "概要"
 
 # 概要
 
-同じmodelを使っていても、prompt、toolの見せ方、workflow、memory、失敗時のrecoveryが違えば、agentの結果は変わる。**Harness optimization**は、model weightを固定したまま、この周囲の実行系を実行記録と評価から更新し、後続taskへ持ち越す問題である。
+同じモデル（model）を使っていても、プロンプト（prompt）、ツール（tool）の見せ方、ワークフロー（workflow）、メモリ（memory）、失敗時の復旧処理（recovery）が違えば、エージェント（agent）の結果は変わる。**ハーネス最適化（harness optimization）**は、モデル重み（model weight）を固定したまま、この周囲の実行系を実行記録（trace）と評価から更新し、後続タスク（task）へ持ち越す問題である。
 
-たとえば、agentがtoolの結果を確認せずに回答したとする。指示を変える、確認stepを追加する、回答前にvalidatorを置く、といった修正候補を作れる。ただし、候補を作っただけでは改善とは言えない。現行版と同じ条件で比較し、採用した変更を次のtaskへ残す必要がある。
+たとえば、エージェントがツールの結果を確認せずに回答したとする。指示を変える、確認手順（step）を追加する、回答前に検証器（validator）を置く、といった修正候補を作れる。ただし、候補を作っただけでは改善とは言えない。現行版（incumbent）と同じ条件で比較し、採用した変更を次のタスクへ残す必要がある。
 
-## 何を Harness Optimization と呼ぶか
+## 何をハーネス最適化と呼ぶか
 
-Harnessには、system prompt、context assembly、retrieval、durable memory、tool mediation、workflow、verification、retry、rollbackが含まれる [@weng2026harness]。本書では、次の二条件を満たす更新をharness optimizationとして扱う。
+ハーネス（harness）には、システムプロンプト（system prompt）、コンテキスト構築（context assembly）、検索（retrieval）、永続メモリ（durable memory）、ツール仲介（tool mediation）、ワークフロー、検証（verification）、再試行（retry）、差し戻し（rollback）が含まれる [@weng2026harness]。本書では、次の二条件を満たす更新をハーネス最適化として扱う。
 
 1. 実行から得た記録や評価が更新を駆動する
-2. 更新後のharnessがversionとして保存され、将来のtaskへ持ち越される
+2. 更新後のハーネスが版（version）として保存され、将来のタスクへ持ち越される
 
-この定義は、既存研究を記述するための範囲である。一方、更新を信頼できる改善として採用するには、optimizerから分離したevaluatorで現行版と更新候補を測り、事前に決めた採否規則で次versionを選ぶ。本書はこれを**推奨評価protocol**として扱う。既存手法がこのprotocolを満たすかどうかは、手法の定義とは分けて評価する。
+この定義は、既存研究を記述するための範囲である。一方、更新を信頼できる改善として採用するには、最適化器（optimizer）から分離した評価器（evaluator）で現行版と更新候補（candidate）を測り、事前に決めた採否規則（acceptance rule）で次の版を選ぶ。本書はこれを**推奨評価プロトコル（recommended evaluation protocol）**として扱う。既存手法がこのプロトコルを満たすかどうかは、手法の定義とは分けて評価する。
 
 ## 対象範囲
 
-重要な境界は、更新後のharnessが将来の実行へ残るかである。一回答の途中で候補を生成して破棄するだけなら、harness optimizationには含めない。
+重要な境界は、更新後のハーネスが将来の実行へ残るかである。一回答の途中で候補を生成して破棄するだけなら、ハーネス最適化には含めない。
 
 | 変更 | 本書での扱い |
 |---|---|
-| Prompt、tool policy、workflow、memory policyを評価後に保存する | 含める |
-| Memoryへ通常の実行記録を追加する | State更新であり、それだけでは最適化と呼ばない |
-| 一回のtaskでsample数やreflection回数を増やす | 次回へ変更が残らないtest-time scalingであり、含めない |
-| Fine-tuningやRLでmodel weightを変える | Model optimizationであり、別に扱う |
+| プロンプト、ツール方針（tool policy）、ワークフロー、メモリ方針（memory policy）を評価後に保存する | 含める |
+| メモリへ通常の実行記録を追加する | 状態（state）更新であり、それだけでは最適化と呼ばない |
+| 一回のタスクでサンプル（sample）数や内省（reflection）回数を増やす | 次回へ変更が残らない推論時スケーリング（test-time scaling）であり、含めない |
+| ファインチューニング（fine-tuning）や強化学習（reinforcement learning, RL）でモデル重みを変える | モデル最適化（model optimization）であり、別に扱う |
 
-Autonomous researchやself-evolving agentという名前だけでは対象に含めない。上の二条件を満たすharness更新loopがあるかで判断する。
+自律型研究（autonomous research）や自己進化エージェント（self-evolving agent）という名前だけでは対象に含めない。上の二条件を満たすハーネス更新ループ（harness update loop）があるかで判断する。
 
-Reflexionは失敗後のreflectionを同じtask内の次の試行で利用する [@shinn2023reflexion]。これはtask-localなstate更新の境界例であり、独立した将来taskへversionとして持ち越すpersistent harness updateとは分ける。
+Reflexionは失敗後の内省を同じタスク内の次の試行で利用する [@shinn2023reflexion]。これはタスク内（task-local）の状態更新の境界例であり、独立した将来タスクへ版として持ち越す永続的ハーネス更新（persistent harness update）とは分ける。
 
-Harness-R1ではtarget modelを固定し、別のeditorが更新候補を生成する。学習するのはeditorだが、最終的に更新される対象はharnessである [@shao2026harnessr1]。
+Harness-R1では対象モデル（target model）を固定し、別の編集器（editor）が更新候補を生成する。学習するのは編集器だが、最終的に更新される対象はハーネスである [@shao2026harnessr1]。
 
 ## 信頼できる改善として採用する
 
-現在使っているharnessを**現行版**（incumbent）$H_t$、新しく試すものを**更新候補**（candidate）$H'_t$とする。Target agent $A_{\theta,H_t}$の$\theta$は固定したmodel parameterである。このagentを実行すると、実行記録 $\tau_t$と評価 $y_t$が得られ、optimizer $O$が更新候補を作る。
+現在使っているハーネスを**現行版** $H_t$、新しく試すものを**更新候補** $H'_t$とする。対象エージェント（target agent）$A_{\theta,H_t}$の$\theta$は固定したモデルパラメータ（model parameter）である。このエージェントを実行すると、実行記録 $\tau_t$と評価 $y_t$が得られ、最適化器 $O$が更新候補を作る。
 
 $$
 H'_t = O(H_t, \tau_t, y_t), \qquad
@@ -47,15 +47,15 @@ H_t & \text{otherwise}.
 \end{cases}
 $$
 
-推奨評価protocolでは、採否規則 $V$ が外部evaluatorによる現行版と更新候補の評価記録を比較する。Optimizerは候補を提案できるが、evaluatorや$V$は変更できない。Target modelとenvironmentも原則として固定し、変更する場合は別versionとして比較する。
+推奨評価プロトコルでは、採否規則 $V$ が外部評価器による現行版と更新候補の評価記録を比較する。最適化器は候補を提案できるが、評価器や$V$は変更できない。対象モデルと環境（environment）も原則として固定し、変更する場合は別の版として比較する。
 
 この境界を @fig-optimization-boundary に示す。
 
-![固定modelを囲む変更可能なharnessと、optimizerから分離されたevaluatorおよび採否規則。実行結果から更新候補を作り、外部評価を通過した候補だけを保存する。](images/optimization-boundary.svg){#fig-optimization-boundary fig-align="center" width="100%"}
+![固定モデルを囲む変更可能なハーネスと、最適化器から分離された評価器および採否規則。実行結果から更新候補を作り、外部評価を通過した候補だけを保存する。](images/optimization-boundary.svg){#fig-optimization-boundary fig-align="center" width="100%"}
 
-## 更新loop全体を比較する
+## 更新ループ全体を比較する
 
-本書では、個別のmodel名やagent frameworkではなく、次の更新loop全体を比較する。
+本書では、個別のモデル名やエージェントフレームワーク（agent framework）ではなく、次の更新ループ全体を比較する。
 
 $$
 \text{Current harness}
@@ -67,14 +67,14 @@ $$
 \rightarrow \text{Next version}.
 $$
 
-同じprompt optimizerでも、training exampleだけで候補を選ぶ方法と、未使用taskで確認する方法では、改善という主張の強さが異なる。同じworkflow editorでも、対象の失敗だけを直す方法と、既存の成功や安全性まで確認する方法は分けて考える。
+同じプロンプト最適化器でも、訓練例（training example）だけで候補を選ぶ方法と、未使用タスクで確認する方法では、改善という主張の強さが異なる。同じワークフロー編集器でも、対象の失敗だけを直す方法と、既存の成功や安全性まで確認する方法は分けて考える。
 
 比較できる実験にするには、開始前に次の五点を固定する。
 
-- **変更範囲:** 変更可能なfile、hook、prompt、tool schema
-- **固定条件:** API、権限、timeout、出力schema
-- **保存する状態:** taskをまたいで残るもの
-- **評価指標:** quality、cost、応答時間、failure rateの集計方法
+- **変更範囲:** 変更可能なファイル（file）、フック（hook）、プロンプト、ツールスキーマ（tool schema）
+- **固定条件:** API、権限、タイムアウト（timeout）、出力スキーマ（output schema）
+- **保存する状態:** タスクをまたいで残るもの
+- **評価指標:** 品質（quality）、コスト（cost）、応答時間（response time）、失敗率（failure rate）の集計方法
 - **採否規則:** 更新候補を採用・棄却し、必要なら元へ戻す条件
 
-たとえば「pre-action hookは変更可、evaluatorとtool権限は変更不可」と書ける状態にする。この境界が曖昧だと、性能差がharnessの変更によるものか、条件の違いによるものか分からない。
+たとえば「行動前フック（pre-action hook）は変更可、評価器とツール権限は変更不可」と書ける状態にする。この境界が曖昧だと、性能差がハーネスの変更によるものか、条件の違いによるものか分からない。

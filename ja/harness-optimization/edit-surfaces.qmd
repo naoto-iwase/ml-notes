@@ -4,125 +4,125 @@ pagetitle: "編集対象"
 
 # 編集対象
 
-Agentがtool結果を確認せずに回答する失敗は、三通りに直せる。Promptへ確認手順を書く、workflowで確認後にしか回答できなくする、runtimeへvalidatorを加える、という方法である。同じ失敗でも、どこを書き換えるかによって効果と危険が異なる。
+エージェント（agent）がツール（tool）結果を確認せずに回答する失敗は、三通りに直せる。プロンプト（prompt）へ確認手順を書く、ワークフロー（workflow）で確認後にしか回答できなくする、実行時（runtime）へ検証器（validator）を加える、という方法である。同じ失敗でも、どこを書き換えるかによって効果と危険が異なる。
 
-前章ではfailure attributionから修正仮説を作った。本章は、その仮説をどのartifactの変更として表すかを扱う。最適化器が書き換えてよい範囲を**編集範囲**（edit surface）と呼び、prompt、LM program、memory・skill、workflow、agent code、runtime hookという保存単位に分ける。これらは一直線の階層ではなく、一つの修正が複数範囲にまたがることもある。
+前章では失敗帰属（failure attribution）から修正仮説を作った。本章は、その仮説をどの成果物（artifact）の変更として表すかを扱う。最適化器（optimizer）が書き換えてよい範囲を**編集面（edit surface）**と呼び、プロンプト、言語モデル（language model, LM）プログラム、メモリ（memory）・スキル（skill）、ワークフロー、エージェントコード（agent code）、実行時フック（runtime hook）という保存単位に分ける。これらは一直線の階層ではなく、一つの修正が複数の編集面にまたがることもある。
 
 ## 変更できるものと守るもの
 
-Edit surfaceは、file名のlistだけでは定義できない。次の二つを記述する。
+編集面は、ファイル（file）名の一覧だけでは定義できない。次の二つを記述する。
 
-1. **構文上の境界:** 変更可能なfield、module、hook、file
-2. **意味上の境界:** 変更後も守るべきinterface、権限、invariant
+1. **構文上の境界:** 変更可能なフィールド（field）、モジュール（module）、フック、ファイル
+2. **意味上の境界:** 変更後も守るべきインターフェース（interface）、権限、不変条件（invariant）
 
-たとえばsystem promptを変更可能とするだけでも、出力JSON schema、tool名、system policyを削除してよいかで探索空間は変わる。Runtime hookを変更可能とする場合は、入力型、出力型、timeout、呼び出せるtool、永続化できるstateを固定する必要がある。
+たとえばシステムプロンプト（system prompt）を変更可能とするだけでも、出力JSONスキーマ（schema）、ツール名、システム方策（system policy）を削除してよいかで探索空間（search space）は変わる。実行時フックを変更可能とする場合は、入力型、出力型、タイムアウト（timeout）、呼び出せるツール、永続化できる状態（state）を固定する必要がある。
 
-Edit surfaceを$\mathcal{H}$、検証可能なharness集合を$\mathcal{F}$とすると、optimizerが探索すべきなのは
+編集面を$\mathcal{H}$、検証可能なハーネス（harness）集合を$\mathcal{F}$とすると、最適化器が探索すべきなのは
 
 $$
 H'\in\mathcal{H}\cap\mathcal{F}
 $$
 
-である。構文上は生成できてもcompileしないcandidateや、permission policyを破るcandidateは$\mathcal{F}$に含めない。
+である。構文上は生成できてもコンパイル（compile）できない更新候補（candidate）や、権限方策（permission policy）を破る更新候補は$\mathcal{F}$に含めない。
 
-## Promptとdemonstration
+## プロンプトとデモンストレーション
 
-最も狭いsurfaceは、単一のinstructionやdemonstrationである。Target model、tool、control flowは固定し、入力前に置くtextだけを変える。
+最も狭い編集面は、単一の指示（instruction）やデモンストレーション（demonstration）である。対象モデル（target model）、ツール、制御フロー（control flow）は固定し、入力前に置くテキスト（text）だけを変える。
 
-APEはtask例からinstruction候補を生成し、task scoreで選ぶ [@zhou2023ape]。OPROは過去のinstructionとscoreの履歴をmeta-promptへ入れ、次のinstructionを生成する [@yang2024opro]。ProTeGiは誤答への自然言語批評からprompt editを作る [@pryzant2023protegi]。RLPromptはtarget modelを固定したまま、離散token promptを生成するpolicyを学習する [@deng2022rlprompt]。
+APEはタスク（task）例から指示候補を生成し、タスクスコア（score）で選ぶ [@zhou2023ape]。OPROは過去の指示とスコアの履歴をメタプロンプト（meta-prompt）へ入れ、次の指示を生成する [@yang2024opro]。ProTeGiは誤答への自然言語批評からプロンプト編集（prompt edit）を作る [@pryzant2023protegi]。RLPromptは対象モデルを固定したまま、離散トークン（token）プロンプトを生成する方策（policy）を学習する [@deng2022rlprompt]。
 
-Prompt-only surfaceには三つの利点がある。
+プロンプト限定編集面（prompt-only surface）には三つの利点がある。
 
-- Diffが短く、人間が読める
-- Candidate間で実行構造とtool権限を揃えやすい
-- 元のpromptへ戻しやすい
+- 差分（diff）が短く、人間が読める
+- 更新候補間で実行構造とツール権限を揃えやすい
+- 元のプロンプトへ戻しやすい
 
-一方、promptはsoft constraintである。「必ずtool結果を検証する」と書いても、runtimeがその順序を強制するわけではない。また、ProTeGiの主要評価には最終beamの複数promptをtest時に組み合わせる設定が含まれる。永続化した単一promptの改善とtest-time ensembleを分けて読む必要がある。
+一方、プロンプトは柔らかい制約（soft constraint）である。「必ずツール結果を検証する」と書いても、実行時機構がその順序を強制するわけではない。また、ProTeGiの主要評価には最終ビーム（beam）の複数プロンプトをテスト（test）時に組み合わせる設定が含まれる。永続化した単一プロンプトの改善とテスト時アンサンブル（test-time ensemble）を分けて読む必要がある。
 
-## LM programのparameter
+## LMプログラムのパラメータ
 
-複数のLM callをつないだprogramでは、各moduleのinstructionとdemonstrationを共同で最適化できる。Program topologyやPython codeは固定し、text parameterだけを変えるsurfaceである。
+複数のLM呼び出しをつないだプログラム（program）では、各モジュールの指示とデモンストレーションを共同で最適化できる。プログラムトポロジー（program topology）やPythonコード（code）は固定し、テキストパラメータ（text parameter）だけを変える編集面である。
 
-DSPyは宣言的なmoduleを持つlanguage model（LM）programを、task metricに合わせてcompileする [@khattab2024dspy]。MIPROはtask-groundedなinstruction候補とbootstrapped demonstrationを作り、multi-stage program全体のscoreをBayesian optimizationで探索する [@opsahlong2024mipro]。TextGradは複数nodeの出力へ自然言語feedbackを逆向きに伝え、上流のtext variableを更新する [@yuksekgonul2025textgrad]。GEPAはcompound systemの複数text componentを、trajectoryとevaluator feedbackから反射的に変異させる [@agrawal2026gepa]。
+DSPyは宣言的なモジュールを持つLMプログラムを、タスク評価指標（task metric）に合わせてコンパイルする [@khattab2024dspy]。MIPROはタスクに基づく指示候補（task-grounded instruction candidate）とブートストラップ済みデモンストレーション（bootstrapped demonstration）を作り、多段プログラム（multi-stage program）全体のスコアをベイズ最適化（Bayesian optimization）で探索する [@opsahlong2024mipro]。TextGradは複数ノード（node）の出力へ自然言語フィードバック（feedback）を逆向きに伝え、上流のテキスト変数（text variable）を更新する [@yuksekgonul2025textgrad]。GEPAは複合システム（compound system）の複数テキスト構成要素（text component）を、実行軌跡（trajectory）と評価器（evaluator）のフィードバックから反射的に変異させる [@agrawal2026gepa]。
 
-LM programでは、moduleごとの局所scoreだけを最適化するとend-to-end性能を壊すことがある。Retrieverが多くのcontextを返せばretrieval recallは上がるが、下流generatorのcontext budgetを圧迫する。したがって、candidateはprogram全体を実行して評価する。
+LMプログラムでは、モジュールごとの局所スコアだけを最適化するとエンドツーエンド（end-to-end）性能を壊すことがある。検索器（retriever）が多くのコンテキスト（context）を返せば検索再現率（retrieval recall）は上がるが、下流生成器（generator）のコンテキスト予算（context budget）を圧迫する。したがって、更新候補はプログラム全体を実行して評価する。
 
-## Memory、experience、skill
+## メモリ、経験、スキル
 
-Memory surfaceには、保存内容とread/write policyの二種類がある。
+メモリ編集面には、保存内容と読み書き方策（read/write policy）の二種類がある。
 
 | 種類 | 例 | 永続化するもの |
 |---|---|---|
-| Content update | 成功trajectory、失敗から抽出したinsight | Memory item |
-| Retrieval update | Query、ranking、deduplication、forgetting | Read policy |
-| Write-policy update | 何を記録・統合・削除するか | Write policy |
-| Schema update | Experienceのfield、provenance、confidence | Memory structure |
-| Skill update | 手順、例、適用条件 | Version化したskill document |
+| 内容更新（content update） | 成功実行軌跡、失敗から抽出した洞察（insight） | メモリ項目（memory item） |
+| 検索更新（retrieval update） | クエリ（query）、順位付け（ranking）、重複排除（deduplication）、忘却（forgetting） | 読み出し方策（read policy） |
+| 書き込み方策更新（write-policy update） | 何を記録・統合・削除するか | 書き込み方策（write policy） |
+| スキーマ更新（schema update） | 経験（experience）のフィールド、来歴（provenance）、信頼度（confidence） | メモリ構造（memory structure） |
+| スキル更新（skill update） | 手順、例、適用条件 | 版（version）管理したスキル文書（skill document） |
 
-ExpeLはtraining taskの成功・失敗trajectoryを比較し、自然言語insightとretrievable experienceを未見taskへ持ち越す [@zhao2024expel]。これはcross-task persistent memoryの例である。ただし、insightの追加・削除が外部regression suiteを通過するわけではない。
+ExpeLは学習タスク（training task）の成功・失敗実行軌跡を比較し、自然言語の洞察と検索可能な経験（retrievable experience）を未見タスクへ持ち越す [@zhao2024expel]。これはタスク横断永続メモリ（cross-task persistent memory）の例である。ただし、洞察の追加・削除が外部性能退行テスト一式（regression suite）を通過するわけではない。
 
-SkillOptは、凍結したagentが読む単一のskill documentをbounded editで更新し、held-out validationが改善した変更だけを採用する [@yang2026skillopt]。このheld-out splitは各roundの採択に使うselection setであり、最終報告用のsealed testではない。Skillは単発のmemory itemではなく、後続taskで再利用する手続きartifactである。Prompt、memory、skillの区別はfile名ではなく、誰がいつ読み、どの単位でversion化・採用するかで決まる。
+SkillOptは、凍結したエージェントが読む単一のスキル文書を限定編集（bounded edit）で更新し、保留検証（held-out validation）が改善した変更だけを採用する [@yang2026skillopt]。この保留分割（held-out split）は各ラウンド（round）の採択に使う選択集合（selection set）であり、最終報告用の封印テスト（sealed test）ではない。スキルは単発のメモリ項目ではなく、後続タスクで再利用する手続き成果物である。プロンプト、メモリ、スキルの区別はファイル名ではなく、誰がいつ読み、どの単位で版化・採用するかで決まる。
 
-![ExpeLはtraining taskからexperienceとinsightを抽出し、後続taskでexperience recallとinsight guidanceとして再利用する。出典: [@zhao2024expel] Figure 1（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)、原図を縮小）](images/expel-persistent-memory.png){#fig-expel-persistent-memory}
+![ExpeLは学習タスクから経験と洞察を抽出し、後続タスクで経験想起と洞察指針として再利用する。出典: [@zhao2024expel] Figure 1（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)、原図を縮小）](images/expel-persistent-memory.png){#fig-expel-persistent-memory}
 
-単にlogを追加するだけではoptimizationではない。Memory itemやpolicyをcandidateとして比較し、採用した内容を後続taskへ配るときにharness optimizationになる。
+単にログ（log）を追加するだけでは最適化ではない。メモリ項目や方策を更新候補として比較し、採用した内容を後続タスクへ配るときにハーネス最適化（harness optimization）になる。
 
-## Workflow graphとmodular agent
+## ワークフローグラフとモジュール型エージェント
 
-Workflow surfaceでは、LM call、tool、verification、分岐、反復をnodeとedgeとして変更する。Promptでは表現しにくい順序制約を、実行構造として強制できる。
+ワークフロー編集面では、LM呼び出し、ツール、検証（verification）、分岐、反復をノードとエッジ（edge）として変更する。プロンプトでは表現しにくい順序制約を、実行構造として強制できる。
 
-GPTSwarmはlanguage agentをgraphとして表し、edge接続やnode promptをtask lossから最適化する [@zhuge2024gptswarm]。AgentSquareはplanning、reasoning、tool use、memoryをmoduleに分け、module evolutionとrecombinationで構成を探索する [@shang2025agentsquare]。AFlowはworkflowをexecutable codeとして表し、Monte Carlo tree searchで候補を生成・評価する [@zhang2025aflow]。
+GPTSwarmは言語エージェント（language agent）をグラフ（graph）として表し、エッジ接続やノードプロンプトをタスク損失（task loss）から最適化する [@zhuge2024gptswarm]。AgentSquareは計画（planning）、推論（reasoning）、ツール使用（tool use）、メモリをモジュールに分け、モジュール進化（module evolution）と再結合（recombination）で構成を探索する [@shang2025agentsquare]。AFlowはワークフローを実行可能コード（executable code）として表し、モンテカルロ木探索（Monte Carlo tree search）で更新候補を生成・評価する [@zhang2025aflow]。
 
-Graph表現には、nodeの型とedgeの意味が明示できる利点がある。一方、codeでgraphを表す方法では、見かけ上同じnode集合でも例外処理やstate共有を自由に変更できる。論文名に「workflow」とあっても、実際のsurfaceが有限graphなのか任意codeなのかを確認する必要がある。
+グラフ表現には、ノードの型とエッジの意味が明示できる利点がある。一方、コードでグラフを表す方法では、見かけ上同じノード集合でも例外処理や状態共有を自由に変更できる。論文名に「ワークフロー」とあっても、実際の編集面が有限グラフなのか任意コードなのかを確認する必要がある。
 
-## Agent system code
+## エージェントシステムコード
 
-Agent system codeをsurfaceにすると、prompt、tool wrapper、memory、control flow、error handlingを同時に変えられる。ADASのMeta Agent Searchは評価済みagent programのarchiveから新しいPython implementationを生成し、DGMはcoding agent自身のcodebaseとlineageを分岐archiveへ保存する [@hu2025adas; @zhang2026dgm]。AutoHarnessはenvironment errorをfeedbackとして、禁止actionを除くverifier codeを反復的に生成する [@lou2026autoharness]。
+エージェントシステムコードを編集面にすると、プロンプト、ツールラッパー（tool wrapper）、メモリ、制御フロー、エラー処理（error handling）を同時に変えられる。ADASのMeta Agent Searchは評価済みエージェントプログラム（agent program）の候補集合（archive）から新しいPython実装（implementation）を生成し、DGMはコーディングエージェント（coding agent）自身のコードベース（codebase）と系譜（lineage）を分岐候補集合へ保存する [@hu2025adas; @zhang2026dgm]。AutoHarnessは環境エラー（environment error）をフィードバックとして、禁止動作（action）を除く検証器コード（verifier code）を反復的に生成する [@lou2026autoharness]。
 
-このsurfaceは表現力が高いが、candidate validityをscore評価より前に確認する必要がある。
+この編集面は表現力が高いが、更新候補の妥当性（candidate validity）をスコア評価より前に確認する必要がある。
 
-1. Parseまたはcompileするか
-2. Required interfaceを実装するか
-3. Timeoutとresource limitを守るか
-4. 禁止fileやcredentialへアクセスしないか
-5. Evaluator、test、permission policyを変更していないか
-6. Deterministicにversionを再構築できるか
+1. 解析（parse）またはコンパイルできるか
+2. 必須インターフェース（required interface）を実装するか
+3. タイムアウトと資源上限（resource limit）を守るか
+4. 禁止ファイルや認証情報（credential）へアクセスしないか
+5. 評価器、テスト、権限方策を変更していないか
+6. 決定論的（deterministic）に版を再構築できるか
 
-AutoHarnessはさらに、decision全体をcode policyへ置き換える設定も報告する。この場合、最適化対象はmodelを補助するharnessからtask policyそのものへ移る。Code surfaceの広さだけでなく、最終判断をmodelとcodeのどちらが担うかも記録する。
+AutoHarnessはさらに、意思決定（decision）全体をコード方策（code policy）へ置き換える設定も報告する。この場合、最適化対象はモデル（model）を補助するハーネスからタスク方策（task policy）そのものへ移る。コード編集面の広さだけでなく、最終判断をモデルとコードのどちらが担うかも記録する。
 
-## Runtime harness implementation
+## 実行時ハーネス実装
 
-Runtime harnessは、model callの前後でcontextを組み立て、toolを仲介し、actionを検証し、失敗から回復する実装である。Meta-Harnessはpromptだけでなく、memory、retrieval、context提示、orchestrationを含むharness sourceをcoding proposerで探索する [@lee2026metaharness]。Proposerはfilesystem上の過去candidate、score、traceを参照し、新しいcodeを生成する。
+実行時ハーネスは、モデル呼び出しの前後でコンテキストを組み立て、ツールを仲介し、動作を検証し、失敗から回復する実装である。Meta-Harnessはプロンプトだけでなく、メモリ、検索（retrieval）、コンテキスト提示、オーケストレーション（orchestration）を含むハーネスソース（harness source）をコーディング提案器（coding proposer）で探索する [@lee2026metaharness]。提案器はファイルシステム（filesystem）上の過去の更新候補、スコア、実行記録（trace）を参照し、新しいコードを生成する。
 
-Harness-R1はruntimeをlifecycle hookに分け、失敗trajectoryからhook patchを生成する専用editorを学習する [@shao2026harnessr1]。Patchはcompileとsandbox validationを通してから適用される。これはruntime editの直接的な例だが、2026年8月公開の未査読preprintであり、一般的なlearned editorの確立例とはみなさない。
+Harness-R1は実行時機構をライフサイクルフック（lifecycle hook）に分け、失敗実行軌跡からフックパッチ（hook patch）を生成する専用編集器（editor）を学習する [@shao2026harnessr1]。パッチ（patch）はコンパイルと隔離環境検証（sandbox validation）を通してから適用される。これは実行時編集（runtime edit）の直接的な例だが、2026年8月公開の未査読プレプリント（preprint）であり、一般的な学習済み編集器（learned editor）の確立例とはみなさない。
 
-Runtime surfaceでは、変更対象を「repository全体」と書くより、hook contractで限定する方が評価しやすい。
+実行時編集面では、変更対象を「リポジトリ（repository）全体」と書くより、フック契約（hook contract）で限定する方が評価しやすい。
 
-| Hook | 読めるstate | 変更できる出力 | 固定すべき境界 |
+| フック | 読める状態 | 変更できる出力 | 固定すべき境界 |
 |---|---|---|---|
-| Pre-context | task、許可済みmemory | context | secret、system policy |
-| Pre-action | trajectory、tool schema | action proposal | tool allowlist、argument schema |
-| Post-observation | tool result | normalized observation | raw evidenceの保存 |
-| Validation | candidate action | allow / reject / repair | permission policy |
-| Recovery | error、retry state | retry / fallback | retry上限、cost budget |
+| コンテキスト前処理（pre-context） | タスク、許可済みメモリ | コンテキスト | 秘密情報（secret）、システム方策 |
+| 動作前処理（pre-action） | 実行軌跡、ツールスキーマ | 動作提案（action proposal） | ツール許可リスト（tool allowlist）、引数スキーマ（argument schema） |
+| 観測後処理（post-observation） | ツール結果 | 正規化済み観測（normalized observation） | 生の証拠（raw evidence）の保存 |
+| 検証（validation） | 更新候補の動作 | 許可 / 拒否 / 修復 | 権限方策 |
+| 復旧処理（recovery） | エラー、再試行状態（retry state） | 再試行 / 代替処理 | 再試行上限、コスト予算（cost budget） |
 
 ## 複数の編集範囲をまたぐ場合
 
-実際のoptimizerは複数surfaceをまたぐ。ADASやMeta-Harnessではcode editの内部でpromptもworkflowも変わり、GEPAは複数text componentを共同で変える。Promptだけ、workflowだけ、runtime hookだけ、共同変更を同じ評価予算で比較する。広いsurfaceが勝っても、自由度、candidate数、optimizer modelのcontext量が交絡するため、「prompt改善」のような単一原因へ帰属させない。
+実際の最適化器は複数の編集面をまたぐ。ADASやMeta-Harnessではコード編集の内部でプロンプトもワークフローも変わり、GEPAは複数のテキスト構成要素を共同で変える。プロンプトだけ、ワークフローだけ、実行時フックだけ、共同変更を同じ評価予算で比較する。広い編集面が勝っても、自由度、更新候補数、最適化器モデルのコンテキスト量が交絡するため、「プロンプト改善」のような単一原因へ帰属させない。
 
 ## 最小の編集範囲から広げる
 
-Surfaceを選ぶ原則は、最も狭いものを常に使うことではない。**失敗を修正でき、かつ十分に検証できる最小surfaceを使うこと**である。
+編集面を選ぶ原則は、最も狭いものを常に使うことではない。**失敗を修正でき、かつ十分に検証できる最小編集面を使うこと**である。
 
-- 指示不足ならprompt
-- 複数moduleの協調ならLM program parameter
-- tool順序や分岐ならworkflow
-- memory lifecycleならread/write policy
-- interface enforcementやrecoveryならruntime hook
-- 既存表現で修正不能ならagent code
+- 指示不足ならプロンプト
+- 複数モジュールの協調ならLMプログラムパラメータ
+- ツール順序や分岐ならワークフロー
+- メモリライフサイクルなら読み書き方策
+- インターフェース強制や復旧処理なら実行時フック
+- 既存表現で修正不能ならエージェントコード
 
-変更範囲を広げるたびに、validity check、regression suite、permission boundary、rollback artifactも増やす。
+変更範囲を広げるたびに、妥当性検査（validity check）、性能退行テスト一式、権限境界（permission boundary）、差し戻し成果物（rollback artifact）も増やす。
 
 ## 要点
 
-Edit surfaceはprompt、LM program、memory、workflow、agent code、runtime hookという重なり得る範囲で記述できる。名称ではなく、実際に変更するartifact、固定interface、永続化単位を確認する。広いsurfaceほど強いとは限らず、修正可能性と検証可能性の両方で範囲を決める。
+編集面はプロンプト、LMプログラム、メモリ、ワークフロー、エージェントコード、実行時フックという重なり得る範囲で記述できる。名称ではなく、実際に変更する成果物、固定インターフェース、永続化単位を確認する。広い編集面ほど強いとは限らず、修正可能性と検証可能性の両方で範囲を決める。

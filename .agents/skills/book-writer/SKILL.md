@@ -609,6 +609,7 @@ Maximizing the evidence lower bound (ELBO)...
 Core rules:
 
 - **Each chapter is independent**: because every chapter may be read on its own, treat each chapter as a fresh first use
+- **Keep Japanese terminology canonical**: introduce a recurring concept as `日本語（English）`, then use that Japanese form for the rest of the chapter. Precommit the glossary for parallel writing and audit it in Phase 7. See [references/style-consistency.md](references/style-consistency.md)
 - **Expand abbreviations in the H1 in the first body paragraph**: for example, if the title is `# LLaDA: MDLM 定式化を 8B にスケール`, do not put a parenthetical expansion in the H1 itself; expand it in the first body paragraph as `MDLM（Masked Diffusion Language Model）`
 - **Use only the abbreviation from its second appearance within the same chapter**
 - **Common abbreviations such as PDF / OCR / API / GPU / CPU are allowed without expansion**

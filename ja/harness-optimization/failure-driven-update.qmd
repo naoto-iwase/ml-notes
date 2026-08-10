@@ -1,48 +1,48 @@
 ---
-pagetitle: "失敗から Harness を改善する"
+pagetitle: "失敗からハーネスを改善する"
 ---
 
-# 失敗から Harness を改善する
+# 失敗からハーネスを改善する
 
-失敗したという結果だけでは、Harnessのどこを変えるべきか分からない。まず実行記録から**期待した状態との最初のずれ**を見つけ、原因仮説と小さな修正を作る。最初のずれは診断の起点であり、原因が確定したことを意味しない。
+失敗したという結果だけでは、ハーネス（harness）のどこを変えるべきか分からない。まず実行記録（trace）から**期待状態からの最初のずれ（first divergence）**を見つけ、原因仮説と小さな修正を作る。最初のずれは診断の起点であり、原因が確定したことを意味しない。
 
-## Database queryの例
+## データベース問い合わせの例
 
-たとえば、誤ったdatabase tableを選んだ後にSQL syntax errorが出た場合、syntaxだけを直しても上流のずれは残る。Table選択を変えて再実行すれば、それが原因だったという仮説を検証できる。ただし、誤ったschema metadataなど、さらに上流の要因がないかも確認する。
+たとえば、誤ったデータベーステーブル（database table）を選んだ後に構造化問い合わせ言語（Structured Query Language, SQL）の構文エラー（syntax error）が出た場合、構文だけを直しても上流のずれは残る。テーブル選択を変えて再実行すれば、それが原因だったという仮説を検証できる。ただし、誤ったスキーマメタデータ（schema metadata）など、さらに上流の要因がないかも確認する。
 
-@fig-failure-to-update は、最初のずれを見つけ、その直前のhookだけを修正し、修正前後を別の評価系で比較する流れを示す。
+@fig-failure-to-update は、最初のずれを見つけ、その直前のフック（hook）だけを修正し、修正前後を別の評価系で比較する流れを示す。
 
-![実行記録から最初のずれを見つけ、pre-action hookだけを修正する。更新候補は、対象の失敗、既存の成功、未使用task、権限の四面で検証する。](images/failure-to-update.svg){#fig-failure-to-update fig-align="center" width="100%"}
+![実行記録から最初のずれを見つけ、行動前フック（pre-action hook）だけを修正する。更新候補（candidate）は、対象の失敗、既存の成功、未使用タスク（task）、権限の四面で検証する。](images/failure-to-update.svg){#fig-failure-to-update fig-align="center" width="100%"}
 
-実際にどの実行情報を保存し、最初のずれや類似failureをどうsignature化するかは、Part IIの[実行結果と失敗分析](execution-feedback.qmd)で扱う。
+実際にどの実行情報を保存し、最初のずれや類似失敗（failure）をどうシグネチャ（signature）化するかは、Part IIの[実行結果と失敗分析](execution-feedback.qmd)で扱う。
 
 ## 何を更新するか
 
 失敗から得た情報の使い方には、少なくとも三つある。
 
-- 次回に読むmemoryを更新する
-- workflowの修正候補を作り、評価して選ぶ
-- 修正候補を作るeditor自体を学習する
+- 次回に読むメモリ（memory）を更新する
+- ワークフロー（workflow）の修正候補を作り、評価して選ぶ
+- 修正候補を作る編集器（editor）自体を学習する
 
-Reflexionは失敗後のreflectionをmemoryへ保存し、同じtask内の次の試行で読むcontextを変える [@shinn2023reflexion]。Model weightは変更しないが、独立した将来taskへ更新artifactを持ち越す評価ではない。
+Reflexionは失敗後の内省（reflection）をメモリへ保存し、同じタスク内の次の試行で読むコンテキスト（context）を変える [@shinn2023reflexion]。モデル（model）の重みは変更しないが、独立した将来タスクへ更新後の成果物（artifact）を持ち越す評価ではない。
 
-Harness-R1は、固定したtarget agentとは別にeditorを置く。Editorは失敗の記録を読み、事前に決めたhookだけを変更する [@shao2026harnessr1]。同じtask集合を修正前後で再実行し、その差からeditorを学習する。
+Harness-R1は、固定した対象エージェント（target agent）とは別に編集器を置く。編集器は失敗の記録を読み、事前に決めたフックだけを変更する [@shao2026harnessr1]。同じタスク集合を修正前後で再実行し、その差から編集器を学習する。
 
-著者報告では、WebShop、ALFWorld、DBBenchの平均成功率が44.3%から53.6%へ上昇した。差は9.3 percentage pointsである。ただし、観測済みtaskで修正を学ぶため、この結果だけでは未知のtaskにも効くとは言えない。
+著者報告では、WebShop、ALFWorld、DBBenchの平均成功率が44.3%から53.6%へ上昇した。差は9.3パーセントポイント（percentage points）である。ただし、観測済みタスクで修正を学ぶため、この結果だけでは未知のタスクにも効くとは言えない。
 
-![少数の失敗から作った修正を未使用taskへ適用した著者報告。Harness-R1専用editorは平均改善した一方、より大きな汎用modelをeditorに使う比較は悪化している。Whiskerは3 seed間の標準偏差。](images/harness-r1-heldout.png){#fig-harness-r1-heldout fig-align="center" width="75%"}
+![少数の失敗から作った修正を未使用タスクへ適用した著者報告。Harness-R1専用編集器は平均改善した一方、より大きな汎用モデルを編集器に使う比較は悪化している。ひげ（whisker）は3シード（seed）間の標準偏差。](images/harness-r1-heldout.png){#fig-harness-r1-heldout fig-align="center" width="75%"}
 
-*出典: Shao et al., “Harness-R1” [@shao2026harnessr1] のheld-out-task analysis。*
+*出典: Shao et al., “Harness-R1” [@shao2026harnessr1] の未使用タスク分析（held-out-task analysis）。*
 
-@fig-harness-r1-heldout は、editorが大きければ良いわけではないことを示す。ただし、3 seedと限られたdomainによる結果であり、別のenvironmentやharness implementationへ一般化する証拠ではない。
+@fig-harness-r1-heldout は、編集器が大きければ良いわけではないことを示す。ただし、3シードと限られたドメイン（domain）による結果であり、別の環境（environment）やハーネス実装（harness implementation）へ一般化する証拠ではない。
 
 ## 修正できる範囲を制限する
 
-Editorにrepository全体を自由に書き換えさせる必要はない。修正範囲を次のように制限する。
+編集器にリポジトリ（repository）全体を自由に書き換えさせる必要はない。修正範囲を次のように制限する。
 
-- hookごとに入力と出力の形式を固定する
-- toolの権限を変更できなくする
-- 壊れた修正は適用せず、元のHarnessへ戻す
+- フックごとに入力と出力の形式を固定する
+- ツール（tool）の権限を変更できなくする
+- 壊れた修正は適用せず、元のハーネスへ戻す
 - 対象の失敗だけでなく、既存の成功も再実行する
 - 修正、根拠となる実行記録、評価結果を一緒に保存する
 
@@ -50,4 +50,4 @@ Editorにrepository全体を自由に書き換えさせる必要はない。修�
 
 ## 要点
 
-失敗からの改善では、実行記録を保存し、最初のずれから原因仮説を作り、最小の修正で反証する。Editorを学習する場合でも、修正の採否はeditorの外側で決める。
+失敗からの改善では、実行記録を保存し、最初のずれから原因仮説を作り、最小の修正で反証する。編集器を学習する場合でも、修正の採否は編集器の外側で決める。

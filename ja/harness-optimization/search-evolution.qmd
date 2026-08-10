@@ -4,116 +4,116 @@ pagetitle: "探索と進化"
 
 # 探索と進化
 
-前三章では、誰が、何を、どの実行結果にもとづいて変えるかを整理した。次に必要なのは、複数の候補をどの順で試し、結果を見て何を試すかを決めることである。Prompt、workflow、codeは小さな変更でも挙動が大きく変わり、評価には費用とばらつきがある。本章では、**候補をどの順で評価し、どの履歴を残し、予算をどこへ配るか**で探索法を整理する。
+前三章では、誰が、何を、どの実行結果にもとづいて変えるかを整理した。次に必要なのは、複数の更新候補（candidate）をどの順で試し、結果を見て何を試すかを決めることである。プロンプト（prompt）、ワークフロー（workflow）、コード（code）は小さな変更でも挙動が大きく変わり、評価には費用とばらつきがある。本章では、**更新候補をどの順で評価し、どの履歴を残し、予算をどこへ配るか**で探索法（search method）を整理する。
 
 ## $N$個から選ぶ方法を基準にする
 
-最も単純なoptimizerは、$N$個のcandidateを独立に生成し、development scoreが最大のものを選ぶ。
+最も単純な最適化器（optimizer）は、$N$個の更新候補を独立に生成し、開発用データ（development data）のスコア（score）が最大のものを選ぶ。
 
-このbaselineは重要である。複雑なsearch algorithmが勝っても、単に多くのcandidateやtokenを使っただけかもしれない。比較では次を揃える。
+この基準手法（baseline）は重要である。複雑な探索アルゴリズム（search algorithm）が勝っても、単に多くの更新候補やトークン（token）を使っただけかもしれない。比較では次を揃える。
 
-- Candidate数
-- Candidate一つあたりのproposal token
-- Candidateを実行するcase数
-- Target modelとoptimizer model
-- Validation照会数
-- 並列実行によるwall time
+- 更新候補数
+- 更新候補一つあたりの提案トークン（proposal token）
+- 更新候補を実行する事例（case）数
+- 対象モデル（target model）と最適化器モデル（optimizer model）
+- 昇格用検証データ（promotion validation）への照会数
+- 並列実行による経過時間（wall time）
 
-Scoreにnoiseがあると、$N$を増やすだけで偶然高いcandidateを選びやすくなる。Best-of-$N$の改善には、artifactの質とselection noiseの両方が含まれる。
+スコアに雑音（noise）があると、$N$を増やすだけで偶然高い更新候補を選びやすくなる。Best-of-$N$の改善には、成果物（artifact）の質と選択雑音（selection noise）の両方が含まれる。
 
-## 履歴をpromptへ入れる探索
+## 履歴をプロンプトへ入れる探索
 
-APEはtask例からinstruction候補を生成し、部分集合でscoreを付けて再選択する [@zhou2023ape]。OPROは過去のcandidateとscoreをmeta-promptへ並べ、大規模言語モデル（large language model, LLM）であるoptimizerに次のcandidateを生成させる [@yang2024opro]。数値gradientを使わず、LLMが履歴のpatternを読む。
+APEはタスク（task）例から指示（instruction）候補を生成し、部分集合でスコアを付けて再選択する [@zhou2023ape]。OPROは過去の更新候補とスコアをメタプロンプト（meta-prompt）へ並べ、大規模言語モデル（large language model, LLM）である最適化器に次の更新候補を生成させる [@yang2024opro]。数値勾配（numerical gradient）を使わず、LLMが履歴のパターン（pattern）を読む。
 
-この方法では、meta-promptがsearch stateである。過去candidateをすべて入れるとcontextが増え、上位candidateだけにすると探索履歴を失う。さらに、OPROの報告表には各設定でtest accuracyが最高のinstructionを掲載する分析が含まれる。手法の探索機構と、cleanなheld-out selectionによる効果量を分けて読む必要がある。
+この方法では、メタプロンプトが探索状態（search state）である。過去の更新候補をすべて入れるとコンテキスト（context）が増え、上位の更新候補だけにすると探索履歴を失う。さらに、OPROの報告表には各設定でテスト正解率（test accuracy）が最高の指示を掲載する分析が含まれる。手法の探索機構と、汚染のない保留選択（clean held-out selection）による効果量を分けて読む必要がある。
 
-LLMがcandidateを生成するだけでは、LLM自体がoptimizerとは限らない。Candidateの記録、評価、selection、stoppingを含む外側loopがoptimizerである。
+LLMが更新候補を生成するだけでは、LLM自体が最適化器とは限らない。更新候補の記録、評価、選択（selection）、停止（stopping）を含む外側ループ（outer loop）が最適化器である。
 
-## 近傍探索とbeam search
+## 近傍探索とビーム探索
 
-Local searchはincumbentの近傍を編集する。Prompt $p_t$に対するedit operatorを$M$とすると、
+近傍探索（local search）は現行版（incumbent）の近傍を編集する。プロンプト$p_t$に対する編集演算子（edit operator）を$M$とすると、
 
 $$
 \mathcal{C}_t = \{M(p_t,z_j)\}_{j=1}^{m}
 $$
 
-として近傍候補を作る。$z_j$は誤答、批評、mutation instructionなどである。
+として近傍の更新候補を作る。$z_j$は誤答、批評、変異指示（mutation instruction）などである。
 
-ProTeGiはminibatch errorからtextual gradientを作り、promptの言い換えと編集をbeamへ追加する。Beam内のcandidateへ評価予算を割り当てるためにbandit selectionも使う [@pryzant2023protegi]。Scalar-only searchよりfailureの方向を利用できる一方、局所critiqueが誤っていればbeam全体が同じ方向へ進む。
+ProTeGiはミニバッチ誤差（minibatch error）からテキスト勾配（textual gradient）を作り、プロンプトの言い換えと編集をビーム（beam）へ追加する。ビーム内の更新候補へ評価予算を割り当てるためにバンディット選択（bandit selection）も使う [@pryzant2023protegi]。スカラー限定探索（scalar-only search）より失敗の方向を利用できる一方、局所批評（local critique）が誤っていればビーム全体が同じ方向へ進む。
 
-ProTeGiの一次論文は、iterationが進むとtraining performanceが上がる一方でtest performanceが悪化する例も示す。また主要結果の一部は、最終beamの複数promptをtest時にmax-poolする。したがって、単一promptの永続改善、search-time selection、test-time ensembleを分離して比較する。
+ProTeGiの一次論文は、反復（iteration）が進むと学習性能（training performance）が上がる一方でテスト性能（test performance）が悪化する例も示す。また主要結果の一部は、最終ビームの複数プロンプトをテスト時に最大値プーリング（max-pool）する。したがって、単一プロンプトの永続改善、探索時選択（search-time selection）、テスト時アンサンブル（test-time ensemble）を分離して比較する。
 
-TextGradはcomputation graph上のtext variableへ自然言語feedbackを伝播し、局所editを繰り返す [@yuksekgonul2025textgrad]。Graphが固定されている場合はlocal parameter searchであり、workflow topology自体を探索する方法とは異なる。
+TextGradは計算グラフ（computation graph）上のテキスト変数（text variable）へ自然言語フィードバック（feedback）を伝播し、局所編集を繰り返す [@yuksekgonul2025textgrad]。グラフ（graph）が固定されている場合は局所パラメータ探索（local parameter search）であり、ワークフロートポロジー（workflow topology）自体を探索する方法とは異なる。
 
 ## 木探索
 
-Tree searchは、candidateをnode、editをedgeとして履歴を分岐させる。AFlowはcodeで表したworkflowをnodeとし、Monte Carlo tree searchで新しいworkflowを生成・評価する [@zhang2025aflow]。
+木探索（tree search）は、更新候補をノード（node）、編集をエッジ（edge）として履歴を分岐させる。AFlowはコードで表したワークフローをノードとし、モンテカルロ木探索（Monte Carlo tree search, MCTS）で新しいワークフローを生成・評価する [@zhang2025aflow]。
 
-MCTSでは、既知scoreが高いbranchだけを深掘りすると局所解へ偏る。未知branchの探索と既知branchの活用をbalanceするselection ruleが必要である。ただし、workflow evaluationの分散が大きい場合、node valueの差がartifactの差かsampling noiseか分からない。
+MCTSでは、既知スコアが高い分岐（branch）だけを深掘りすると局所解へ偏る。未知分岐の探索と既知分岐の活用を均衡させる選択規則（selection rule）が必要である。ただし、ワークフロー評価（workflow evaluation）の分散が大きい場合、ノード値（node value）の差が成果物の差かサンプリング雑音（sampling noise）か分からない。
 
-手法間比較では、最終workflowのinference costだけでなく、tree全体の探索costも含める。AFlowの各benchmarkで個別にsearchした結果は、同じworkflowが別environmentへtransferする証拠ではない。
+手法間比較では、最終ワークフローの推論コスト（inference cost）だけでなく、木全体の探索コストも含める。AFlowの各ベンチマーク（benchmark）で個別に探索した結果は、同じワークフローが別環境（environment）へ転用（transfer）できる証拠ではない。
 
 ## 予測器で評価を節約する
 
-Candidateをすべてfull rolloutで評価できない場合、少数評価からperformanceを予測するsurrogateを使う。
+更新候補をすべて完全ロールアウト（full rollout）で評価できない場合、少数評価から性能（performance）を予測する代理モデル（surrogate）を使う。
 
-MIPROはmulti-stage LM programの組合せをBayesian optimizationで選び、AgentSquareはin-context performance predictorでworkflow candidateを絞る [@opsahlong2024mipro; @shang2025agentsquare]。予測値だけでselectionするとsurrogateの盲点へ探索が偏るため、finalistと不確実性が高いcandidateを実際のrolloutで評価し、予測誤差も報告する。
+MIPROは多段言語モデルプログラム（multi-stage language-model program）の組合せをベイズ最適化（Bayesian optimization）で選び、AgentSquareはコンテキスト内性能予測器（in-context performance predictor）でワークフロー更新候補を絞る [@opsahlong2024mipro; @shang2025agentsquare]。予測値だけで選択すると代理モデルの盲点へ探索が偏るため、最終候補（finalist）と不確実性が高い更新候補を実際のロールアウト（rollout）で評価し、予測誤差も報告する。
 
 ## 候補群を進化させる
 
-Evolutionary searchは複数candidateをpopulationとして保持し、selection、mutation、crossoverを繰り返す。
+進化探索（evolutionary search）は複数の更新候補を母集団（population）として保持し、選択、変異（mutation）、交叉（crossover）を繰り返す。
 
-EvoPromptはLLMをgenetic algorithmまたはdifferential evolutionのoperatorとして使い、自然言語instructionを進化させる [@guo2024evoprompt]。Promptbreederはtask promptだけでなく、task promptを変異させるmutation promptも共進化させる [@fernando2024promptbreeder]。これは「自己改善」一般ではなく、固定task fitnessに基づく具体的なprompt evolutionである。
+EvoPromptはLLMを遺伝的アルゴリズム（genetic algorithm）または差分進化（differential evolution）の演算子（operator）として使い、自然言語の指示を進化させる [@guo2024evoprompt]。Promptbreederはタスクプロンプト（task prompt）だけでなく、タスクプロンプトを変異させる変異プロンプト（mutation prompt）も共進化させる [@fernando2024promptbreeder]。これは「自己改善」一般ではなく、固定タスク適応度（task fitness）に基づく具体的なプロンプト進化（prompt evolution）である。
 
-Populationの利点は、一つのincumbentに探索を固定しないことである。一方、fitnessを同じdevelopment setで繰り返し測ると、population全体がそのsetへ適合する。Population diversityはheld-out generalizationを保証しない。
+母集団の利点は、一つの現行版に探索を固定しないことである。一方、適応度（fitness）を同じ開発用データ集合（development set）で繰り返し測ると、母集団全体がその集合へ適合する。母集団多様性（population diversity）は保留汎化（held-out generalization）を保証しない。
 
 ## 複数の強みを履歴に残す
 
-一つの平均scoreでは、特定instanceに強いcandidateを早く捨てる。GEPAはvalidation instanceごとに最良となるcandidateの和集合をPareto archiveへ残し、そのcandidateからreflective mutationを作る [@agrawal2026gepa]。
+一つの平均スコアでは、特定事例（instance）に強い更新候補を早く捨てる。GEPAは検証事例（validation instance）ごとに最良となる更新候補の和集合をパレート候補集合（Pareto archive）へ残し、その更新候補から反射的変異（reflective mutation）を作る [@agrawal2026gepa]。
 
-Pareto archiveとmulti-objectiveな採用は別である。GEPAのarchiveは主にinstance別scoreの強みを残す。Quality、cost、安全性を同時に満たすcandidateを採用するには、別の評価recordとacceptance ruleが必要である。
+パレート候補集合と多目的（multi-objective）な採用は別である。GEPAの候補集合は主に事例別スコアの強みを残す。品質（quality）、コスト、安全性を同時に満たす更新候補を採用するには、別の評価記録（record）と採否規則（acceptance rule）が必要である。
 
-## Code archiveとopen-ended search
+## コード候補集合とオープンエンド探索
 
-ADASのMeta Agent Searchは、評価済みagent codeのarchiveをin-context exampleとしてcoding agentへ渡し、新しいagent systemを生成する [@hu2025adas]。DGMはさらに、archive内の複数parentからcodebaseを変更し、scoreが直ちに上がらないstepping stoneも系譜として残す [@zhang2026dgm]。
+ADASのMeta Agent Searchは、評価済みエージェント（agent）コードの候補集合をコンテキスト内例（in-context example）としてコーディングエージェント（coding agent）へ渡し、新しいエージェントシステム（agent system）を生成する [@hu2025adas]。DGMはさらに、候補集合内の複数の親（parent）からコードベース（codebase）を変更し、スコアが直ちに上がらない踏み石（stepping stone）も系譜として残す [@zhang2026dgm]。
 
-DGMのarchive selectionは同じcoding benchmarkの反復評価を使うため、search campaign自体はtransductiveである。別benchmarkでのtransfer結果とは分けて読む。
+DGMの候補集合選択（archive selection）は同じコーディングベンチマーク（coding benchmark）の反復評価を使うため、最適化期間（campaign）自体は観測済みタスクへの適応（transductive optimization）である。別ベンチマークでの転用結果とは分けて読む。
 
-![DGMのarchive tree（左）とfinal best agentへ至るlineage上の改善（右）。分岐archiveは、直ちに最高scoreでないcandidateも後続改善のstepping stoneとして保持する。出典: [@zhang2026dgm] Figure 3（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)、二panelを原論文の配置に合わせて結合・rasterizeし余白をcrop）](images/dgm-archive-progress.png){#fig-dgm-archive-progress}
+![DGMの候補集合木（左）と最終最良エージェントへ至る系譜上の改善（右）。分岐候補集合は、直ちに最高スコアでない更新候補も後続改善の踏み石として保持する。出典: [@zhang2026dgm] Figure 3（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)、二つのパネルを原論文の配置に合わせて結合・ラスタライズし余白を切り抜き）](images/dgm-archive-progress.png){#fig-dgm-archive-progress}
 
-「Open-ended」は、評価なしに任意の方向へ進むことを意味しない。DGMではcandidate codeを実行し、benchmark scoreでarchiveへ追加する。Search spaceが広く、単調改善を要求しないことと、評価目的が存在しないことは別である。
+「オープンエンド（open-ended）」は、評価なしに任意の方向へ進むことを意味しない。DGMでは更新候補コードを実行し、ベンチマークスコアで候補集合へ追加する。探索空間（search space）が広く、単調改善を要求しないことと、評価目的が存在しないことは別である。
 
-## Selection biasを測る
+## 選択バイアスを測る
 
-Development scoreで多数candidateを比較すると、偶然高いnoiseを含むcandidateを選びやすくなり、最大値は上方に偏る。同じdataを繰り返し使うselection biasは通常のmodel selectionでも知られている [@cawley2010overfitting]。
+開発用データのスコアで多数の更新候補を比較すると、偶然高い雑音を含む更新候補を選びやすくなり、最大値は上方に偏る。同じデータ（data）を繰り返し使う選択バイアス（selection bias）は通常のモデル選択（model selection）でも知られている [@cawley2010overfitting]。
 
-対策は、単にseedを増やすことではない。
+対策は、単にシード（seed）を増やすことではない。
 
-- Developmentでproposalを作る
-- Validationでpromotion候補を選び、照会回数を記録する
-- Finalistを確定してからsealed testを一度評価する
-- Incumbentも同じseedとcase-runで再評価する
-- Best-of-$N$ baselineと同じbudgetで比較する
-- Averageだけでなくcandidate分布を報告する
+- 開発用データで提案（proposal）を作る
+- 昇格用検証データで昇格（promotion）候補を選び、照会回数を記録する
+- 最終候補を確定してから封印テスト（sealed test）を一度評価する
+- 現行版も同じシードと事例実行（case-run）で再評価する
+- Best-of-$N$基準手法と同じ予算（budget）で比較する
+- 平均（average）だけでなく更新候補分布を報告する
 
-Public leaderboardをvalidationとして繰り返し使う場合、そのscoreは探索feedbackである。最終testとは呼べない。
+公開順位表（public leaderboard）を検証用に繰り返し使う場合、そのスコアは探索フィードバックである。最終テスト（final test）とは呼べない。
 
-## Stopping rule
+## 停止規則
 
-探索を「改善が止まったら」終了すると、どのset上の改善かが問題になる。Validation plateauを何度も確認すると、停止時点自体がvalidationへ適合する。
+探索を「改善が止まったら」終了すると、どの集合上の改善かが問題になる。検証停滞（validation plateau）を何度も確認すると、停止時点自体が昇格用検証データへ適合する。
 
 次のいずれかを事前に固定する。
 
-- Candidate評価数
-- Case-run数
-- Target / optimizer token budget
-- Wall-clock budget
-- Validation照会回数
-- 改善閾値とpatience
-- Safetyまたはcost上限への到達
+- 更新候補評価数
+- 事例実行数
+- 対象モデル / 最適化器のトークン予算
+- 経過時間予算（wall-clock budget）
+- 昇格用検証データへの照会回数
+- 改善閾値と忍耐回数（patience）
+- 安全性またはコスト上限への到達
 
-Budgetを使い切る前に有意なcandidateがなければ、incumbentを維持する。「最良candidateを必ず採用する」はstopping ruleではない。
+予算を使い切る前に有意な更新候補がなければ、現行版を維持する。「最良更新候補を必ず採用する」は停止規則（stopping rule）ではない。
 
 ## 要点
 
-Search methodの差は、LLMを使うかではなく、search state、proposal operator、評価予算、selection、archiveにある。Best-of-$N$、local/beam、tree、surrogate、population、Pareto、code archiveを同じ予算とheld-out protocolで比較する。Populationやarchiveは探索多様性を保つが、generalizationやregression-free promotionを自動的には保証しない。
+探索法の差は、LLMを使うかではなく、探索状態、提案演算子（proposal operator）、評価予算、選択、候補集合にある。Best-of-$N$、近傍/ビーム、木、代理モデル、母集団、パレート、コード候補集合を同じ予算と保留プロトコル（held-out protocol）で比較する。母集団や候補集合は探索多様性を保つが、汎化（generalization）や性能退行なしの昇格（regression-free promotion）を自動的には保証しない。

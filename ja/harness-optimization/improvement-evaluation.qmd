@@ -1,33 +1,33 @@
 ---
-pagetitle: "Harness の改善を評価する"
+pagetitle: "ハーネスの改善を評価する"
 ---
 
-# Harness の改善を評価する
+# ハーネスの改善を評価する
 
-見たことのあるtaskで評価値が上がっても、未知のtaskで良くなるとは限らない。Harnessの改善を評価するときは、**良くなった点、未知のtaskへの一般化、悪化した点**を分けて確認する。
+見たことのあるタスク（task）で評価値が上がっても、未知のタスクで良くなるとは限らない。ハーネス（harness）の改善を評価するときは、**良くなった点、未知のタスクへの一般化、悪化した点**を分けて確認する。
 
 ## 三つの質問に分ける
 
-更新候補を評価するときは、次の三つを問う。
+更新候補（candidate）を評価するときは、次の三つを問う。
 
-1. Optimizerが見たtaskでは良くなったか
-2. Optimizerが見ていないtaskでも良くなったか
-3. 既存の成功、コスト、応答時間、権限を悪化させていないか
+1. 最適化器（optimizer）が見たタスクでは良くなったか
+2. 最適化器が見ていないタスクでも良くなったか
+3. 既存の成功、コスト（cost）、応答時間（response time）、権限を悪化させていないか
 
-一つ目だけでは不十分である。同じtaskを何度も使えば、optimizerはそのtaskに合わせてHarnessを作れる。これは未知のtaskへの改善ではなく、見たtaskへの適合である。
+一つ目だけでは不十分である。同じタスクを何度も使えば、最適化器はそのタスクに合わせてハーネスを作れる。これは未知のタスクへの改善ではなく、見たタスクへの適合である。
 
 ## 後続章への見取り図
 
-三つの質問は、後続章で別々のprotocolへ展開する。
+三つの質問は、後続章で別々のプロトコル（protocol）へ展開する。
 
 | 質問 | 詳細を扱う章 |
 |---|---|
-| 見たtaskで良くなったか | Part IIの[最適化ループ](optimization-loop.qmd)と[実行結果と失敗分析](execution-feedback.qmd) |
-| 見ていないtaskでも良くなったか | Part IIIの[タスク分割](task-splits.qmd)と[モデル・環境間の汎化](target-environment-generalization.qmd) |
-| 既存能力や運用条件を壊していないか | Part IIIの[回帰・コスト・安全性](regression-cost-safety.qmd) |
+| 見たタスクで良くなったか | Part IIの[最適化ループ](optimization-loop.qmd)と[実行結果と失敗分析](execution-feedback.qmd) |
+| 見ていないタスクでも良くなったか | Part IIIの[タスク分割](task-splits.qmd)と[モデル・環境間の汎化](target-environment-generalization.qmd) |
+| 既存能力や運用条件を壊していないか | Part IIIの[性能退行・コスト・安全性](regression-cost-safety.qmd) |
 
-ここでの原則は一つである。候補生成、選択、停止判断に使った情報はすべて最適化dataであり、未知条件での最終評価とは分ける。Development / validation / sealed testのinformation flow、探索予算、promotion contract、rollbackの実装はPart IIIで定義する。
+ここでの原則は一つである。候補生成、選択、停止判断に使った情報はすべて最適化データ（optimization data）であり、未知条件での最終評価とは分ける。開発用データ（development data）、昇格用検証データ（promotion validation）、封印テスト（sealed test）の情報フロー（information flow）、探索予算（search budget）、昇格契約（promotion contract）、差し戻し（rollback）の実装はPart IIIで定義する。
 
 ## 要点
 
-Harnessの改善は、見たtaskのgain、未知条件へのgeneralization、regressionの三問に分ける。具体的な分割と採用protocolはPart IIIで定義する。
+ハーネスの改善は、見たタスクの利得（gain）、未知条件への汎化（generalization）、性能退行（regression）の三問に分ける。具体的な分割と採用プロトコルはPart IIIで定義する。

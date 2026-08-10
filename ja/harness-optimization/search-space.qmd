@@ -4,24 +4,24 @@ pagetitle: "探索空間"
 
 # 探索空間
 
-前章では、実行記録から最初のずれを見つけ、修正仮説を作った。次に決めるのは、optimizerへどこまで変更を許すかである。Agent harnessの最適化における**探索空間**とは、optimizerが更新候補として生成できるharnessの集合であり、**edit surface（変更を許可する範囲）**によって定まる。
+前章では、実行記録（trace）から最初のずれを見つけ、修正仮説を作った。次に決めるのは、最適化器（optimizer）へどこまで変更を許すかである。エージェント（agent）の**ハーネス最適化（harness optimization）**における**探索空間（search space）**とは、最適化器が更新候補（candidate）として生成できるハーネス（harness）の集合であり、**編集面（edit surface）**、すなわち変更を許可する範囲によって定まる。
 
-たとえば、system promptだけを変更する設定と、toolの呼び出し順やretryまで変更する設定では、作れる候補が異なる。後者は多くの失敗を直せる一方、探索と検証も難しくなる。
+たとえば、システムプロンプト（system prompt）だけを変更する設定と、ツール（tool）の呼び出し順や再試行（retry）まで変更する設定では、作れる候補が異なる。後者は多くの失敗を直せる一方、探索と検証も難しくなる。
 
 ## 変更範囲の粗い見取り図
 
 | 変更範囲 | 変更できるもの | 主に直せる失敗 | 例 |
 |---|---|---|---|
-| Prompt | instruction、demonstration | 指示不足、例示不足、出力形式のずれ | DSPy、GEPA |
-| Workflow（実行手順） | toolの順序、分岐、反復、retry | 判断の順序、確認漏れ、早すぎる終了 | AFlow |
-| Harness implementation | tool interface、state管理、memory、recovery | workflow編集だけでは表現できない制御 | ADAS、DGM |
+| プロンプト（prompt） | 指示（instruction）、例示（demonstration） | 指示不足、例示不足、出力形式のずれ | DSPy、GEPA |
+| ワークフロー（workflow） | ツールの順序、分岐、反復、再試行 | 判断の順序、確認漏れ、早すぎる終了 | AFlow |
+| ハーネス実装（harness implementation） | ツールインターフェース（tool interface）、状態（state）管理、メモリ（memory）、復旧処理（recovery） | ワークフロー編集だけでは表現できない制御 | ADAS、DGM |
 
-これは設計初期の自由度を把握するための**粗い見取り図**であり、三つが排他的な階層という意味ではない。実際のartifactはprompt、memory、workflow、runtime hookなどに重なって保存される。Part IIの[編集対象](edit-surfaces.qmd)では、これらを六つの重なり得るsurfaceへ分け、固定すべきinterfaceとともに定義する。
+これは設計初期の自由度を把握するための**粗い見取り図**であり、三つが排他的な階層という意味ではない。実際の成果物（artifact）はプロンプト、メモリ、ワークフロー、実行時フック（runtime hook）などに重なって保存される。Part IIの[編集対象](edit-surfaces.qmd)では、これらを六つの重なり得る編集面へ分け、固定すべきインターフェース（interface）とともに定義する。
 
 ## どこまで広げるか
 
-変更範囲を広げると、稀なpathでinterfaceを壊す、validation task専用のshortcutを埋め込む、tool permissionまで変えてしまう、といった危険も増える。したがって、**失敗を直せる最小のedit surfaceから始め、必要なときだけ広げる**のが原則である。
+変更範囲を広げると、稀な実行経路（path）でインターフェースを壊す、検証タスク（validation task）専用のショートカット（shortcut）を埋め込む、ツール権限（tool permission）まで変えてしまう、といった危険も増える。したがって、**失敗を直せる最小の編集面から始め、必要なときだけ広げる**のが原則である。
 
 ## 要点
 
-探索空間は広いほど良いわけではない。この三段階は方向づけに使い、実際の変更権限はartifactとinterfaceの単位で定義する。
+探索空間は広いほど良いわけではない。この三段階は方向づけに使い、実際の変更権限は成果物とインターフェースの単位で定義する。

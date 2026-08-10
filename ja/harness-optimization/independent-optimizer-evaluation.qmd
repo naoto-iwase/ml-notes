@@ -4,166 +4,166 @@ pagetitle: "最適化器の独立評価"
 
 # 最適化器の独立評価
 
-同じ最終scoreへ到達しても、10個の候補で見つけた方法と1,000個を試した方法は同じではない。出発点のharness、対象model、変更できる範囲、見せたdata、探索予算が違えば、最終scoreだけから最適化器の良し悪しは判断できない。
+同じ最終スコア（final score）へ到達しても、10個の更新候補（candidate）で見つけた方法と1,000個を試した方法は同じではない。出発点のハーネス（harness）、対象モデル（target model）、編集面（edit surface）、見せたデータ（data）、探索（search）の予算が違えば、最終スコアだけから最適化器（optimizer）の良し悪しは判断できない。
 
-ここまでの三章では、各候補について未使用task、別model・環境、回帰・cost・安全性を調べた。最後に、評価対象を完成したagentから、**条件を揃えたときにharnessをどれだけ確実かつ効率よく改善できるか**へ移す。
+ここまでの三章では、各更新候補について未使用のタスク（task）、別のモデル（model）・環境（environment）、性能退行（regression）・コスト（cost）・安全性（safety）を調べた。最後に、評価対象を完成したエージェント（agent）から、**条件を揃えたときにハーネスをどれだけ確実かつ効率よく改善できるか**へ移す。
 
-## 最終scoreに混ざる要因
+## 最終スコアに混ざる要因
 
-Optimization campaignの最終scoreは、optimizerだけでなくseed harness、target model、environment、development・validation data、budget、feedback disclosure policyに依存する。Optimizerだけを比較するには、他の要素を固定するか、factorialに一つずつ変える。
+最適化期間（optimization campaign）の最終スコアは、最適化器だけでなく初期ハーネス（seed harness）、対象モデル、環境、開発用データ（development data）・昇格用検証データ（promotion validation）、予算（budget）、フィードバック開示方針（feedback disclosure policy）に依存する。最適化器だけを比較するには、他の要素を固定するか、要因計画（factorial design）で一つずつ変える。
 
-「Method AのagentがMethod Bより高得点」だけでは、Aのoptimizerが優れているとは言えない。Aが高い初期harnessから始めた、testを多く見た、candidateを多く試した可能性がある。
+「手法（method）Aのエージェントが手法Bより高得点」だけでは、Aの最適化器が優れているとは言えない。Aが高い初期ハーネスから始めた、テストを多く見た、更新候補を多く試した可能性がある。
 
 ## 固定すべき条件
 
 | 条件 | 固定しない場合の交絡 |
 |---|---|
-| Target modelとdecoding | Base capabilityとsampling差 |
-| Seed harness | 改善余地と初期quality差 |
-| Edit surface | 変更可能なfailure class差 |
-| Environment image | Tool、latency、state差 |
-| Development / validation | Feedback量とtask難度差 |
-| Evaluator | Score definitionとjudge bias差 |
-| Disclosure policy | Trace、label、critiqueの情報量差 |
-| Budget | Candidate数、case-run、token差 |
-| Acceptance rule | 採用基準とregression許容差 |
-| Randomness | Lucky campaign選択 |
+| 対象モデルと復号（decoding） | 基礎能力（base capability）とサンプリング（sampling）の差 |
+| 初期ハーネス | 改善余地と初期品質（initial quality）の差 |
+| 編集面 | 変更可能な失敗クラス（failure class）の差 |
+| 環境イメージ（environment image） | ツール（tool）、遅延（latency）、状態（state）の差 |
+| 開発用データ・昇格用検証データ | フィードバック（feedback）量とタスク難度の差 |
+| 評価器（evaluator） | スコア定義（score definition）と判定モデル（judge）の偏り（bias）の差 |
+| 開示方針（disclosure policy） | 実行記録（trace）、ラベル（label）、批評（critique）の情報量の差 |
+| 予算 | 更新候補数、事例実行（case-run）、トークン（token）の差 |
+| 採否規則（acceptance rule） | 採用基準と性能退行許容度の差 |
+| 無作為性（randomness） | 幸運な最適化期間の選択 |
 
-すべてを一つのsettingに固定すると外的妥当性が低い。まずcontrolled comparisonを行い、その後target、seed、surface、environmentを一つずつ変える。
+すべてを一つの設定（setting）に固定すると外的妥当性（external validity）が低い。まず統制比較（controlled comparison）を行い、その後に対象、初期ハーネス、編集面、環境を一つずつ変える。
 
 ## 最終的な改善量以外の指標
 
-Optimizerの更新trajectoryを直接測る。
+最適化器の更新実行軌跡（trajectory）を直接測る。
 
 | 指標 | 定義 | 分かること |
 |---|---|---|
-| Proposal validity | 実行可能candidate / proposal | Edit surfaceを扱えるか |
-| Improvement hit rate | Incumbentを上回るcandidate率 | Proposal quality |
-| Regression rate | 旧成功を壊すcandidate率 | 変更の局所性 |
-| Sample efficiency | Case-runあたりのvalidation gain | Budget効率 |
-| Best-so-far curve | Budget $b$に対する最良validation score | Search speed |
-| Promotion regret | Validation上の最良candidateとの差 | Selection quality |
-| Attribution accuracy | 真のfailure site / priorityとの一致 | 診断能力 |
-| Calibration | Predicted improvementと実差分 | 自己評価の信頼性 |
-| Robustness | Seed / target / environment間の分散 | Transfer安定性 |
+| 提案有効率（proposal validity） | 実行可能な更新候補数 / 提案（proposal）数 | 編集面を扱えるか |
+| 改善的中率（improvement hit rate） | 現行版（incumbent）を上回る更新候補率 | 提案の品質（proposal quality） |
+| 性能退行率（regression rate） | 旧成功を壊す更新候補率 | 変更の局所性 |
+| 標本効率（sample efficiency） | 事例実行あたりの昇格用検証データ上の改善量 | 予算効率 |
+| 暫定最良曲線（best-so-far curve） | 予算 $b$に対する昇格用検証データ上の最良スコア | 探索の速度 |
+| 昇格後悔（promotion regret） | 昇格用検証データ上の最良更新候補との差 | 選択（selection）の品質 |
+| 帰属精度（attribution accuracy） | 真の失敗箇所・優先順位との一致 | 診断能力 |
+| 較正（calibration） | 予測改善量と実差分 | 自己評価の信頼性 |
+| 頑健性（robustness） | シード（seed）・対象・環境間の分散 | 転用（transfer）の安定性 |
 
-Final scoreが同じでも、片方が10 proposalで到達し、もう片方が1,000 proposalを使ったならoptimizer efficiencyは異なる。
+最終スコアが同じでも、片方が10個の提案で到達し、もう片方が1,000個の提案を使ったなら最適化器の効率は異なる。
 
 ## 候補生成と選択を分ける
 
-Optimizerには少なくとも二つの能力がある。
+最適化器には少なくとも二つの能力がある。
 
-1. 良いcandidateを集合に含める能力
-2. そのcandidateを限られた評価から選ぶ能力
+1. 良い更新候補を集合に含める能力
+2. その更新候補を限られた評価から選ぶ能力
 
-生成集合の中でpromotion用validation scoreが最大のcandidateと、optimizerが実際に選んだcandidateの差を**selection regret**とする。この指標はsearch中のsurrogateや限られた照会からどれだけ良いcandidateを選べたかを測る。Sealed testでは生成集合を再順位づけせず、確定したcandidateとincumbentだけを評価する。
+生成集合の中で昇格用検証データのスコアが最大の更新候補と、最適化器が実際に選んだ更新候補の差を**選択後悔（selection regret）**とする。この指標は探索中の代理モデル（surrogate）や限られた照会からどれだけ良い更新候補を選べたかを測る。封印テスト（sealed test）では生成集合を再順位づけせず、確定した更新候補と現行版だけを評価する。
 
-Candidate集合に良いartifactがなければproposalの問題である。良いartifactがあるのに選べなければsurrogateやvalidationの問題である。
+更新候補集合に良い成果物（artifact）がなければ提案の問題である。良い成果物があるのに選べなければ代理モデルや昇格用検証データの問題である。
 
-## Harness updatingとbenefitを分ける
+## ハーネス更新と利益を分ける
 
-あるoptimizerが有効な更新を作る能力と、あるtarget agentが更新済みharnessから利益を得る能力は同じではない。Harness Updating Is Not Harness Benefitは、複数のanchor agentに対する更新後の平均gainを**updating capability**、複数のevolverが作った更新からtarget agentが得る平均gainを**benefit capability**として分ける [@lin2026harnessbenefit]。
+ある最適化器が有効な更新を作る能力と、ある対象エージェント（target agent）が更新済みハーネスから利益を得る能力は同じではない。Harness Updating Is Not Harness Benefitは、複数の基準エージェント（anchor agent）に対する更新後の平均改善量（gain）を**更新能力（updating capability）**、複数の進化器（evolver）が作った更新から対象エージェントが得る平均改善量を**利益享受能力（benefit capability）**として分ける [@lin2026harnessbenefit]。
 
-Evolver×solverの組み合わせを交差させることで、良いupdaterと良いbeneficiaryを区別できる。Independent evaluationではこの二軸を報告し、一つのend-to-end gainをoptimizer固有の診断能力と解釈しない。
+進化器×解答器（evolver×solver）の組み合わせを交差させることで、良い更新器（updater）と良い受益者（beneficiary）を区別できる。独立評価（independent evaluation）ではこの二軸を報告し、一つのエンドツーエンド改善量（end-to-end gain）を最適化器固有の診断能力と解釈しない。
 
-## 評価器と採用規則
+## 評価器と採否規則
 
-Evaluatorはmeasurement、acceptance ruleはdecisionを担う。一つのLLM judgeへ「改善したか」とだけ聞くと、測定、集約、閾値が隠れる。Executable test、task別score、cost、invalid・safety event、human ratingを別々に返し、事前の閾値で採否を決める。
+評価器は測定（measurement）、採否規則は意思決定（decision）を担う。一つの大規模言語モデル（large language model, LLM）の判定モデルへ「改善したか」とだけ聞くと、測定、集約、閾値が隠れる。実行可能テスト（executable test）、タスク別スコア、コスト、無効・安全性事象（safety event）、人間評価（human rating）を別々に返し、事前の閾値で採否を決める。
 
-従来のoptimizer研究では、development metricとfeedbackをoptimizerが直接使うことが多く、evaluatorとacceptanceの分離が確立した標準とは言えない。この分離は、評価過適合とpromotion理由の不明確さを避けるための推奨protocolである。
+従来の最適化器研究では、開発用データの指標（development metric）とフィードバックを最適化器が直接使うことが多く、評価器と採否の分離が確立した標準とは言えない。この分離は、評価への過適合と昇格理由の不明確さを避けるための推奨手順（protocol）である。
 
-## 判定modelの独立性
+## 判定モデルの独立性
 
-Target model、optimizer model、evaluator modelを別にしても、judge biasは残る。大規模言語モデル（large language model, LLM）のevaluatorが自身のgenerationを好むself-preferenceは実証されている [@panickssery2024selfpreference]。Prompt wordingの小さな差でmodel scoreが大きく変わることも報告されている [@sclar2024spurious]。
+対象モデル、最適化器モデル（optimizer model）、評価器モデル（evaluator model）を別にしても、判定モデルの偏りは残る。LLMの評価器が自身の生成物（generation）を好む自己選好（self-preference）は実証されている [@panickssery2024selfpreference]。プロンプト（prompt）の文言（wording）の小さな差でモデルのスコアが大きく変わることも報告されている [@sclar2024spurious]。
 
-LLM judgeを使う場合は、candidate identityをblindにし、answer順をrandomizeし、promptとmodel versionを固定する。Executable verifierを優先し、human-verified subsetとのagreementと複数judge間のdisagreementを報告する。
+LLMの判定モデルを使う場合は、更新候補の識別情報を隠し（blind）、解答順を無作為化し（randomize）、プロンプトとモデルの版（version）を固定する。実行可能な検証器（executable verifier）を優先し、人間が検証した部分集合（human-verified subset）との一致度（agreement）と複数の判定モデル間の不一致（disagreement）を報告する。
 
-Judge explanationをoptimizerへ返す場合、そのjudgeはdevelopment feedback generatorである。Final acceptance evaluatorとは分ける。
+判定モデルの説明を最適化器へ返す場合、その判定モデルは開発用フィードバック生成器（development feedback generator）である。最終採用評価器（final acceptance evaluator）とは分ける。
 
 ## 優先順位による直接評価
 
-Towards Direct Evaluation of Harness Optimizers via Priority Rankingは、optimizerにharness componentの改善優先順位をつけさせる最近のpreprintである [@ong2026priority]。SHORはprompt、tool、workflow、memoryなどを含む182のhuman-verified scenarioから成る。
+Towards Direct Evaluation of Harness Optimizers via Priority Rankingは、最適化器にハーネス構成要素（harness component）の改善優先順位をつけさせる最近のプレプリント（preprint）である [@ong2026priority]。SHORはプロンプト、ツール、ワークフロー（workflow）、メモリ（memory）などを含む182件の人間が検証したシナリオ（human-verified scenario）から成る。
 
-この評価では、full multi-step optimizationを毎回実行せず、どのcomponentを先に変えるべきかというstep-level判断を測る。論文はranking性能と実際のoptimization能力の相関を報告するため、trial-and-errorで偶然改善したoptimizerと診断能力を区別しようとする。
+この評価では、完全な多段階最適化（full multi-step optimization）を毎回実行せず、どの構成要素を先に変えるべきかという段階単位の判断（step-level decision）を測る。論文は順位づけ性能（ranking performance）と実際の最適化能力の相関を報告するため、試行錯誤（trial-and-error）で偶然改善した最適化器と診断能力を区別しようとする。
 
 ただしPriority Rankingは次を直接測らない。
 
-- 具体的editの正しさ
-- Candidateの実行可能性
-- 最終agent score
-- Costと安全性
-- Cross-environment transfer
+- 具体的な編集（edit）の正しさ
+- 更新候補の実行可能性
+- 最終エージェントスコア
+- コストと安全性
+- 環境横断の転用（cross-environment transfer）
 
-Human priorityをoracleとするため、複数箇所の相互作用や人間が見落とす改善も扱いにくい。End-to-end評価を置き換えるのではなく、diagnosticとして使う。
+人間の優先順位（human priority）を正解（oracle）とするため、複数箇所の相互作用や人間が見落とす改善も扱いにくい。エンドツーエンド評価を置き換えるのではなく、診断指標（diagnostic）として使う。
 
-## 条件を揃えたend-to-end評価
+## 条件を揃えたエンドツーエンド評価
 
-VeROは、optimization objective、environment、harness、feedback、予算をversion化し、8つのoptimizer configurationを5 task、各3 iterationで比較するbenchmark harnessである [@ursekar2026vero]。主実験はtarget agentをGPT-4.1 miniに固定した120 experimentで、初期score、best score、gain、実行時間、run間の分散を報告する。ICML 2026採択研究であり、optimizerを更新過程から直接評価する主要な先行例である。
+VeROは、最適化目的（optimization objective）、環境、ハーネス、フィードバック、予算を版管理し、8つの最適化器構成（optimizer configuration）を5タスク、各3反復（iteration）で比較するベンチマークハーネス（benchmark harness）である [@ursekar2026vero]。主実験は対象エージェントをGPT-4.1 miniに固定した120実験（experiment）で、初期スコア、最良スコア、改善量、実行時間、実行間の分散を報告する。国際機械学習会議（International Conference on Machine Learning, ICML）2026採択研究であり、最適化器を更新過程から直接評価する主要な先行例である。
 
-HarnessOpt-Benchは、development、validation、hidden test、case-pass、target-model token budgetを固定し、OfficeQA、BrowseComp-Plus、Terminal-Bench、GAIAでoptimizerを比較する新しいpreprintである [@ursekar2026harnessopt]。
+HarnessOpt-Benchは、開発用データ、昇格用検証データ、隠しテスト（hidden test）、事例通過数（case-pass）、対象モデルのトークン予算（target-model token budget）を固定し、OfficeQA、BrowseComp-Plus、Terminal-Bench、GAIAで最適化器を比較する新しいプレプリントである [@ursekar2026harnessopt]。
 
 重要な設計は次である。
 
-- Target model、environment、verifierを固定
-- Developmentではcase-level結果とtraceを開示
-- Validationでは集約scoreを返す
-- Hidden testをsearchから遮断
-- Final candidateとseedをtestで反復評価
-- Optimizer configuration自体も複数campaignで評価
+- 対象モデル、環境、検証器を固定
+- 開発用データでは事例単位の結果（case-level result）と実行記録を開示
+- 昇格用検証データでは集約スコア（aggregate score）を返す
+- 隠しテストを探索から遮断
+- 最終更新候補とシードをテストで反復評価
+- 最適化器構成自体も複数の最適化期間で評価
 
-VeROとHarnessOpt-Benchはいずれも交絡を減らすが、用意されたoptimization problem内での比較である。実運用のpermission、secret、長期memory migration、environment updateは別に評価する。HarnessOpt-Benchは2026年8月公開の未査読preprintであり、標準として確立したとは言えない。
+VeROとHarnessOpt-Benchはいずれも交絡を減らすが、用意された最適化問題（optimization problem）内での比較である。実運用の権限、秘密情報、長期メモリ移行（long-term memory migration）、環境更新（environment update）は別に評価する。HarnessOpt-Benchは2026年8月公開の未査読プレプリントであり、標準として確立したとは言えない。
 
 ## 最適化問題を複数用意する
 
-一つのtask benchmark内でharnessをsearchするだけでは、optimizer generalizationを測りにくい。Seed harness、target、environment、task、edit surfaceを組にしたoptimization problemを複数用意し、一部problemでoptimizerを設計し、held-out problemで評価する。
+一つのタスクベンチマーク内でハーネスを探索するだけでは、最適化器の汎化（optimizer generalization）を測りにくい。初期ハーネス、対象、環境、タスク、編集面を組にした最適化問題を複数用意し、一部の問題で最適化器を設計し、保留問題（held-out problem）で評価する。
 
-- Held-out seed harness
-- Held-out edit surface
-- Held-out target model
-- Held-out environment
-- Held-out failure mode
+- 保留初期ハーネス（held-out seed harness）
+- 保留編集面（held-out edit surface）
+- 保留対象モデル（held-out target model）
+- 保留環境（held-out environment）
+- 保留失敗形態（held-out failure mode）
 
-これにより、一つのoptimized harnessのgeneralizationと、optimizer algorithmのgeneralizationを分けられる。
+これにより、一つの最適化済みハーネス（optimized harness）の汎化と、最適化器アルゴリズム（optimizer algorithm）の汎化を分けられる。
 
-## 採否判定をbenchmark側に置く
+## 採否判定をベンチマーク側に置く
 
-Benchmarkがfinal scoreだけを返し、各methodが独自にcandidateを選ぶと、acceptance ruleもmethodの一部になる。二種類のtrackを分ける。
+ベンチマークが最終スコアだけを返し、各手法が独自に更新候補を選ぶと、採否規則も手法の一部になる。二種類のトラック（track）を分ける。
 
 ### 全体評価
 
-Proposal、search、selectionを含むoptimizer全体を評価する。Acceptance ruleの自由度もalgorithmとして記録する。
+提案、探索、選択を含む最適化器全体を評価する。採否規則の自由度もアルゴリズムとして記録する。
 
 ### 固定した採否規則による評価
 
-Candidate集合または一つのcandidateを提出し、benchmark側の固定promotion contractで採否を決める。Evaluator overfittingを減らし、proposal能力を比較しやすい。
+更新候補集合または一つの更新候補を提出し、ベンチマーク側の固定した昇格契約（promotion contract）で採否を決める。評価器への過適合（evaluator overfitting）を減らし、提案能力を比較しやすい。
 
-両trackが必要である。固定acceptanceだけでは実際のoptimizer運用を測れず、end-to-endだけではcandidate qualityとselectionを分解できない。
+両トラックが必要である。固定した採否規則だけでは実際の最適化器運用を測れず、エンドツーエンドだけでは更新候補の品質と選択を分解できない。
 
-## 最小限のbenchmark仕様
+## 最小限のベンチマーク仕様
 
-Optimizer-independent evaluationには次のcontractが必要である。
+最適化器から独立した評価（optimizer-independent evaluation）には次の契約（contract）が必要である。
 
 | 要素 | 固定・報告するもの |
 |---|---|
-| Problem | Seed、target、environment、edit・forbidden surface |
-| Feedback | Development・validationで返す情報、照会log |
-| Budget | Case-run、token、tool、wall time |
-| Test | Optimizerとresearcherから封印した実行時点 |
-| Baseline | Incumbent、best-of-$N$、test-time scaling |
-| Diagnostics | Validity、hit rate、regression、sample efficiency |
-| Promotion | Evaluator、acceptance rule、安全gate |
-| Artifact | Optimizer version、candidate lineage、diff、seed |
+| 問題（problem） | 初期ハーネス、対象、環境、編集面・禁止面（forbidden surface） |
+| フィードバック | 開発用データ・昇格用検証データで返す情報、照会ログ（query log） |
+| 予算 | 事例実行、トークン、ツール、経過時間（wall time） |
+| テスト | 最適化器と研究者から封印した実行時点 |
+| 基準手法（baseline） | 現行版、best-of-$N$、推論時スケーリング（test-time scaling） |
+| 診断（diagnostics） | 有効性（validity）、的中率（hit rate）、性能退行、標本効率 |
+| 昇格 | 評価器、採否規則、安全関門（safety gate） |
+| 成果物 | 最適化器の版、更新候補の系譜（candidate lineage）、差分（diff）、シード |
 
-API modelやdynamic websiteでは、timestamp、response cache、environment snapshotを保存し、完全再現できない範囲を明記する。
+APIモデルや動的ウェブサイト（dynamic website）では、タイムスタンプ（timestamp）、応答キャッシュ（response cache）、環境スナップショット（environment snapshot）を保存し、完全再現できない範囲を明記する。
 
-![HarnessOpt-Benchのtrusted evaluation architecture。Optimizerはtarget agent codeだけを書き換え、development traceとvalidation aggregateを受け取る。Hidden testはtrusted server内に封印し、全model callのbudgetとcandidate executionを外側から強制する。出典: [@ursekar2026harnessopt] Figure 1（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)、原図をrasterize）](images/harnessopt-heldout-architecture.png){#fig-harnessopt-heldout-architecture}
+![HarnessOpt-Benchの信頼された評価アーキテクチャ（trusted evaluation architecture）。最適化器は対象エージェントのコード（code）だけを書き換え、開発用データの実行記録と昇格用検証データの集約値を受け取る。隠しテストは信頼されたサーバ（trusted server）内に封印し、全モデル呼び出しの予算と更新候補の実行を外側から強制する。出典: [@ursekar2026harnessopt] Figure 1（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)、原図をラスタライズ（rasterize））](images/harnessopt-heldout-architecture.png){#fig-harnessopt-heldout-architecture}
 
 ## 現在分かっていること
 
-Prompt、workflow、code searchには、採択済み一次研究による複数のoptimizer familyがある。VeROは直接評価を採択済み研究として具体化し、Priority Ranking、Rethinking Evaluation、HarnessOpt-Bench、Harness Updating Is Not Harness Benefitは診断・汎化・能力分解を広げる2026年の新しいpreprintである。共通の問題設定は形成され始めたが、まだ独立追試や分野横断的な合意ではない。
+プロンプト、ワークフロー、コードの探索には、採択済み一次研究による複数の最適化器系統（optimizer family）がある。VeROは直接評価を採択済み研究として具体化し、Priority Ranking、Rethinking Evaluation、HarnessOpt-Bench、Harness Updating Is Not Harness Benefitは診断・汎化・能力分解を広げる2026年の新しいプレプリントである。共通の問題設定は形成され始めたが、まだ独立追試や分野横断的な合意ではない。
 
-したがって、Part IIIのprotocolは「既存研究が一貫して実施している標準」ではなく、既存手法の評価上の欠落と、最近の直接評価研究を組み合わせた推奨である。
+したがって、Part IIIの手順は「既存研究が一貫して実施している標準」ではなく、既存手法の評価上の欠落と、最近の直接評価研究を組み合わせた推奨である。
 
 ## 要点
 
-Final agent scoreはoptimizer、target、seed、surface、budget、evaluatorを交絡する。Controlled end-to-end評価とstep-level diagnosticを併用し、candidate生成とselectionを分解する。Evaluatorは測定、acceptance ruleは採用を担当し、両者をoptimizerから固定する。最近の直接評価preprintは有用な設計を提示するが、確立済み標準として扱わない。
+最終エージェントスコアは最適化器、対象、初期ハーネス、編集面、予算、評価器を交絡する。統制したエンドツーエンド評価と段階単位の診断（step-level diagnostic）を併用し、更新候補の生成と選択を分解する。評価器は測定、採否規則は採用を担当し、両者を最適化器から固定する。最近の直接評価プレプリントは有用な設計を提示するが、確立済み標準として扱わない。

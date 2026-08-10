@@ -61,6 +61,17 @@ Recommended Japanese terms include:
 
 Parallel subagents choose translations independently, so one concept can acquire three or four forms if unconstrained. **Enumerate the exact forms in the subagent prompt** and require them.
 
+### Introduce a Japanese Term Once per Chapter, Then Keep It Japanese
+
+Treat every chapter as independently readable and do not alternate between an English technical term and its Japanese translation:
+
+1. Before parallel writing, choose canonical Japanese forms and include them in every subagent prompt.
+2. At first body use in each chapter, write `日本語（English）`, or `日本語（English full form, ACRONYM）` for an abbreviation.
+3. Thereafter use the Japanese form consistently. For a standard abbreviation, use either it or the Japanese form consistently; do not return to the raw English full form.
+4. In Phase 7, audit raw English prose terms and first-use definitions chapter by chapter.
+
+For example, use `最適化器（optimizer）` once and `最適化器` thereafter. Apply the same rule to `評価器（evaluator）`, `現行版（incumbent）`, `更新候補（candidate）`, `編集面（edit surface）`, and `成果物（artifact）`. Method and product names, API identifiers, code, mathematical variables, citation keys, link destinations, and the common abbreviations exempted by `SKILL.md` are outside this rule.
+
 ### Neural-Network Terminology in Japanese
 
 - **Standardize every occurrence as `ニューラルネット`** ("neural net"). The variants `ネット` ("net"), `ネットワーク` ("network"), and `ニューラルネットワーク` ("neural network") otherwise tend to coexist.

@@ -4,97 +4,97 @@ pagetitle: "モデル・環境間の汎化"
 
 # モデル・環境間の汎化
 
-前章では、改善に使ったtaskと最終評価用taskを分けた。本章ではさらに、あるmodel向けに改善したharnessが、別のmodelや更新後のtoolでも動くかを問う。Promptが特定modelの指示解釈に依存したり、workflowが古いerror形式を仮定したり、validatorが古いschemaだけを許したりするためである。同じharnessを移す場合と、同じ最適化器で作り直す場合を分けて考える。
+前章では、改善に使ったタスク（task）と最終評価用タスクを分けた。本章ではさらに、ある対象モデル（target model）向けに改善したハーネス（harness）が、別のモデル（model）や更新後のツール（tool）でも動くかを問う。プロンプト（prompt）が特定モデルの指示解釈に依存したり、ワークフロー（workflow）が古いエラー（error）形式を仮定したり、検証器（validator）が古いスキーマ（schema）だけを許したりするためである。同じハーネスを移す場合と、同じ最適化器（optimizer）で作り直す場合を分けて考える。
 
 ## 何が変わったかを分ける
 
-Harness performanceを次の関数として考える。
+ハーネス性能（harness performance）を次の関数として考える。
 
 $$
 J(H;\theta,E,\mathcal{D},v),
 $$
 
-ここで$\theta$はtarget model、$E$はtoolやruntimeを含むenvironment、$\mathcal{D}$はtask分布、$v$はharness interfaceのversionである。一つだけ変えた評価と、複数を同時に変えた評価を区別する。
+ここで$\theta$は対象モデル、$E$はツールや実行環境（runtime）を含む環境（environment）、$\mathcal{D}$はタスク分布、$v$はハーネスインターフェースの版（version）である。一つだけ変えた評価と、複数を同時に変えた評価を区別する。
 
-| 軸 | 変更例 | 主なfailure |
+| 軸 | 変更例 | 主な失敗（failure） |
 |---|---|---|
-| Target model | Model family、size、provider | Instruction解釈、tool-call format、context limit |
-| Model version | API update、checkpoint update | Sampling、refusal、schema adherence |
-| Environment | Website、database、simulator | Observation、state transition、latency |
-| Tool contract | Name、argument、return schema | Invalid call、silent misparse |
-| Permission | Read/write/network scope | Denial、越権、fallback誤作動 |
-| Task distribution | Domain、difficulty、language | Benchmark-specific shortcut |
-| Harness interface | Hook、memory schema、runtime | Patch incompatibility |
+| 対象モデル | モデル系統（model family）、規模（size）、提供者（provider） | 指示（instruction）の解釈、ツール呼び出し形式（tool-call format）、コンテキスト上限（context limit） |
+| モデル版（model version） | API更新、チェックポイント更新（checkpoint update） | サンプリング（sampling）、拒否（refusal）、スキーマ準拠（schema adherence） |
+| 環境 | ウェブサイト（website）、データベース（database）、シミュレータ（simulator） | 観測（observation）、状態遷移（state transition）、遅延（latency） |
+| ツール契約（tool contract） | 名前、引数（argument）、返却値のスキーマ | 無効な呼び出し（invalid call）、無言の誤解析（silent misparse） |
+| 権限（permission） | 読み取り・書き込み・ネットワークの範囲 | 拒否、越権、代替動作（fallback）の誤作動 |
+| タスク分布（task distribution） | ドメイン（domain）、難度、言語 | ベンチマーク（benchmark）固有の近道 |
+| ハーネスインターフェース（harness interface） | フック（hook）、メモリ（memory）のスキーマ、実行環境 | パッチ（patch）の非互換性 |
 
-Cross-targetは$\theta$を変え、同じ$H$を使う評価である。Targetごとに再探索して得た$H_\theta$を比較する実験はmulti-target optimizationであり、artifact transferではない。
+対象横断（cross-target）は$\theta$を変え、同じ$H$を使う評価である。対象ごとに探索（search）をやり直して得た$H_\theta$を比較する実験は複数対象最適化（multi-target optimization）であり、成果物の転用（artifact transfer）ではない。
 
 ## 何が引き継がれたか
 
-Harness optimizerのtransferには三種類ある。
+ハーネス最適化器の転用（transfer）には三種類ある。
 
-1. **Artifact transfer:** 同じharnessを新しいtarget / environmentへ適用する
-2. **Optimizer transfer:** 同じoptimizerを使い、新しいtarget向けharnessを探索する
-3. **Design transfer:** 一方で見つけたmoduleやpatternを別campaignの初期値にする
+1. **成果物の転用:** 同じハーネスを新しい対象・環境へ適用する
+2. **最適化器の転用（optimizer transfer）:** 同じ最適化器を使い、新しい対象向けハーネスを探索する
+3. **設計の転用（design transfer）:** 一方で見つけたモジュール（module）やパターン（pattern）を別の最適化期間（campaign）の初期値にする
 
-たとえば同じpatchを別modelへそのまま適用するのがartifact transfer、別model向けに探索をやり直すのがoptimizer transfer、patchの方針だけを初期案として使うのがdesign transferである。
+たとえば同じパッチを別モデルへそのまま適用するのが成果物の転用、別モデル向けに探索をやり直すのが最適化器の転用、パッチの方針だけを初期案として使うのが設計の転用である。
 
-これらを混同すると、何が一般化したか分からない。Learned editorが新targetでpatchを生成できても、元のpatch自体がtransferしたわけではない。
+これらを混同すると、何が一般化したか分からない。学習済み編集器（learned editor）が新しい対象でパッチを生成できても、元のパッチ自体が転用できたわけではない。
 
 ## 既存研究は何を転用したか
 
-複数modelやdomainで改善したという結果だけでは、同じartifactが転用できたのか、optimizerを再実行したのか分からない。代表例を転用単位で整理する。
+複数モデルやドメインで改善したという結果だけでは、同じ成果物（artifact）が転用できたのか、最適化器を再実行したのか分からない。代表例を転用単位で整理する。
 
 | 研究 | 転用したもの | 読み方 |
 |---|---|---|
-| RLPrompt [@deng2022rlprompt] | Source modelで学習した離散prompt | RoBERTaとGPT-2間のartifact transfer。方向によって結果が異なる |
-| ADAS [@hu2025adas] | 発見したagent design | 別domain・modelへのdesign transfer。Promptやadapterの再調整を区別する |
-| DGM [@zhang2026dgm] | Coding-agent codeまたは探索法 | SWE-benchとPolyglot間のartifact transferと再探索を分ける |
-| Meta-Harness [@lee2026metaharness] | Coding proposer | Domainごとに別harnessを探索するoptimizer transfer |
-| Harness-R1 [@shao2026harnessr1] | 学習済みeditorと共通hook | Shared runtime内のcross-target。新しいtool APIへの転用ではない |
-| Self-Harness [@zhang2026selfharness] | Optimization recipe | Target modelごとにharnessを作り直す。発見したharness自体のmodel間転用とは別である |
+| RLPrompt [@deng2022rlprompt] | 転用元モデル（source model）で学習した離散プロンプト（discrete prompt） | RoBERTaとGPT-2間の成果物の転用。方向によって結果が異なる |
+| ADAS [@hu2025adas] | 発見したエージェント設計（agent design） | 別ドメイン・モデルへの設計の転用。プロンプトやアダプタ（adapter）の再調整を区別する |
+| DGM [@zhang2026dgm] | コーディングエージェント（coding agent）のコード（code）または探索法 | SWE-benchとPolyglot間の成果物の転用と再探索を分ける |
+| Meta-Harness [@lee2026metaharness] | コーディング提案器（coding proposer） | ドメインごとに別ハーネスを探索する最適化器の転用 |
+| Harness-R1 [@shao2026harnessr1] | 学習済み編集器と共通フック | 共有実行環境（shared runtime）内の対象横断。新しいツールAPIへの転用ではない |
+| Self-Harness [@zhang2026selfharness] | 最適化手順（optimization recipe） | 対象モデルごとにハーネスを作り直す。発見したハーネス自体のモデル間転用とは別である |
 
-Prompt optimizerを複数modelで実行した場合も、modelごとにcandidateを作り直せばartifact transferではない。同じarchitectureと呼ぶ場合も、destinationで許したprompt、adapter、validatorの変更をdiffで示す。Code artifactはtool path、container、test command、repository layoutへ依存するため、cross-modelだけを変えた実験はruntime portabilityを測っていない。
+プロンプト最適化器（prompt optimizer）を複数モデルで実行した場合も、モデルごとに更新候補（candidate）を作り直せば成果物の転用ではない。同じアーキテクチャ（architecture）と呼ぶ場合も、転用先（destination）で許したプロンプト、アダプタ、検証器の変更を差分（diff）で示す。コード成果物はツールのパス、コンテナ（container）、テストコマンド（test command）、リポジトリ構成（repository layout）へ依存するため、モデル横断（cross-model）だけを変えた実験は実行環境の可搬性（runtime portability）を測っていない。
 
 ## 実行環境を変える
 
-Cross-environmentでは、target modelを固定し、toolとstate transitionを変える。
+環境横断（cross-environment）では、対象モデルを固定し、ツールと状態遷移を変える。
 
-Environment差を段階化する。
+環境差を段階化する。
 
-| Level | 変更 | 例 |
+| 水準（level） | 変更 | 例 |
 |---|---|---|
-| Patch-level | Bug fix、minor version | Error messageの変化 |
-| Contract-compatible | 新field、順序、latency | Optional schema field |
-| Contract-breaking | Tool名、argument、auth | API migration |
-| Behavioral | Website policy、simulator dynamics | 同じactionの結果が変化 |
-| Adversarial | Prompt injection、malicious tool output | Untrusted observation |
+| パッチ水準（patch-level） | バグ修正（bug fix）、マイナー版（minor version） | エラーメッセージの変化 |
+| 契約互換（contract-compatible） | 新しいフィールド（field）、順序、遅延 | 任意のスキーマフィールド（optional schema field） |
+| 契約破壊（contract-breaking） | ツール名、引数、認証（auth） | API移行（API migration） |
+| 振る舞い（behavioral） | ウェブサイトのポリシー（policy）、シミュレータの力学（dynamics） | 同じアクション（action）の結果が変化 |
+| 敵対的（adversarial） | プロンプトインジェクション（prompt injection）、悪意あるツール出力（malicious tool output） | 信頼できない観測（untrusted observation） |
 
-本書で検討した一次研究の範囲では、contract-breakingなtool APIやpermission変更までsystematically評価した例は限られる。Cross-environment generalizationは未解決問題として残る。
+本書で検討した一次研究の範囲では、契約を破壊するツールAPIや権限変更まで体系的に評価した例は限られる。環境横断の汎化（cross-environment generalization）は未解決問題として残る。
 
 ## 組み合わせへの依存を測る
 
-Harnessとtargetの効果は加法的とは限らない。同じcandidateとincumbentをtarget×environmentのmatrixで評価し、平均だけでなくworst-caseとregression countを報告する。あるmodelで大きく改善し、別modelで悪化するなら、そのharnessはtarget-specificである。
+ハーネスと対象の効果は加法的とは限らない。同じ更新候補と現行版（incumbent）を対象×環境の行列（matrix）で評価し、平均だけでなく最悪値（worst-case）と性能退行件数（regression count）を報告する。あるモデルで大きく改善し、別モデルで悪化するなら、そのハーネスは対象固有（target-specific）である。
 
-## Version updateへの耐性
+## 版の更新への耐性
 
-Provider modelやtool APIは同じ名前でも更新される。Cross-target studyではmodel IDだけでなく、checkpoint、API date、decoding parameter、system policyを記録する。
+提供者のモデルやツールAPIは同じ名前でも更新される。対象横断の研究ではモデル識別子（identifier, ID）だけでなく、チェックポイント（checkpoint）、APIの日付、復号パラメータ（decoding parameter）、システム方策（system policy）を記録する。
 
-新versionではincumbentとcandidateを同条件で再評価し、output schema、tool call、latency、refusalを分解する。言語やdomainを変える場合はevaluator qualityも変わり得るため、human-verified subsetまたはdomain-specificなexecutable verifierを置く。Harnessをuniversal artifactとみなさず、互換性matrixをversion metadataへ持たせる。
+新しい版では現行版と更新候補を同条件で再評価し、出力スキーマ（output schema）、ツール呼び出し（tool call）、遅延、拒否を分解する。言語やドメインを変える場合は評価器（evaluator）の品質（quality）も変わり得るため、人間が検証した部分集合（human-verified subset）またはドメイン固有の実行可能な検証器（domain-specific executable verifier）を置く。ハーネスを普遍的な成果物（universal artifact）とみなさず、互換性行列（compatibility matrix）を版のメタデータ（version metadata）へ持たせる。
 
 ## 最小限の転用評価
 
-一つのartifact $H^*$のtransferを調べる場合は、次を固定する。
+一つの成果物 $H^*$の転用を調べる場合は、次を固定する。
 
-1. Source target / environmentのdevelopmentだけで$H^*$を確定する
-2. Candidate source、history、scoreを凍結する
-3. Destinationでpromptやcodeを編集しないzero-shot transferを測る
-4. 必要なら、少量destination validationによるadapted transferを別に測る
-5. Incumbent $H_0$もdestinationで評価する
-6. Mean、worst-case、regression count、invalid countを報告する
-7. Target modelとenvironmentを同時に変えたcaseを別に置く
+1. 転用元の対象・環境の開発用データ（development data）だけで$H^*$を確定する
+2. 更新候補の転用元、履歴（history）、スコア（score）を凍結する
+3. 転用先でプロンプトやコードを編集しないゼロショット転用（zero-shot transfer）を測る
+4. 必要なら、少量の転用先の昇格用検証データ（promotion validation）による適応後転用（adapted transfer）を別に測る
+5. 現行版 $H_0$も転用先で評価する
+6. 平均（mean）、最悪値、性能退行件数、無効件数（invalid count）を報告する
+7. 対象モデルと環境を同時に変えた事例（case）を別に置く
 
-Zero-shot transferとadapted transferを同じtable列に入れない。
+ゼロショット転用と適応後転用を同じ表の列に入れない。
 
 ## 要点
 
-Cross-target、cross-environment、cross-taskを別軸として評価する。同じmethodを各targetで再探索した結果はoptimizer transferであり、一つのartifactのtransferではない。本書で検討した一次研究にはcross-modelやcross-domainの限定例がある一方、新しいtool API、runtime、permissionまで含むcross-environment evidenceは限られる。
+対象横断、環境横断、タスク横断を別軸として評価する。同じ手法（method）を各対象で再探索した結果は最適化器の転用であり、一つの成果物の転用ではない。本書で検討した一次研究にはモデル横断やドメイン横断の限定例がある一方、新しいツールAPI、実行環境、権限まで含む環境横断の証拠（evidence）は限られる。

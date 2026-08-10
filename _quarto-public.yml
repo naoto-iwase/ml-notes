@@ -243,11 +243,11 @@ website:
               contents:
                 - text: "概要"
                   href: ja/harness-optimization/overview.qmd
-                - text: "失敗から Harness を改善する"
+                - text: "失敗からハーネスを改善する"
                   href: ja/harness-optimization/failure-driven-update.qmd
                 - text: "探索空間"
                   href: ja/harness-optimization/search-space.qmd
-                - text: "Harness の改善を評価する"
+                - text: "ハーネスの改善を評価する"
                   href: ja/harness-optimization/improvement-evaluation.qmd
             - section: "II 研究の潮流と手法群"
               contents:
@@ -267,7 +267,7 @@ website:
                   href: ja/harness-optimization/task-splits.qmd
                 - text: "モデル・環境間の汎化"
                   href: ja/harness-optimization/target-environment-generalization.qmd
-                - text: "回帰・コスト・安全性"
+                - text: "性能退行・コスト・安全性"
                   href: ja/harness-optimization/regression-cost-safety.qmd
                 - text: "最適化器の独立評価"
                   href: ja/harness-optimization/independent-optimizer-evaluation.qmd

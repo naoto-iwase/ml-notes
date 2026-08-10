@@ -4,95 +4,95 @@ pagetitle: "実行結果と失敗分析"
 
 # 実行結果と失敗分析
 
-失敗率が30%だと分かっても、どこを直すべきかは分からない。全件が同じtool schemaで失敗したのか、計画、tool選択、検証で別々に失敗したのかによって、必要な修正は異なる。
+失敗率が30%だと分かっても、どこを直すべきかは分からない。全件が同じツール（tool）スキーマ（schema）で失敗したのか、計画、ツール選択（tool selection）、検証で別々に失敗したのかによって、必要な修正は異なる。
 
-前章では最適化loopの役割を分けた。候補を作るには、最終scoreだけでなく、入力ごとの結果、actionとobservationの列、exceptionなどをoptimizerへ返す必要がある。この章では、これらの**実行結果**（execution feedback）から反証可能な修正仮説を作るまでを扱う。実際にどのartifactを変更するかは次章で扱う。
+前章では最適化ループ（optimization loop）の役割を分けた。更新候補（candidate）を作るには、最終スコア（score）だけでなく、入力ごとの結果、動作（action）と観測（observation）の列、例外（exception）などを最適化器（optimizer）へ返す必要がある。この章では、これらの**実行フィードバック（execution feedback）**から反証可能な修正仮説を作るまでを扱う。実際にどの成果物（artifact）を変更するかは次章で扱う。
 
 ## 実行結果から何が分かるか
 
-実行から得られるfeedbackを、情報量の少ない順に並べる。
+実行から得られるフィードバックを、情報量の少ない順に並べる。
 
 | 粒度 | 例 | 分かること | 分からないこと |
 |---|---|---|---|
-| 最終値 | success=0、accuracy=0.6 | 候補間の順位 | どこで、なぜ失敗したか |
-| Task別の結果 | task ID、expected、actual | 失敗した入力 | 失敗stepと原因 |
-| 自然言語の批評 | 「table selectionが誤り」 | 修正仮説 | 批評が正しいか |
-| 実行軌跡 | action、observation、tool result | 最初のずれと後続影響 | 反実仮想の因果効果 |
-| 実装診断 | exception、latency、permission、resource | 実装上の失敗箇所 | 意味的な誤判断の原因 |
-| 修正後の再実行 | 特定hookだけ変更して再実行 | 変更と結果の因果的な手掛かり | 他分布への一般化 |
+| 最終値 | 成功（success）=0、正解率（accuracy）=0.6 | 更新候補間の順位 | どこで、なぜ失敗したか |
+| タスク（task）別の結果 | タスクID、期待値（expected）、実測値（actual） | 失敗した入力 | 失敗ステップ（step）と原因 |
+| 自然言語の批評 | 「表選択（table selection）が誤り」 | 修正仮説 | 批評が正しいか |
+| 実行軌跡（trajectory） | 動作、観測、ツール結果 | 最初のずれと後続影響 | 反実仮想の因果効果 |
+| 実装診断 | 例外、遅延（latency）、権限（permission）、資源（resource） | 実装上の失敗箇所 | 意味的な誤判断の原因 |
+| 修正後の再実行 | 特定フック（hook）だけ変更して再実行 | 変更と結果の因果的な手掛かり | 他分布への一般化 |
 
-## 単一scoreでは原因が消える
+## 単一スコアでは原因が消える
 
-OPROはinstructionとtraining scoreの履歴から次のinstructionを生成する [@yang2024opro]。Scoreだけでも候補を順位づけられるが、同じzero scoreが誤ったtool選択、schema error、timeoutのいずれから生じたかは分からない。Failure attributionは、scoreへ圧縮する前のtrajectoryへ戻り、変更候補を絞る作業である。
+OPROは指示（instruction）と学習スコア（training score）の履歴から次の指示を生成する [@yang2024opro]。スコアだけでも更新候補を順位づけられるが、同じゼロスコア（zero score）が誤ったツール選択、スキーマエラー（schema error）、タイムアウト（timeout）のいずれから生じたかは分からない。失敗帰属（failure attribution）は、スコアへ圧縮する前の実行軌跡へ戻り、変更候補を絞る作業である。
 
-## 誤答例からtextual feedbackを作る
+## 誤答例からテキストフィードバックを作る
 
-ProTeGiはminibatchの誤答を大規模言語モデル（large language model, LLM）へ与え、promptの欠点を自然言語の「gradient」として記述させる。そのgradientを反対方向へ適用するprompt editを作り、beam searchで評価する [@pryzant2023protegi]。ここでgradientは微分ではなく、誤答を説明するtextual critiqueである。
+ProTeGiはミニバッチ（minibatch）の誤答を大規模言語モデル（large language model, LLM）へ与え、プロンプト（prompt）の欠点を自然言語の「勾配（gradient）」として記述させる。その勾配を反対方向へ適用するプロンプト編集（prompt edit）を作り、ビーム探索（beam search）で評価する [@pryzant2023protegi]。ここで勾配は微分ではなく、誤答を説明するテキスト批評（textual critique）である。
 
-TextGradはこの考えをcomputation graphへ広げる。下流lossについて自然言語feedbackを生成し、上流のtext variableへ伝播させる [@yuksekgonul2025textgrad]。GEPAはrollout traceとevaluator feedbackをreflection modelへ渡し、compound systemのtext componentを変異させる [@agrawal2026gepa]。
+TextGradはこの考えを計算グラフ（computation graph）へ広げる。下流損失（loss）について自然言語フィードバックを生成し、上流のテキスト変数（text variable）へ伝播させる [@yuksekgonul2025textgrad]。GEPAはロールアウト実行記録（rollout trace）と評価器（evaluator）のフィードバックを反省モデル（reflection model）へ渡し、複合システム（compound system）のテキスト構成要素（text component）を変異させる [@agrawal2026gepa]。
 
-Textual feedbackはscalarより豊かだが、ground truthではない。Critique modelは、最終誤答からもっともらしい説明を後付けできる。次の三つを分けて保存する。
+テキストフィードバック（textual feedback）はスカラー（scalar）より豊かだが、正解情報（ground truth）ではない。批評モデル（critique model）は、最終誤答からもっともらしい説明を後付けできる。次の三つを分けて保存する。
 
-- **Observation:** 実際のtrajectoryとevaluator output
-- **Attribution hypothesis:** 「このstepが原因」という推定
-- **Proposed intervention:** どのartifactをどう変えるか
+- **観測:** 実際の実行軌跡と評価器出力（evaluator output）
+- **帰属仮説（attribution hypothesis）:** 「このステップが原因」という推定
+- **介入案（proposed intervention）:** どの成果物をどう変えるか
 
-仮説と観測を同じfieldへ書くと、後から誤ったattributionを検証できない。
+仮説と観測を同じフィールド（field）へ書くと、後から誤った帰属（attribution）を検証できない。
 
 ## 最初のずれを特定する
 
-最終answerだけでなく、各actionとobservationを順序付きで保存し、期待stateまたは実行可能なconstraintから最初に外れたstepを探す。ただし、正解trajectoryが存在しないtaskではvalidator自体が部分的であり、最初の明示的違反と根本原因も一致するとは限らない。早い段階の曖昧なretrievalが、後続の明示的errorを誘発する場合があるためである。
+最終回答（answer）だけでなく、各動作と観測を順序付きで保存し、期待状態（state）または実行可能な制約（constraint）から最初に外れたステップを探す。ただし、正解実行軌跡が存在しないタスクでは検証器（validator）自体が部分的であり、最初の明示的違反と根本原因も一致するとは限らない。早い段階の曖昧な検索（retrieval）が、後続の明示的エラー（error）を誘発する場合があるためである。
 
 実務では次の順で調べる。
 
-1. Raw trajectoryを改変せず保存する
-2. 明示的なconstraint違反、exception、tool errorをanchorにする
-3. その直前に選択されたcontext、action、branchを確認する
-4. 同じsignatureを持つ他の失敗を探す
-5. 最小のartifact editを作る
-6. 対象failureとpreservation setを再実行する
-7. 結果が変わらなければattributionを棄却する
+1. 生の実行軌跡（raw trajectory）を改変せず保存する
+2. 明示的な制約違反、例外、ツールエラー（tool error）を基点（anchor）にする
+3. その直前に選択されたコンテキスト（context）、動作、分岐（branch）を確認する
+4. 同じ特徴（signature）を持つ他の失敗を探す
+5. 最小の成果物編集（artifact edit）を作る
+6. 対象失敗（target failure）と保持用データ集合（preservation set）を再実行する
+7. 結果が変わらなければ帰属を棄却する
 
-Failure attributionは説明生成ではなく、**介入で反証可能な仮説**である。
+失敗帰属は説明生成ではなく、**介入で反証可能な仮説**である。
 
 ## 似た失敗をまとめる
 
-一つのtaskごとに例外処理を追加すると、benchmark-specificなpatchになりやすい。複数trajectoryから共通するfailure signatureを作る。
+一つのタスクごとに例外処理を追加すると、ベンチマーク固有（benchmark-specific）のパッチ（patch）になりやすい。複数の実行軌跡から共通する失敗特徴（failure signature）を作る。
 
-| Signatureの軸 | 例 |
+| 特徴の軸 | 例 |
 |---|---|
-| Stage | planning、retrieval、tool selection、validation、recovery |
-| Event | wrong branch、missing call、schema error、timeout |
-| Evidence source | evaluator、tool、compiler、human label |
-| Preconditions | task type、tool version、context length |
-| Consequence | wrong answer、crash、cost spike、permission violation |
+| 段階（stage） | 計画（planning）、検索、ツール選択、検証（validation）、復旧処理（recovery） |
+| 事象（event） | 誤分岐（wrong branch）、呼び出し欠落（missing call）、スキーマエラー、タイムアウト |
+| 証拠源（evidence source） | 評価器、ツール、コンパイラ（compiler）、人手ラベル（human label） |
+| 事前条件（preconditions） | タスク種別（task type）、ツールの版（version）、コンテキスト長（context length） |
+| 結果（consequence） | 誤答（wrong answer）、異常終了（crash）、コスト（cost）急増、権限違反（permission violation） |
 
-ExpeLはtraining taskの成功trajectoryと失敗trajectoryを比較し、未見taskで再利用する自然言語insightを抽出する [@zhao2024expel]。この方法はcross-task memoryを作るが、同じtextual insightが異なる原因を過度に一般化する可能性がある。
+ExpeLは学習タスク（training task）の成功実行軌跡と失敗実行軌跡を比較し、未見タスクで再利用する自然言語の洞察（insight）を抽出する [@zhao2024expel]。この方法はタスク横断メモリ（cross-task memory）を作るが、同じテキスト洞察（textual insight）が異なる原因を過度に一般化する可能性がある。
 
-Failure-Driven Workflow Refinementは、failure traceをsignature spaceへ写し、密なfailure modeへ制約付きgraph editを提案する [@zhang2026failure]。Failure分布を直接扱う発想は、平均scoreだけのglobal searchと異なる。ただし公開arXiv版の定量表はillustrative projectionsであると本文に明記されており、実測値として引用できない。したがって、本書ではfailure-signatureに基づく機構だけを扱い、効果量の根拠には使わない。
+Failure-Driven Workflow Refinementは、失敗実行記録（failure trace）を特徴空間（signature space）へ写し、密な失敗モード（failure mode）へ制約付きグラフ編集（graph edit）を提案する [@zhang2026failure]。失敗分布を直接扱う発想は、平均スコアだけの大域探索（global search）と異なる。ただし公開arXiv版の定量表は例示的予測（illustrative projections）であると本文に明記されており、実測値として引用できない。したがって、本書では失敗特徴に基づく機構だけを扱い、効果量の根拠には使わない。
 
 ## 実行軌跡から修正案を作る
 
-Feedbackからeditを作る経路は一つではない。
+フィードバックから編集を作る経路は一つではない。
 
-| 方法 | Proposalの作り方 | 代表例 |
+| 方法 | 提案（proposal）の作り方 | 代表例 |
 |---|---|---|
-| Direct rewrite | 誤答と批評からpromptを直接書き換える | ProTeGi |
-| Textual backpropagation | 下流feedbackを上流textへ伝播する | TextGrad |
-| Reflective mutation | Traceとfeedbackを要約して候補を変異させる | GEPA |
-| Experience synthesis | 成功・失敗差分から再利用insightを作る | ExpeL |
-| Failure-mode edit | 類似failure clusterへgraph operatorを適用する | Failure-Driven Workflow Refinement |
-| Code patching | Runtime diagnosticsとtrajectoryからpatchを生成する | Meta-Harness、Harness-R1 |
+| 直接書き換え（direct rewrite） | 誤答と批評からプロンプトを直接書き換える | ProTeGi |
+| テキスト逆伝播（textual backpropagation） | 下流フィードバックを上流テキストへ伝播する | TextGrad |
+| 反射的変異（reflective mutation） | 実行記録とフィードバックを要約して更新候補を変異させる | GEPA |
+| 経験合成（experience synthesis） | 成功・失敗差分から再利用する洞察を作る | ExpeL |
+| 失敗モード編集（failure-mode edit） | 類似失敗クラスタ（failure cluster）へグラフ演算子（graph operator）を適用する | Failure-Driven Workflow Refinement |
+| コード修正（code patching） | 実行時診断（runtime diagnostics）と実行軌跡からパッチを生成する | Meta-Harness、Harness-R1 |
 
-Meta-Harnessのproposerは、過去candidateのsource code、score、execution traceをfilesystemから選択的に読む [@lee2026metaharness]。Harness-R1のeditorは、複数の失敗trajectoryからruntime hook patchを生成し、compile後に同じtask batchを再実行した差をrewardとする [@shao2026harnessr1]。
+Meta-Harnessの提案器（proposer）は、過去の更新候補のソースコード（source code）、スコア、実行記録（execution trace）をファイルシステム（filesystem）から選択的に読む [@lee2026metaharness]。Harness-R1の編集器（editor）は、複数の失敗実行軌跡から実行時フック（runtime hook）のパッチを生成し、コンパイル（compile）後に同じタスクバッチ（task batch）を再実行した差を報酬（reward）とする [@shao2026harnessr1]。
 
-Harness-R1のpaired rerunは局所的なattribution検査として有用である。修正前後でtarget modelとtaskを揃えるため、差分をpatchへ対応づけやすい。一方、同じtask batchでpatchを作り評価する部分はtransductiveである。別に報告されたheld-out task結果と混同しない。
+Harness-R1の対応再実行（paired rerun）は局所的な帰属検査として有用である。修正前後で対象モデル（target model）とタスクを揃えるため、差分をパッチへ対応づけやすい。一方、同じタスクバッチでパッチを作り評価する部分は観測済みタスクへの適応（transductive optimization）である。別に報告された保留タスク（held-out task）結果と混同しない。
 
 ## 原因の推定と採否を分ける
 
-「この失敗はretrievalが原因」というattributionが正しくても、その修正を採用すべきとは限らない。Retrieval recallを上げるpatchが、latencyや下流context qualityを悪化させることがある。
+「この失敗は検索が原因」という帰属が正しくても、その修正を採用すべきとは限らない。検索再現率（retrieval recall）を上げるパッチが、遅延や下流コンテキスト品質（context quality）を悪化させることがある。
 
-Candidate $c$について、対象failure set $F$とpreservation set $P$を別に評価する。
+更新候補$c$について、対象失敗集合（target failure set）$F$と保持用データ集合$P$を別に評価する。
 
 $$
 \Delta_F(c)=J_F(c)-J_F(H_t),
@@ -100,36 +100,36 @@ $$
 \Delta_P(c)=J_P(c)-J_P(H_t).
 $$
 
-Attributionの支持には$\Delta_F(c)>0$が必要である。Promotionにはさらに、$\Delta_P(c)$、cost、安全性、held-out評価をacceptance ruleへ入れる。対象failureの再実行だけをpromotion gateにしない。
+帰属の支持には$\Delta_F(c)>0$が必要である。昇格（promotion）にはさらに、$\Delta_P(c)$、コスト、安全性、保留評価（held-out evaluation）を採否規則（acceptance rule）へ入れる。対象失敗の再実行だけを昇格ゲート（promotion gate）にしない。
 
 ## 評価情報の漏洩
 
-Rich feedbackをoptimizerへ返すほどproposalは具体的になるが、evaluatorへの過適合も容易になる。
+豊富なフィードバック（rich feedback）を最適化器へ返すほど提案は具体的になるが、評価器への過適合も容易になる。
 
-- Expected answerを含むcritique
-- Hidden testの失敗trajectory
-- Judge promptの全文
-- Exact unit test名やassertion
-- Safety filterの境界条件
+- 期待回答（expected answer）を含む批評（critique）
+- 隠しテスト（hidden test）の失敗実行軌跡
+- 判定プロンプト（judge prompt）の全文
+- 正確な単体テスト（unit test）名や表明（assertion）
+- 安全フィルタ（safety filter）の境界条件
 
-これらを繰り返し見せると、optimizerはtaskを一般に解くharnessではなく、evaluatorを通るshortcutを作れる。Developmentでは詳細traceを使ってよいが、validationでは返す情報を制限し、sealed testはcandidate確定まで隠す。
+これらを繰り返し見せると、最適化器はタスクを一般に解くハーネス（harness）ではなく、評価器を通る近道（shortcut）を作れる。開発用データ（development data）では詳細な実行記録を使ってよいが、昇格用検証データ（promotion validation）では返す情報を制限し、封印テスト（sealed test）は更新候補確定まで隠す。
 
-Optimizerが編集できるrepositoryにtestやevaluatorを置く場合は、read-only path、hash、別process、別credentialで境界を作る。Evaluatorが外部にあることと、optimizerがその情報を利用できないことは別である。
+最適化器が編集できるリポジトリ（repository）にテストや評価器を置く場合は、読み取り専用パス（read-only path）、ハッシュ（hash）、別プロセス（process）、別認証情報（credential）で境界を作る。評価器が外部にあることと、最適化器がその情報を利用できないことは別である。
 
 ## 信頼できない実行結果を扱う
 
-Web page、tool output、retrieved documentはuntrusted inputを含む。Trajectoryをそのままeditor modelへ渡すと、実行中に観測したprompt injectionが次versionのpersistent instructionへ混入し得る。
+ウェブページ（web page）、ツール出力（tool output）、検索文書（retrieved document）は信頼できない入力（untrusted input）を含む。実行軌跡をそのまま編集器モデル（editor model）へ渡すと、実行中に観測したプロンプトインジェクション（prompt injection）が次の版の永続指示（persistent instruction）へ混入し得る。
 
-- Raw observationとsystem instructionを別channelへ保持する
-- Tool output内の命令文をproposal instructionとして解釈しない
-- Patch proposalにprovenanceを付ける
-- Permissionやcredential accessをedit surface外に置く
-- Safety regression suiteでindirect prompt injectionを再実行する
+- 生の観測（raw observation）とシステム指示（system instruction）を別チャネル（channel）へ保持する
+- ツール出力内の命令文を提案指示（proposal instruction）として解釈しない
+- パッチ提案（patch proposal）に来歴（provenance）を付ける
+- 権限や認証情報へのアクセスを編集面（edit surface）外に置く
+- 安全性退行テスト一式（safety regression suite）で間接プロンプトインジェクション（indirect prompt injection）を再実行する
 
-Compileやsandboxに通ることは、semantic safetyを意味しない。正常に実行できるunsafe patchもある。
+コンパイルや隔離環境（sandbox）に通ることは、意味的安全性（semantic safety）を意味しない。正常に実行できる危険なパッチ（unsafe patch）もある。
 
-Version間を比較するには、task・runtimeのidentity、順序付きevent、raw evaluator output、attribution、edit、verification、decisionを同じrecordへ結びつける。自然言語summaryだけでraw eventを置き換えない。Summary modelが見落としたfailureを後から再解析できなくなる。
+版間を比較するには、タスク・実行時機構の同一性（identity）、順序付き事象、生の評価器出力（raw evaluator output）、帰属、編集、検証、判断（decision）を同じ記録（record）へ結びつける。自然言語要約（summary）だけで生の事象（raw event）を置き換えない。要約モデル（summary model）が見落とした失敗を後から再解析できなくなる。
 
 ## 要点
 
-Execution feedbackはscalar scoreからfull trajectory、runtime diagnostics、介入結果まで複数の粒度を持つ。Failure attributionはLLMの説明を信じる作業ではなく、観測、仮説、edit、再実行を分けて検証する過程である。Rich feedbackはproposalを改善し得るが、evaluator leakageとpersistent prompt injectionの経路にもなる。
+実行フィードバックはスカラースコアから完全実行軌跡（full trajectory）、実行時診断、介入結果まで複数の粒度を持つ。失敗帰属はLLMの説明を信じる作業ではなく、観測、仮説、編集、再実行を分けて検証する過程である。豊富なフィードバックは提案を改善し得るが、評価器漏洩（evaluator leakage）と永続プロンプトインジェクション（persistent prompt injection）の経路にもなる。
