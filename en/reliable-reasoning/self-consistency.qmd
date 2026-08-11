@@ -79,7 +79,7 @@ DeepConf Mean, Self-Certainty, CER, and IEW differ along two axes: **which logit
 
 CISC's contributions are twofold: (a) a unified comparison of signal sources, and (b) a weighting design that turns raw confidences into sample-soft weights via a softmax with temperature $T$. The signal sources themselves come from prior work. @fig-sc-cisc-overview shows CISC's aggregation procedure alongside SC.
 
-![Comparison of SC and CISC aggregation procedures. For three chains on the same question, SC takes a simple count (C wins with 2 votes), whereas CISC takes a weighted sum using each chain's verbalized confidence, so one chain with confidence 10 outweighs two chains with confidence 5+4 and selects A. Source: [@taubenfeld2025cisc]](images/sc-cisc-overview.png){#fig-sc-cisc-overview width="90%"}
+![Comparison of SC and CISC aggregation procedures. For three chains on the same question, SC takes a simple count (C wins with 2 votes), whereas CISC takes a weighted sum using each chain's verbalized confidence, so one chain with confidence 10 outweighs two chains with confidence 5+4 and selects A. Source: [@taubenfeld2025cisc]](images/cisc-overview.png){#fig-sc-cisc-overview width="90%"}
 
 Multiple studies have independently reported that verbalized confidence is poorly calibrated. **DINCO** [@wang2026dinco], at ICLR 2026, empirically demonstrated that "LLMs' verbalized confidence is overconfident" and proposed a method to normalize it with self-generated distractors. Within the CISC framework, Verbal binary and Verbal 0–100 frequently appear as the weakest sources, while stronger sources tend to be P(True) and Response probability.
 

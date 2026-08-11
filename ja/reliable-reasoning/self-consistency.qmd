@@ -79,7 +79,7 @@ DeepConf Mean / Self-Certainty / CER / IEW は **どの位置の logit を読む
 
 CISC の貢献は (a) 信号源を統一的に比較したことと、(b) softmax with temperature $T$ で sample-soft 重みに変える weighting 設計の二つで、信号源そのものは既存研究に由来する点に注意する。@fig-sc-cisc-overview は CISC の集約手順を SC と並べて示している。
 
-![SC と CISC の集約手順の比較。同一質問に対する 3 本の chain に対し、SC は単純カウント（C が 2 票で勝利）するのに対し、CISC は各 chain の verbalized confidence を重みとした加重和を取り、confidence 10 の chain 1 本が confidence 5+4 の 2 本を上回って A を選ぶ。出典: [@taubenfeld2025cisc]](images/sc-cisc-overview.png){#fig-sc-cisc-overview width="90%"}
+![SC と CISC の集約手順の比較。同一質問に対する 3 本の chain に対し、SC は単純カウント（C が 2 票で勝利）するのに対し、CISC は各 chain の verbalized confidence を重みとした加重和を取り、confidence 10 の chain 1 本が confidence 5+4 の 2 本を上回って A を選ぶ。出典: [@taubenfeld2025cisc]](images/cisc-overview.png){#fig-sc-cisc-overview width="90%"}
 
 verbalized confidence の calibration が壊れていることは独立に複数の研究で示されている。**DINCO** [@wang2026dinco] は ICLR 2026 で「LLM の verbalized confidence は過信気味」と実証し、self-generated distractor で正規化する手法を提案した。Verbal binary / Verbal 0–100 は CISC framework の中ではしばしば最弱の source として現れ、強い source は P(True) と Response probability に偏ることが報告されている。
 

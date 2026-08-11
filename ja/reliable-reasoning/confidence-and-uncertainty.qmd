@@ -68,7 +68,7 @@ sampling-based 信号は N 個の reasoning trace を引いて、その agreemen
 
 **CISC** [@taubenfeld2025cisc] はモデル自身に各 reasoning path の self-assessment score を出させ、weighted majority vote する手法で、9 モデル 4 データセットで必要 path 数を 40 パーセント以上削減した。@fig-conf-cisc に self-consistency との対比を示す。同じ問題に対して 3 つの reasoning path を引き、self-consistency は単純な多数決で間違った答え C を選ぶのに対し、CISC は path ごとの自己評価 confidence で重み付けし、最も自信のあった path の答え A を採用する。重要な発見として、「最も calibrated な confidence 法が CISC で最も効果が低い」というケースが報告されている。ECE ベースの calibration metric が実用 discrimination と乖離する場面があるという論点である。
 
-![Self-consistency と CISC の対比。同じ問題から複数の reasoning path を引いて answer を集約するが、self-consistency が単純な path カウントで多数決するのに対し、CISC は各 path の自己申告 confidence で重み付けする。出典: [@taubenfeld2025cisc]](images/conf-cisc-overview.png){#fig-conf-cisc width="80%"}
+![Self-consistency と CISC の対比。同じ問題から複数の reasoning path を引いて answer を集約するが、self-consistency が単純な path カウントで多数決するのに対し、CISC は各 path の自己申告 confidence で重み付けする。出典: [@taubenfeld2025cisc]](images/cisc-overview.png){#fig-conf-cisc width="80%"}
 
 **VecCISC** [@petullo2026veccisc] は CISC の critic LLM への multi-call が高コストである問題に対し、reasoning trace を semantic similarity でクラスタリングして redundant / degenerate / hallucinated trace を事前にフィルタする。CISC と同等以上の精度で token 使用を 47 パーセント削減する。
 
